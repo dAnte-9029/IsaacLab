@@ -1,0 +1,18 @@
+[package]
+version = "0.1.0"
+title = "Flapping Bot"
+description = "Custom flapping-wing aerial robot environments for Isaac Lab."
+readme = "docs/README.md"
+repository = ""
+category = "robotics"
+keywords = ["robotics", "aerial", "flapping"]
+
+[dependencies]
+"isaaclab" = {}
+"isaaclab_assets" = {}
+
+[core]
+reloadable = true
+
+[[python.module]]
+name = "flapping_bot"
