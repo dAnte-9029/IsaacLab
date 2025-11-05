@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import torch
 
 from isaaclab.app import AppLauncher
 
@@ -51,8 +52,14 @@ def main() -> None:
 
     obs, _ = env.reset()
     for _ in range(args.steps):
-        actions = env.action_space.sample()
-        obs, rew, done, info = env.step(actions)
+        actions = torch.as_tensor(env.action_space.sample(), device=env.device, dtype=torch.float32)
+        ret = env.step(actions)
+        # Support 4- or 5-tuples depending on wrappers
+        if len(ret) == 5:
+            obs, rew, terminated, truncated, info = ret
+            done = terminated | truncated
+        else:
+            obs, rew, done, info = ret
         if done.any():
             env.reset()
 
@@ -74,3 +81,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+

@@ -136,26 +136,7 @@ class FlappingBotEnv(DirectRLEnv):
 
         super().__init__(cfg, render_mode, **kwargs)
 
-        action_dim = gym.spaces.flatdim(self.single_action_space)
-        self._actions = torch.zeros(self.num_envs, action_dim, device=self.device)
-        self._joint_targets = self._default_joint_pos.expand(self.num_envs, -1).clone()
-        self._robot.set_joint_position_target(self._joint_targets, joint_ids=self._joint_ids)
-        if cfg.qsm and cfg.qsm.wings:
-            self._qsm_model = QuasiSteadyWingModel(cfg.qsm, self.device)
-            self._qsm_force = torch.zeros(self.num_envs, 1, 3, device=self.device)
-            self._qsm_torque = torch.zeros(self.num_envs, 1, 3, device=self.device)
-
-    # ---------------------------------------------------------------------
-    # Scene / asset setup
-    # ---------------------------------------------------------------------
-    def _setup_scene(self):
-        # The interactive scene has already spawned assets based on the configuration.
-        self._robot = self.scene.articulations["robot"]
-
-        # Clone environment instances
-        self.scene.clone_environments(copy_from_source=False)
-
-        # Resolve joint indices (preserve declared order)
+        # Resolve joints after scene creation
         joint_ids, joint_names = self._robot.find_joints(self.cfg.controlled_joints, preserve_order=True)
         if len(joint_ids) != self._num_actuators:
             raise RuntimeError(
@@ -164,7 +145,6 @@ class FlappingBotEnv(DirectRLEnv):
             )
         self._joint_ids = joint_ids
 
-        # Extract joint limits (use soft range to avoid banging into limits)
         joint_limits = self._robot.data.joint_pos_limits[0, self._joint_ids].to(device=self.device)
         lower = joint_limits[:, 0]
         upper = joint_limits[:, 1]
@@ -174,25 +154,42 @@ class FlappingBotEnv(DirectRLEnv):
         self._joint_upper_limits = upper - margin
         self._joint_mid = 0.5 * (self._joint_lower_limits + self._joint_upper_limits)
         self._joint_half_range = 0.5 * (self._joint_upper_limits - self._joint_lower_limits)
-
-        # Initialize targets to default pose
         self._default_joint_pos = self._robot.data.default_joint_pos[0, self._joint_ids].to(device=self.device)
 
-        # Cache observation keys for convenience
-        self._root_id = 0  # floating root
+        action_dim = gym.spaces.flatdim(self.single_action_space)
+        self._actions = torch.zeros(self.num_envs, action_dim, device=self.device)
+        self._joint_targets = self._default_joint_pos.expand(self.num_envs, -1).clone()
+        self._robot.set_joint_position_target(self._joint_targets, joint_ids=self._joint_ids)
 
-        if self._qsm_model is not None:
+        if cfg.qsm and cfg.qsm.wings:
+            self._qsm_model = QuasiSteadyWingModel(cfg.qsm, self.device)
+            self._qsm_force = torch.zeros(self.num_envs, 1, 3, device=self.device)
+            self._qsm_torque = torch.zeros(self.num_envs, 1, 3, device=self.device)
+            # map wings to joint indices
             self._qsm_joint_indices = []
             for wing in self.cfg.qsm.wings:
                 try:
                     idx = self.cfg.controlled_joints.index(wing.joint_name)
                 except ValueError as exc:
                     raise RuntimeError(
-                        f"QSM wing '{wing.name}' references joint '{wing.joint_name}' "
-                        "which is not part of controlled_joints."
+                        f"QSM wing '{wing.name}' references joint '{wing.joint_name}' which is not part of controlled_joints."
                     ) from exc
                 self._qsm_joint_indices.append(idx)
             self._qsm_joint_tensor_idx = torch.tensor(self._qsm_joint_indices, dtype=torch.long, device=self.device)
+        self._root_id = 0
+
+    # ---------------------------------------------------------------------
+    # Scene / asset setup
+    # ---------------------------------------------------------------------
+    def _setup_scene(self):
+        # Explicitly instantiate the robot (direct workflow pattern)
+        self._robot = Articulation(self.cfg.robot)
+        self.scene.articulations["robot"] = self._robot
+
+        # Clone environment instances
+        self.scene.clone_environments(copy_from_source=False)
+
+        # Do not access joint views here; physics views are ready after __init__ completes
 
     # ---------------------------------------------------------------------
     # Action processing and application
