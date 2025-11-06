@@ -48,13 +48,13 @@ FLAPPING_BOT_CFG = ArticulationCfg(
     actuators={
         "wing_servos": ImplicitActuatorCfg(
             joint_names_expr=["left_wing", "right_wing"],
-            stiffness=8.0,
-            damping=0.4,
+            stiffness=14.0,
+            damping=0.8,
         ),
         "tail_servos": ImplicitActuatorCfg(
             joint_names_expr=["left_tail", "right_tail", "mid_tail"],
-            stiffness=5.0,
-            damping=0.25,
+            stiffness=28.0,
+            damping=1.8,
         ),
     },
 )
