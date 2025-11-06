@@ -30,6 +30,9 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     action_scale = 1.0
     hover_height = 0.3
 
+    # UI configuration: disable custom UI window to avoid Manager visualizer warnings
+    ui_window_class_type = None
+
     # physics configuration
     sim: SimulationCfg = SimulationCfg(
         dt=1.0 / 240.0,
@@ -48,7 +51,13 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     robot: ArticulationCfg = FlappingBotCfg.replace(prim_path="/World/envs/env_.*/Robot")
 
     # controller details
-    controlled_joints: tuple[str, ...] = ("left_wing", "right_wing", "left_tail", "right_tail")
+    controlled_joints: tuple[str, ...] = (
+        "left_wing",
+        "right_wing",
+        "left_tail",
+        "right_tail",
+        "mid_tail",
+    )
     joint_limit_softness: float = 0.98  # shrink hard limits slightly to avoid instability
     terminate_height_bounds: tuple[float, float] = (0.05, 2.0)
     qsm: FlappingQSMCfg = FlappingQSMCfg(
@@ -178,12 +187,13 @@ class FlappingBotEnv(DirectRLEnv):
         self._IDX_RIGHT_WING = 1
         self._IDX_LEFT_TAIL = 2
         self._IDX_RIGHT_TAIL = 3
+        self._IDX_MID_TAIL = 4
 
-        # Action indices: [freq_L, freq_R, tail_pitch, tail_roll]
-        self._ACT_IDX_FREQ_LEFT = 0
-        self._ACT_IDX_FREQ_RIGHT = 1
-        self._ACT_IDX_TAIL_PITCH = 2
-        self._ACT_IDX_TAIL_ROLL = 3
+        # Action indices: [freq, tail_pitch, tail_roll, mid_tail]
+        self._ACT_IDX_FREQ = 0
+        self._ACT_IDX_TAIL_PITCH = 1
+        self._ACT_IDX_TAIL_ROLL = 2
+        self._ACT_IDX_MID_TAIL = 3
 
         # Time accumulator for flapping phase (seconds)
         self._time = torch.zeros(self.num_envs, device=self.device)
@@ -212,9 +222,10 @@ class FlappingBotEnv(DirectRLEnv):
         self._actions = actions.clamp(-1.0, 1.0)
 
         if self.cfg.use_action_frequency:
-            # Wing flapping frequencies (Hz) in [0, 5]
-            self._freq_left = 0.5 * (self._actions[:, self._ACT_IDX_FREQ_LEFT] + 1.0) * 5.0
-            self._freq_right = 0.5 * (self._actions[:, self._ACT_IDX_FREQ_RIGHT] + 1.0) * 5.0
+            # One shared frequency (Hz) in [0, 5] for both wings
+            f = 0.5 * (self._actions[:, self._ACT_IDX_FREQ] + 1.0) * 5.0
+            self._freq_left = f
+            self._freq_right = f
         else:
             # Use fixed frequency from cfg
             self._freq_left.fill_(self.cfg.flapping_freq_hz)
@@ -233,6 +244,16 @@ class FlappingBotEnv(DirectRLEnv):
         self._right_tail_cmd = torch.clamp(tail_pitch - tail_roll,
                                            self._joint_lower_limits[self._IDX_RIGHT_TAIL],
                                            self._joint_upper_limits[self._IDX_RIGHT_TAIL])
+        # Mid tail (single deflection command)
+        mid_max = torch.minimum(
+            torch.abs(self._joint_lower_limits[self._IDX_MID_TAIL]),
+            torch.abs(self._joint_upper_limits[self._IDX_MID_TAIL]),
+        )
+        self._mid_tail_cmd = torch.clamp(
+            self._actions[:, self._ACT_IDX_MID_TAIL] * mid_max,
+            self._joint_lower_limits[self._IDX_MID_TAIL],
+            self._joint_upper_limits[self._IDX_MID_TAIL],
+        )
 
     def _apply_action(self):
         # Advance time by physics dt
@@ -259,9 +280,10 @@ class FlappingBotEnv(DirectRLEnv):
         phase01_R = 0.5 * (torch.sin(two_pi * self._freq_right * self._time) + 1.0)
         jt[:, self._IDX_RIGHT_WING] = torch.clamp(upper_R - span_R * phase01_R, lower_R, upper_R)
 
-        # Tails fixed at neutral
+        # Tails
         jt[:, self._IDX_LEFT_TAIL] = self._left_tail_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_tail_cmd
+        jt[:, self._IDX_MID_TAIL] = self._mid_tail_cmd
 
         self._joint_targets = jt
         self._robot.set_joint_position_target(self._joint_targets, joint_ids=self._joint_ids)
