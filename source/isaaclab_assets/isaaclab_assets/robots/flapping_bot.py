@@ -51,10 +51,17 @@ FLAPPING_BOT_CFG = ArticulationCfg(
             stiffness=18.0,
             damping=1.0,
         ),
+        # Left/Right tail servos (differential pair)
         "tail_servos": ImplicitActuatorCfg(
-            joint_names_expr=["left_tail", "right_tail", "mid_tail"],
+            joint_names_expr=["left_tail", "right_tail"],
             stiffness=40.0,
             damping=2.2,
+        ),
+        # Mid tail servo (separate so we can damp it more to reduce ringing)
+        "mid_tail_servo": ImplicitActuatorCfg(
+            joint_names_expr=["mid_tail"],
+            stiffness=32.0,
+            damping=2.8,
         ),
     },
 )
