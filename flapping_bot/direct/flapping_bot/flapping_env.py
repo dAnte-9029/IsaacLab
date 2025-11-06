@@ -178,6 +178,16 @@ class FlappingBotEnv(DirectRLEnv):
             self._qsm_joint_tensor_idx = torch.tensor(self._qsm_joint_indices, dtype=torch.long, device=self.device)
         self._root_id = 0
 
+        # Control indices for convenience (ordered as controlled_joints)
+        self._IDX_LEFT_WING = 0
+        self._IDX_RIGHT_WING = 1
+        self._IDX_LEFT_TAIL = 2
+        self._IDX_RIGHT_TAIL = 3
+        self._IDX_MID_TAIL = 4
+
+        # Time accumulator for flapping phase (seconds)
+        self._time = torch.zeros(self.num_envs, device=self.device)
+
     # ---------------------------------------------------------------------
     # Scene / asset setup
     # ---------------------------------------------------------------------
@@ -195,11 +205,55 @@ class FlappingBotEnv(DirectRLEnv):
     # Action processing and application
     # ---------------------------------------------------------------------
     def _pre_physics_step(self, actions: torch.Tensor):
+        # Cache actions in [-1, 1]
         self._actions = actions.clamp(-1.0, 1.0)
-        target = self._joint_mid + self.cfg.action_scale * (self._joint_half_range * self._actions)
-        self._joint_targets = torch.clamp(target, self._joint_lower_limits, self._joint_upper_limits)
+
+        # Decode controls
+        # Wing flapping frequencies (Hz) in [0, 5]
+        self._freq_left = 0.5 * (self._actions[:, self._IDX_LEFT_WING] + 1.0) * 5.0
+        self._freq_right = 0.5 * (self._actions[:, self._IDX_RIGHT_WING] + 1.0) * 5.0
+        # Tail magnitude (absolute) and differential sign
+        self._tail_mag = torch.abs(self._actions[:, self._IDX_LEFT_TAIL]) * self._joint_upper_limits[
+            self._IDX_LEFT_TAIL
+        ]
+        # sign >=0 same direction; <0 opposite direction
+        self._tail_sign = torch.sign(self._actions[:, self._IDX_RIGHT_TAIL])
+        self._tail_sign[self._tail_sign == 0.0] = 1.0
+        # Mid tail deflection
+        self._mid_tail_cmd = self._actions[:, self._IDX_MID_TAIL] * self._joint_upper_limits[self._IDX_MID_TAIL]
 
     def _apply_action(self):
+        # Advance time by physics dt
+        self._time += self.physics_dt
+
+        # Build joint targets per actuator
+        jt = self._joint_targets.clone()
+
+        # Wing sine targets around mid, with opposite symmetry
+        two_pi = 6.283185307179586
+        # Left wing: swing toward lower (more negative) to upper bound
+        amp_L = self._joint_half_range[self._IDX_LEFT_WING] * 0.95
+        mid_L = self._joint_mid[self._IDX_LEFT_WING]
+        phase_L = torch.sin(two_pi * self._freq_left * self._time)
+        jt[:, self._IDX_LEFT_WING] = torch.clamp(mid_L - amp_L * phase_L, self._joint_lower_limits[self._IDX_LEFT_WING], self._joint_upper_limits[self._IDX_LEFT_WING])
+
+        # Right wing: mirrored symmetry
+        amp_R = self._joint_half_range[self._IDX_RIGHT_WING] * 0.95
+        mid_R = self._joint_mid[self._IDX_RIGHT_WING]
+        phase_R = torch.sin(two_pi * self._freq_right * self._time)
+        jt[:, self._IDX_RIGHT_WING] = torch.clamp(mid_R + amp_R * phase_R, self._joint_lower_limits[self._IDX_RIGHT_WING], self._joint_upper_limits[self._IDX_RIGHT_WING])
+
+        # Left/right tail: equal magnitude, optional differential sign
+        lt = torch.clamp(self._tail_mag, 0.0, self._joint_upper_limits[self._IDX_LEFT_TAIL])
+        jt[:, self._IDX_LEFT_TAIL] = torch.clamp(self._tail_sign * lt, self._joint_lower_limits[self._IDX_LEFT_TAIL], self._joint_upper_limits[self._IDX_LEFT_TAIL])
+        rt = torch.clamp(lt, 0.0, self._joint_upper_limits[self._IDX_RIGHT_TAIL])
+        # if sign < 0 -> opposite deflection on right tail
+        jt[:, self._IDX_RIGHT_TAIL] = torch.clamp(torch.where(self._tail_sign < 0.0, -rt, rt), self._joint_lower_limits[self._IDX_RIGHT_TAIL], self._joint_upper_limits[self._IDX_RIGHT_TAIL])
+
+        # Mid tail
+        jt[:, self._IDX_MID_TAIL] = torch.clamp(self._mid_tail_cmd, self._joint_lower_limits[self._IDX_MID_TAIL], self._joint_upper_limits[self._IDX_MID_TAIL])
+
+        self._joint_targets = jt
         self._robot.set_joint_position_target(self._joint_targets, joint_ids=self._joint_ids)
 
         if self._qsm_model is not None and self._qsm_joint_tensor_idx is not None:
