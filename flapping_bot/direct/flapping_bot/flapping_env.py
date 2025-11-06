@@ -114,7 +114,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     # Flapping-only demo: fixed frequency in Hz for both wings (0-5)
     flapping_freq_hz: float = 2.0
     # Whether to read frequency from actions (a0/a1). For this demo keep False.
-    use_action_frequency: bool = False
+    use_action_frequency: bool = True
 
     # Runtime mass override (advanced): apply MassAPI values from config file.
     # Warning: Mutating USD after PhysX views are created can invalidate tensor views in some versions.
