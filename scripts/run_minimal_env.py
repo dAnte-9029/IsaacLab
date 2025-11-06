@@ -66,6 +66,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Continuously actuate mid-tail with a sine during demo.",
     )
+    parser.add_argument(
+        "--debug-phys",
+        action="store_true",
+        help="Print mass/COM/inertia for body and wings/tails (from MassAPI).",
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args()
 
@@ -92,6 +97,42 @@ def main() -> None:
     env = FlappingBotEnv(cfg, render_mode=render_mode)
 
     obs, _ = env.reset()
+
+    # Optional: print mass properties after any runtime overrides
+    if args.debug_phys:
+        try:
+            import json
+            import isaaclab.sim as sim_utils
+            import omni.usd
+            from pxr import UsdPhysics
+
+            cfg_path = _EXT_ROOT / "config" / "mass_props.json"
+            names = None
+            if cfg_path.exists():
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    names = list(json.load(f).keys())
+            if not names:
+                names = [n for n in getattr(env._robot, "body_names", []) if ("body" in n or "wing" in n or "tail" in n)]
+
+            stage = omni.usd.get_context().get_stage()
+            robot_prim = sim_utils.find_first_matching_prim(env._robot.cfg.prim_path)
+            base = robot_prim.GetPath().pathString
+            print("[PHYS] Mass properties (kg, m, kg·m^2):")
+            for n in names:
+                p = f"{base}/{n}"
+                prim = stage.GetPrimAtPath(p)
+                if not prim or not prim.IsValid():
+                    print(f"  {n}: <missing prim>")
+                    continue
+                api = UsdPhysics.MassAPI.Get(stage, prim.GetPath())
+                m = api.GetMassAttr().Get() if api.GetMassAttr().HasAuthoredValueOpinion() else None
+                com_attr = api.GetCenterOfMassAttr()
+                I_attr = api.GetDiagonalInertiaAttr()
+                com = tuple(com_attr.Get()) if com_attr and com_attr.HasAuthoredValueOpinion() else None
+                I = tuple(I_attr.Get()) if I_attr and I_attr.HasAuthoredValueOpinion() else None
+                print(f"  {n}: mass={m} com={com} inertia={I}")
+        except Exception as e:
+            print("[WARN] debug-phys failed:", repr(e))
 
     # Prepare debug helpers (use controlled-joint indices to avoid index-space mismatch)
     debug_limits_once = False

@@ -11,6 +11,7 @@ from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
+from pathlib import Path
 
 from ...assets import FlappingBotCfg
 from ...physics import FlappingQSMCfg, QuasiSteadyWingModel, WingQSMCfg
@@ -37,8 +38,8 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     sim: SimulationCfg = SimulationCfg(
         dt=1.0 / 240.0,
         render_interval=decimation,
-        # Fix robot in mid-air for inspection (no gravity)
-        gravity=(0.0, 0.0, 0.0),
+        # Use standard gravity in the scene
+        gravity=(0.0, 0.0, -9.81),
         physics_material=sim_utils.RigidBodyMaterialCfg(
             static_friction=0.8,
             dynamic_friction=0.6,
@@ -115,6 +116,12 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     # Whether to read frequency from actions (a0/a1). For this demo keep False.
     use_action_frequency: bool = False
 
+    # Runtime mass override (advanced): apply MassAPI values from config file.
+    # Warning: Mutating USD after PhysX views are created can invalidate tensor views in some versions.
+    # Keep disabled by default for stability.
+    mass_props_enable: bool = False
+    mass_props_path: str | None = None  # If None, uses extension default config/mass_props.json
+
 
 class FlappingBotEnv(DirectRLEnv):
     """Minimal direct RL environment wiring for the flapping-wing platform."""
@@ -164,6 +171,40 @@ class FlappingBotEnv(DirectRLEnv):
         self._actions = torch.zeros(self.num_envs, action_dim, device=self.device)
         self._joint_targets = self._default_joint_pos.expand(self.num_envs, -1).clone()
         self._robot.set_joint_position_target(self._joint_targets, joint_ids=self._joint_ids)
+
+        # Optional: runtime mass override (disabled by default for stability)
+        if self.cfg.mass_props_enable:
+            try:
+                import json
+                import omni.usd
+                from pxr import UsdPhysics, Gf
+                cfg_path = (
+                    Path(self.cfg.mass_props_path)
+                    if self.cfg.mass_props_path
+                    else (Path(__file__).resolve().parents[2] / "config" / "mass_props.json")
+                )
+                if cfg_path.exists():
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        mass_cfg = json.load(f)
+                    stage = omni.usd.get_context().get_stage()
+                    robot_prims = sim_utils.find_matching_prims(self._robot.cfg.prim_path)
+                    for robot_prim in robot_prims:
+                        base = robot_prim.GetPath().pathString
+                        for link_name, props in mass_cfg.items():
+                            link_path = f"{base}/{link_name}"
+                            prim = stage.GetPrimAtPath(link_path)
+                            if not prim or not prim.IsValid():
+                                continue
+                            mass_api = UsdPhysics.MassAPI.Apply(prim)
+                            m = float(props.get("mass", 0.0))
+                            com = props.get("com", [0.0, 0.0, 0.0])
+                            I = props.get("inertia", [0.0, 0.0, 0.0])
+                            mass_api.CreateMassAttr().Set(m)
+                            mass_api.CreateCenterOfMassAttr().Set(Gf.Vec3f(*com))
+                            mass_api.CreateDiagonalInertiaAttr().Set(Gf.Vec3f(*I))
+            except Exception:
+                # Non-fatal: keep defaults if override fails
+                pass
 
         if cfg.qsm and cfg.qsm.wings:
             self._qsm_model = QuasiSteadyWingModel(cfg.qsm, self.device)
