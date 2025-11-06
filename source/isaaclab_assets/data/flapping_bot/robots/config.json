@@ -1,0 +1,35 @@
+{
+    "url": "https://cad.onshape.com/documents/f6d6165918c8fd97a885a7be/w/c7d0beba528f0bf5c3c60310/e/92fcf38f60408c604aff0ecb",
+    "output_format": "urdf",
+    "package_name": "flapping_wing_robot",
+    "set_zero_mass_to_fixed": false,
+    "joint_properties": {
+        "*": {
+            "max_effort": 10.0,
+            "max_velocity": 20.0,
+            "friction": 0.1
+        },
+        "dof_body_left_wing": {
+            "type": "revolute",
+            "limits": [-0.785, 0.785],
+            "max_effort": 15.0
+        },
+        "dof_body_right_wing": {
+            "type": "revolute",
+            "limits": [-0.785, 0.785],
+            "max_effort": 15.0
+        },
+        "dof_body_left_tail": {
+            "type": "revolute",
+            "limits": [-0.52, 0.52]
+        },
+        "dof_body_right_tail": {
+            "type": "revolute",
+            "limits": [-0.52, 0.52]
+        },
+        "dof_body_mid_tail": {
+            "type": "revolute",
+            "limits": [-0.52, 0.52]
+        }
+    }
+}
