@@ -24,7 +24,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
 
     # episode / control props
     episode_length_s = 10.0
-    decimation = 4
+    decimation = 2
     action_space = 4
     observation_space = 19
     state_space = 0
@@ -72,7 +72,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
                 lift_coefficient=1.2,
                 drag_coefficient=0.18,
                 effective_radius_fraction=0.75,
-                hinge_damping=0.015,
+                hinge_damping=0.01,
             ),
             WingQSMCfg(
                 name="right_wing",
@@ -83,7 +83,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
                 lift_coefficient=1.2,
                 drag_coefficient=0.18,
                 effective_radius_fraction=0.75,
-                hinge_damping=0.015,
+                hinge_damping=0.01,
             ),
             WingQSMCfg(
                 name="left_tail",
@@ -236,8 +236,9 @@ class FlappingBotEnv(DirectRLEnv):
         self._ACT_IDX_TAIL_ROLL = 2
         self._ACT_IDX_MID_TAIL = 3
 
-        # Time accumulator for flapping phase (seconds)
-        self._time = torch.zeros(self.num_envs, device=self.device)
+        # Phase accumulators for flapping (radians); robust to time-varying frequency
+        self._phase_left = torch.zeros(self.num_envs, device=self.device)
+        self._phase_right = torch.zeros(self.num_envs, device=self.device)
         # Frequency buffers (Hz)
         self._freq_left = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)
         self._freq_right = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)
@@ -297,28 +298,31 @@ class FlappingBotEnv(DirectRLEnv):
         )
 
     def _apply_action(self):
-        # Advance time by physics dt
-        self._time += self.physics_dt
+        # Advance phase by instantaneous frequency: phase += 2π f dt
+        two_pi = 6.283185307179586
+        self._phase_left += two_pi * self._freq_left * self.physics_dt
+        self._phase_right += two_pi * self._freq_right * self.physics_dt
+        self._phase_left %= two_pi
+        self._phase_right %= two_pi
 
         # Build joint targets per actuator
         jt = self._joint_targets.clone()
 
         # Wing sine targets with asymmetric ranges:
         # Left  in [-60°, 0°], Right in [0°, 60°].
-        # Use sin(2π f t) mapped to [0,1] then to [lower, upper].
-        two_pi = 6.283185307179586
+        # Use sin(phase) mapped to [0,1] then to [lower, upper].
         # Left wing
         lower_L = self._joint_lower_limits[self._IDX_LEFT_WING]
         upper_L = self._joint_upper_limits[self._IDX_LEFT_WING]
         span_L = (upper_L - lower_L) * 0.95
-        phase01_L = 0.5 * (torch.sin(two_pi * self._freq_left * self._time) + 1.0)
+        phase01_L = 0.5 * (torch.sin(self._phase_left) + 1.0)
         jt[:, self._IDX_LEFT_WING] = torch.clamp(lower_L + span_L * phase01_L, lower_L, upper_L)
 
         # Right wing (mirror: 0..60)
         lower_R = self._joint_lower_limits[self._IDX_RIGHT_WING]
         upper_R = self._joint_upper_limits[self._IDX_RIGHT_WING]
         span_R = (upper_R - lower_R) * 0.95
-        phase01_R = 0.5 * (torch.sin(two_pi * self._freq_right * self._time) + 1.0)
+        phase01_R = 0.5 * (torch.sin(self._phase_right) + 1.0)
         jt[:, self._IDX_RIGHT_WING] = torch.clamp(upper_R - span_R * phase01_R, lower_R, upper_R)
 
         # Tails
@@ -391,6 +395,9 @@ class FlappingBotEnv(DirectRLEnv):
         self._robot.reset(env_ids)
         self._joint_targets[env_ids] = self._default_joint_pos
         self._actions[env_ids] = 0.0
+        # Reset wing phases
+        self._phase_left[env_ids] = 0.0
+        self._phase_right[env_ids] = 0.0
         self._robot.set_joint_position_target(self._joint_targets[env_ids], joint_ids=self._joint_ids, env_ids=env_ids)
         if self._qsm_force is not None:
             self._qsm_force[env_ids] = 0.0
