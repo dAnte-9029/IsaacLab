@@ -53,8 +53,8 @@ FLAPPING_BOT_CFG = ArticulationCfg(
         ),
         "tail_servos": ImplicitActuatorCfg(
             joint_names_expr=["left_tail", "right_tail", "mid_tail"],
-            stiffness=28.0,
-            damping=1.8,
+            stiffness=40.0,
+            damping=2.2,
         ),
     },
 )
