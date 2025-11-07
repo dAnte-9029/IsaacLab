@@ -61,7 +61,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     )
     joint_limit_softness: float = 0.98  # shrink hard limits slightly to avoid instability
     terminate_height_bounds: tuple[float, float] = (0.05, 2.0)
-    qsm: FlappingQSMCfg = FlappingQSMCfg(
+        qsm: FlappingQSMCfg = FlappingQSMCfg(
         wings=(
             WingQSMCfg(
                 name="left_wing",
@@ -107,6 +107,18 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
                 effective_radius_fraction=0.6,
                 hinge_damping=0.01,
             ),
+            # Mid tail — add aerodynamic damping similar to L/R tails
+            WingQSMCfg(
+                name="mid_tail",
+                joint_name="mid_tail",
+                hinge_axis_body=(0.0, 1.0, 0.0),
+                lever_arm_body=(-0.01, 0.0, 0.04),
+                area=0.0020,
+                lift_coefficient=0.6,
+                drag_coefficient=0.10,
+                effective_radius_fraction=0.6,
+                hinge_damping=0.02,
+            ),
         ),
         air_density=1.225,
     )
@@ -121,6 +133,10 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     # Keep disabled by default for stability.
     mass_props_enable: bool = False
     mass_props_path: str | None = None  # If None, uses extension default config/mass_props.json
+    # First-order smoothing for mid-tail commands (seconds). 0 disables smoothing.
+    mid_tail_cmd_tau: float = 0.0
+    # Optional mid-tail rate limit (deg/s). 0 disables rate limiting.
+    mid_tail_rate_limit_deg_s: float = 0.0
 
 
 class FlappingBotEnv(DirectRLEnv):
@@ -242,6 +258,9 @@ class FlappingBotEnv(DirectRLEnv):
         # Frequency buffers (Hz)
         self._freq_left = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)
         self._freq_right = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)
+        # Mid-tail command filters/state
+        self._mid_tail_cmd_filt = torch.zeros(self.num_envs, device=self.device)
+        self._mid_tail_cmd_prev = torch.zeros(self.num_envs, device=self.device)
 
     # ---------------------------------------------------------------------
     # Scene / asset setup
@@ -296,6 +315,18 @@ class FlappingBotEnv(DirectRLEnv):
             self._joint_lower_limits[self._IDX_MID_TAIL],
             self._joint_upper_limits[self._IDX_MID_TAIL],
         )
+        if self.cfg.mid_tail_cmd_tau > 0.0:
+            alpha = self.physics_dt / (self.cfg.mid_tail_cmd_tau + self.physics_dt)
+            self._mid_tail_cmd_filt += alpha * (self._mid_tail_cmd - self._mid_tail_cmd_filt)
+        else:
+            self._mid_tail_cmd_filt = self._mid_tail_cmd
+        # Rate limit (slew) on mid-tail command
+        if self.cfg.mid_tail_rate_limit_deg_s > 0.0:
+            max_delta = torch.deg2rad(torch.tensor(self.cfg.mid_tail_rate_limit_deg_s, device=self.device)) * self.physics_dt
+            delta = torch.clamp(self._mid_tail_cmd_filt - self._mid_tail_cmd_prev, -max_delta, max_delta)
+            self._mid_tail_cmd_prev = self._mid_tail_cmd_prev + delta
+        else:
+            self._mid_tail_cmd_prev = self._mid_tail_cmd_filt
 
     def _apply_action(self):
         # Advance phase by instantaneous frequency: phase += 2π f dt
@@ -328,7 +359,7 @@ class FlappingBotEnv(DirectRLEnv):
         # Tails
         jt[:, self._IDX_LEFT_TAIL] = self._left_tail_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_tail_cmd
-        jt[:, self._IDX_MID_TAIL] = self._mid_tail_cmd
+        jt[:, self._IDX_MID_TAIL] = self._mid_tail_cmd_prev
 
         self._joint_targets = jt
         self._robot.set_joint_position_target(self._joint_targets, joint_ids=self._joint_ids)
@@ -403,3 +434,5 @@ class FlappingBotEnv(DirectRLEnv):
             self._qsm_force[env_ids] = 0.0
         if self._qsm_torque is not None:
             self._qsm_torque[env_ids] = 0.0
+        self._mid_tail_cmd_filt[env_ids] = 0.0
+        self._mid_tail_cmd_prev[env_ids] = 0.0
