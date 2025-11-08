@@ -79,22 +79,23 @@ class QuasiSteadyWingModel:
         Args:
             joint_pos: Joint positions of the controlled wings [num_envs, num_wings].
             joint_vel: Joint velocities of the controlled wings [num_envs, num_wings].
-            root_lin_vel: Base linear velocity in world frame [num_envs, 3].
+            root_lin_vel: Base linear velocity in body/world frame [num_envs, 3].
             root_ang_vel: Base angular velocity in body frame [num_envs, 3].
 
         Returns:
-            Tuple containing:
-                - body-frame force vector summed across wings [num_envs, 3].
-                - body-frame torque vector summed across wings [num_envs, 3].
-                - hinge torques per wing (positive opposes motion) [num_envs, num_wings].
+            Tuple containing tensors with per-wing contributions:
+                - forces: body-frame forces per wing [num_envs, num_wings, 3]
+                - torques: body-frame torques per wing [num_envs, num_wings, 3]
+                - hinge_torques: scalar hinge torque per wing [num_envs, num_wings]
         """
         num_envs = joint_vel.shape[0]
         num_wings = len(self._wing_cfgs)
         if joint_vel.shape[1] != num_wings:
             raise ValueError(f"Expected joint_vel with {num_wings} columns, received {joint_vel.shape[1]}.")
 
-        forces = torch.zeros(num_envs, 3, device=self.device)
-        torques = torch.zeros(num_envs, 3, device=self.device)
+        # Per-wing force/torque contributions in the body frame
+        forces = torch.zeros(num_envs, num_wings, 3, device=self.device)
+        torques = torch.zeros(num_envs, num_wings, 3, device=self.device)
         hinge_torques = torch.zeros(num_envs, num_wings, device=self.device)
 
         rho = self.cfg.air_density
@@ -120,13 +121,13 @@ class QuasiSteadyWingModel:
             lift = (dynamic_pressure * self._areas[i] * self._lift_coeff[i]).unsqueeze(1)
             drag = (dynamic_pressure * self._areas[i] * self._drag_coeff[i]).unsqueeze(1)
 
-            wing_force = lift * lift_dir + drag * drag_dir
-            wing_torque = torch.cross(lever, wing_force, dim=1)
-            hinge_resist = -self._hinge_damping[i] * joint_vel[:, i]
-            hinge_from_force = -torch.sum(torch.cross(lever, wing_force, dim=1) * axis, dim=1)
+            wing_force = lift * lift_dir + drag * drag_dir  # [N, 3]
+            wing_torque = torch.cross(lever, wing_force, dim=1)  # [N, 3]
+            hinge_resist = -self._hinge_damping[i] * joint_vel[:, i]  # [N]
+            hinge_from_force = -torch.sum(torch.cross(lever, wing_force, dim=1) * axis, dim=1)  # [N]
 
-            forces += wing_force
-            torques += wing_torque
+            forces[:, i, :] = wing_force
+            torques[:, i, :] = wing_torque
             hinge_torques[:, i] = hinge_from_force + hinge_resist
 
         return forces, torques, hinge_torques

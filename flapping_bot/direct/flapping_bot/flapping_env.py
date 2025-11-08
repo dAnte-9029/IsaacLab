@@ -61,7 +61,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     )
     joint_limit_softness: float = 0.98  # shrink hard limits slightly to avoid instability
     terminate_height_bounds: tuple[float, float] = (0.05, 2.0)
-        qsm: FlappingQSMCfg = FlappingQSMCfg(
+    qsm: FlappingQSMCfg = FlappingQSMCfg(
         wings=(
             WingQSMCfg(
                 name="left_wing",
@@ -137,6 +137,8 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     mid_tail_cmd_tau: float = 0.0
     # Optional mid-tail rate limit (deg/s). 0 disables rate limiting.
     mid_tail_rate_limit_deg_s: float = 0.0
+    # Include mid-tail in QSM aerodynamics (keep True; no switch per user request)
+    use_mid_tail_qsm: bool = True
 
 
 class FlappingBotEnv(DirectRLEnv):
@@ -228,6 +230,7 @@ class FlappingBotEnv(DirectRLEnv):
             self._qsm_torque = torch.zeros(self.num_envs, 1, 3, device=self.device)
             # map wings to joint indices
             self._qsm_joint_indices = []
+            self._qsm_name_to_local: dict[str, int] = {}
             for wing in self.cfg.qsm.wings:
                 try:
                     idx = self.cfg.controlled_joints.index(wing.joint_name)
@@ -235,8 +238,34 @@ class FlappingBotEnv(DirectRLEnv):
                     raise RuntimeError(
                         f"QSM wing '{wing.name}' references joint '{wing.joint_name}' which is not part of controlled_joints."
                     ) from exc
+                local = len(self._qsm_joint_indices)
                 self._qsm_joint_indices.append(idx)
+                self._qsm_name_to_local[wing.name] = local
             self._qsm_joint_tensor_idx = torch.tensor(self._qsm_joint_indices, dtype=torch.long, device=self.device)
+            self._qsm_mid_local_idx = self._qsm_name_to_local.get("mid_tail", None)
+            # Resolve rigid body id for mid-tail link to apply F/M at the body (not root)
+            self._mid_tail_body_id = None
+            try:
+                # Candidate link names for mid-tail from URDF
+                candidates = [
+                    "a_9g_servo_arm1_3",
+                    "mid_tail",
+                    "mid_tail_connector",
+                ]
+                body_ids, body_names = self._robot.find_bodies(candidates, preserve_order=True)
+                if len(body_ids) > 0:
+                    self._mid_tail_body_id = body_ids[0]
+                    # Informative print to confirm per-body application path
+                    try:
+                        name_str = body_names[0] if isinstance(body_names, (list, tuple)) and body_names else str(body_names)
+                        print(f"[AERO] mid-tail rigid body resolved: name='{name_str}', id={self._mid_tail_body_id}")
+                    except Exception:
+                        print(f"[AERO] mid-tail rigid body id={self._mid_tail_body_id}")
+            except Exception:
+                self._mid_tail_body_id = None
+            if self._mid_tail_body_id is None:
+                cand_str = ", ".join(candidates)
+                print(f"[AERO][WARN] Could not resolve mid-tail rigid body. Candidates tried: [{cand_str}]. Applying resultant at root.")
         self._root_id = 0
 
         # Control indices for convenience (ordered as controlled_joints)
@@ -376,11 +405,38 @@ class FlappingBotEnv(DirectRLEnv):
                 root_lin_vel=self._robot.data.root_lin_vel_b,
                 root_ang_vel=self._robot.data.root_ang_vel_b,
             )
-            self._qsm_force[:, 0, :] = forces
-            self._qsm_torque[:, 0, :] = torques
-            self._robot.set_external_force_and_torque(self._qsm_force, self._qsm_torque, body_ids=self._root_id)
+            # Apply F/M: send mid-tail contribution to its rigid body (if resolved),
+            # and the rest (other wings) to the root body as a combined resultant.
+            try:
+                import torch as _torch
+                if self._qsm_mid_local_idx is not None and self._mid_tail_body_id is not None:
+                    # Separate mid-tail component
+                    f_mid = forces[:, self._qsm_mid_local_idx : self._qsm_mid_local_idx + 1, :]
+                    t_mid = torques[:, self._qsm_mid_local_idx : self._qsm_mid_local_idx + 1, :]
+                    f_others = forces.clone()
+                    t_others = torques.clone()
+                    f_others[:, self._qsm_mid_local_idx, :] = 0.0
+                    t_others[:, self._qsm_mid_local_idx, :] = 0.0
+                    f_root = _torch.sum(f_others, dim=1, keepdim=True)
+                    t_root = _torch.sum(t_others, dim=1, keepdim=True)
+                    self._robot.set_external_force_and_torque(f_root, t_root, body_ids=self._root_id)
+                    self._robot.set_external_force_and_torque(f_mid, t_mid, body_ids=self._mid_tail_body_id)
+                else:
+                    # Fallback: apply resultant to root
+                    f_root = _torch.sum(forces, dim=1, keepdim=True)
+                    t_root = _torch.sum(torques, dim=1, keepdim=True)
+                    self._robot.set_external_force_and_torque(f_root, t_root, body_ids=self._root_id)
+            except Exception:
+                # If any error in per-body application, fallback to root resultant
+                f_root = torch.sum(forces, dim=1, keepdim=True)
+                t_root = torch.sum(torques, dim=1, keepdim=True)
+                self._robot.set_external_force_and_torque(f_root, t_root, body_ids=self._root_id)
 
             joint_efforts = torch.zeros_like(joint_pos)
+            # Avoid fighting the servo: do not inject hinge torque on mid-tail
+            if self._qsm_mid_local_idx is not None:
+                hinge_torques = hinge_torques.clone()
+                hinge_torques[:, self._qsm_mid_local_idx] = 0.0
             joint_efforts[:, self._qsm_joint_tensor_idx] = hinge_torques
             self._robot.set_joint_effort_target(joint_efforts, joint_ids=self._joint_ids)
 
@@ -436,3 +492,4 @@ class FlappingBotEnv(DirectRLEnv):
             self._qsm_torque[env_ids] = 0.0
         self._mid_tail_cmd_filt[env_ids] = 0.0
         self._mid_tail_cmd_prev[env_ids] = 0.0
+        # Mid-tail aerodynamics enabled by default; no zeroing

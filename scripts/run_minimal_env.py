@@ -66,10 +66,52 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Continuously actuate mid-tail with a sine during demo.",
     )
+    # Tail step demo (square waves) and independent mid-tail step frequency
+    parser.add_argument(
+        "--tail-step",
+        action="store_true",
+        help="Use square/step signals for left/right tails instead of sine in demo.",
+    )
+    parser.add_argument(
+        "--step-freq",
+        type=float,
+        default=1.0,
+        help="Square-wave frequency (Hz) for --tail-step (left/right tails).",
+    )
+    parser.add_argument(
+        "--mid-step-freq",
+        type=float,
+        default=None,
+        help="Square-wave frequency (Hz) for mid-tail when --mid-demo is set. If omitted, mid-tail keeps sine.",
+    )
+    parser.add_argument(
+        "--track-log",
+        type=str,
+        default="",
+        help="CSV path to log tracking (time,freq, wing L/R tgt/pos, tail L/R tgt/pos, mid tgt/pos).",
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Plot tracking curves after run (requires matplotlib).",
+    )
     parser.add_argument(
         "--debug-phys",
         action="store_true",
         help="Print mass/COM/inertia for body and wings/tails (from MassAPI).",
+    )
+    # Mid-tail command shaping knobs (optional)
+    parser.add_argument(
+        "--mid-rate",
+        type=float,
+        default=None,
+        help="Mid-tail max rate (deg/s). 0 disables. If set, config is applied to env.",
+    )
+    parser.add_argument(
+        "--mid-tau",
+        type=float,
+        default=None,
+        help="First-order smoothing time constant (s) for mid-tail command. 0 disables.",
     )
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args()
@@ -92,11 +134,21 @@ def main() -> None:
 
     cfg = FlappingBotEnvCfg()
     cfg.scene.num_envs = args.num_envs
+    # Apply optional mid-tail shaping
+    if args.mid_rate is not None:
+        cfg.mid_tail_rate_limit_deg_s = max(0.0, float(args.mid_rate))
+    if args.mid_tau is not None:
+        cfg.mid_tail_cmd_tau = max(0.0, float(args.mid_tau))
 
     render_mode = "headless" if args.headless else None
     env = FlappingBotEnv(cfg, render_mode=render_mode)
 
     obs, _ = env.reset()
+
+    # Tracking buffers (optional)
+    do_log = bool(getattr(args, "track_log", ""))
+    log_rows = []
+    t_sim = 0.0
 
     # Optional: print mass properties after any runtime overrides
     if args.debug_phys:
@@ -194,27 +246,50 @@ def main() -> None:
         freq = max(0.0, args.tail_freq)
 
         def run_segment(kind: str, seg_steps: int, start_step: int) -> tuple[int, float]:
-            nonlocal t
+            nonlocal t, t_sim
             step = start_step
             for _ in range(seg_steps):
                 # Generate continuous signals per kind
                 phase = two_pi * freq * t
-                if kind == "pitch":
-                    pitch_val = amp * torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32))
-                    roll_val = torch.tensor(0.0, device=env.device, dtype=torch.float32)
-                elif kind == "roll":
-                    pitch_val = torch.tensor(0.0, device=env.device, dtype=torch.float32)
-                    roll_val = amp * torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32))
-                else:  # mixed
-                    # Slight phase offset on roll to make the combination clearer
-                    pitch_val = amp * torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32))
-                    roll_val = 0.5 * amp * torch.sin(torch.tensor(phase + 1.0471975512, device=env.device, dtype=torch.float32))  # +60°
+                if args.tail_step:
+                    # Drive L/R tails with a square wave at --step-freq
+                    phase_step = two_pi * args.step_freq * t
+                    sq = torch.sign(torch.sin(torch.tensor(phase_step, device=env.device, dtype=torch.float32)))
+                    if kind == "pitch":
+                        pitch_val = amp * sq
+                        roll_val = torch.tensor(0.0, device=env.device, dtype=torch.float32)
+                    elif kind == "roll":
+                        pitch_val = torch.tensor(0.0, device=env.device, dtype=torch.float32)
+                        roll_val = amp * sq
+                    else:  # mixed
+                        pitch_val = amp * sq
+                        # roll uses same square with small phase offset for visual distinction
+                        sq2 = torch.sign(torch.sin(torch.tensor(phase_step + 1.0471975512, device=env.device, dtype=torch.float32)))
+                        roll_val = 0.5 * amp * sq2
+                else:
+                    if kind == "pitch":
+                        pitch_val = amp * torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32))
+                        roll_val = torch.tensor(0.0, device=env.device, dtype=torch.float32)
+                    elif kind == "roll":
+                        pitch_val = torch.tensor(0.0, device=env.device, dtype=torch.float32)
+                        roll_val = amp * torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32))
+                    else:  # mixed
+                        # Slight phase offset on roll to make the combination clearer
+                        pitch_val = amp * torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32))
+                        roll_val = 0.5 * amp * torch.sin(torch.tensor(phase + 1.0471975512, device=env.device, dtype=torch.float32))  # +60°
 
                 a = torch.zeros((env.num_envs, action_dim), device=env.device, dtype=torch.float32)
                 a[:, pitch_idx] = pitch_val
                 a[:, roll_idx] = roll_val
                 if args.mid_demo and mid_idx is not None:
-                    a[:, mid_idx] = 0.7 * amp * torch.sin(torch.tensor(phase + 0.5235987756, device=env.device, dtype=torch.float32))  # +30°
+                    if args.mid_step_freq is not None:
+                        # Independent mid-tail square wave at --mid-step-freq
+                        mid_phase = two_pi * float(args.mid_step_freq) * t
+                        mid_sq = torch.sign(torch.sin(torch.tensor(mid_phase, device=env.device, dtype=torch.float32)))
+                        a[:, mid_idx] = 0.7 * amp * mid_sq
+                    else:
+                        # Default mid-tail: sine (original behavior)
+                        a[:, mid_idx] = 0.7 * amp * torch.sin(torch.tensor(phase + 0.5235987756, device=env.device, dtype=torch.float32))  # +30°
 
                 ret = env.step(a)
                 if len(ret) == 5:
@@ -223,8 +298,21 @@ def main() -> None:
                 else:
                     obs, rew, done, info = ret
                 debug_print(step)
+                if do_log:
+                    idxLW, idxRW = env._IDX_LEFT_WING, env._IDX_RIGHT_WING
+                    idxLT, idxRT = env._IDX_LEFT_TAIL, env._IDX_RIGHT_TAIL
+                    idxMT = getattr(env, "_IDX_MID_TAIL", None)
+                    tgt = env._joint_targets[0].detach().cpu().numpy()
+                    pos = env._robot.data.joint_pos[0, env._joint_ids].detach().cpu().numpy()
+                    row = [t_sim, float(env._freq_left[0].item())]
+                    row += [tgt[idxLW], tgt[idxRW], pos[idxLW], pos[idxRW]]
+                    row += [tgt[idxLT], tgt[idxRT], pos[idxLT], pos[idxRT]]
+                    if idxMT is not None:
+                        row += [tgt[idxMT], pos[idxMT]]
+                    log_rows.append(row)
                 step += 1
                 t += dt
+                t_sim += env.step_dt
                 if done.any():
                     env.reset()
             return step, t
@@ -239,12 +327,18 @@ def main() -> None:
         # 4) Optional mid-tail only segment
         if args.mid_demo and mid_idx is not None:
             def run_mid(seg_steps: int, start_step: int):
-                nonlocal t
+                nonlocal t, t_sim
                 step = start_step
                 for _ in range(seg_steps):
-                    phase = two_pi * freq * t
+                    # Mid-only segment: independent square if --mid-step-freq is given
+                    if args.mid_step_freq is not None:
+                        phase = two_pi * float(args.mid_step_freq) * t
+                        mid_val = amp * torch.sign(torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32)))
+                    else:
+                        phase = two_pi * freq * t
+                        mid_val = amp * torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32))
                     a = torch.zeros((env.num_envs, action_dim), device=env.device, dtype=torch.float32)
-                    a[:, mid_idx] = amp * torch.sin(torch.tensor(phase, device=env.device, dtype=torch.float32))
+                    a[:, mid_idx] = mid_val
                     ret = env.step(a)
                     if len(ret) == 5:
                         obs, rew, terminated, truncated, info = ret
@@ -252,6 +346,19 @@ def main() -> None:
                     else:
                         obs, rew, done, info = ret
                     debug_print(step)
+                    if do_log:
+                        idxLW, idxRW = env._IDX_LEFT_WING, env._IDX_RIGHT_WING
+                        idxLT, idxRT = env._IDX_LEFT_TAIL, env._IDX_RIGHT_TAIL
+                        idxMT = getattr(env, "_IDX_MID_TAIL", None)
+                        tgt = env._joint_targets[0].detach().cpu().numpy()
+                        pos = env._robot.data.joint_pos[0, env._joint_ids].detach().cpu().numpy()
+                        row = [t_sim, float(env._freq_left[0].item())]
+                        row += [tgt[idxLW], tgt[idxRW], pos[idxLW], pos[idxRW]]
+                        row += [tgt[idxLT], tgt[idxRT], pos[idxLT], pos[idxRT]]
+                        if idxMT is not None:
+                            row += [tgt[idxMT], pos[idxMT]]
+                        log_rows.append(row)
+                    t_sim += env.step_dt
                     step += 1
                     t += dt
                     if done.any():
@@ -284,6 +391,49 @@ def main() -> None:
             print(f"[OK] Completed {args.steps} steps across {args.num_envs} environments.")
         return
 
+    # Dump tracking log if requested
+    if do_log and log_rows:
+        import csv, os
+        out = args.track_log
+        os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
+        with open(out, 'w', newline='') as f:
+            writer = csv.writer(f)
+            header = [
+                'time','freq_hz',
+                'tgt_wing_L','tgt_wing_R','pos_wing_L','pos_wing_R',
+                'tgt_tail_L','tgt_tail_R','pos_tail_L','pos_tail_R',
+                'tgt_mid','pos_mid'
+            ]
+            if not hasattr(env, '_IDX_MID_TAIL'):
+                header = header[:-2]
+            writer.writerow(header)
+            for r in log_rows:
+                writer.writerow([float(x) for x in r])
+        print(f"[TRACK] wrote {len(log_rows)} rows to {out}")
+        if getattr(args, 'plot', False):
+            try:
+                import numpy as np, matplotlib.pyplot as plt
+                data = np.loadtxt(out, delimiter=',', skiprows=1)
+                t = data[:,0]; freq = data[:,1]
+                i=2
+                tgt_wL,tgt_wR,pos_wL,pos_wR = data[:,i],data[:,i+1],data[:,i+2],data[:,i+3]; i+=4
+                tgt_tL,tgt_tR,pos_tL,pos_tR = data[:,i],data[:,i+1],data[:,i+2],data[:,i+3]; i+=4
+                has_mid = data.shape[1] > i
+                if has_mid:
+                    tgt_m,pos_m = data[:,i],data[:,i+1]
+                fig,axs=plt.subplots(3 if has_mid else 2,1,figsize=(10,8),sharex=True)
+                axs = np.atleast_1d(axs)
+                axs[0].plot(t, np.degrees(tgt_wL)); axs[0].plot(t, np.degrees(pos_wL))
+                axs[0].plot(t, np.degrees(tgt_wR)); axs[0].plot(t, np.degrees(pos_wR))
+                ax2=axs[0].twinx(); ax2.plot(t, freq, color='gray', alpha=.3)
+                axs[1].plot(t, np.degrees(tgt_tL)); axs[1].plot(t, np.degrees(pos_tL))
+                axs[1].plot(t, np.degrees(tgt_tR)); axs[1].plot(t, np.degrees(pos_tR))
+                if has_mid:
+                    axs[2].plot(t, np.degrees(tgt_m)); axs[2].plot(t, np.degrees(pos_m))
+                plt.tight_layout(); plt.show()
+            except Exception as e:
+                print('[WARN] plotting failed:', repr(e))
+
     env.close()
     simulation_app.close()
     print(f"[OK] Completed {args.steps} steps across {args.num_envs} environments.")
@@ -291,5 +441,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
 
 

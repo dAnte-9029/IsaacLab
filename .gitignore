@@ -1,12 +1,15 @@
-﻿# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
 
-# VSCode local settings
-.vscode/
-
-# Logs
+# Logs and outputs
+logs/
 *.log
+
+# OS/IDE files
+.DS_Store
+Thumbs.db
+.vscode/
 
