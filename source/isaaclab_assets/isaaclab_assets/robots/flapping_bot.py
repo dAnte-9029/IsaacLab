@@ -1,4 +1,4 @@
-"""Configuration for the flapping-wing aerial robot."""
+﻿"""Configuration for the flapping-wing aerial robot."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from isaaclab_assets import ISAACLAB_ASSETS_DATA_DIR
 FLAPPING_BOT_CFG = ArticulationCfg(
     prim_path="{ENV_REGEX_NS}/FlappingBot",
     spawn=sim_utils.UrdfFileCfg(
-        # 使用当前 v50 模型（本地路径）
+        # 浣跨敤褰撳墠 v50 妯″瀷锛堟湰鍦拌矾寰勶級
         asset_path="F:/isaac/flap_robot_v50/urdf/flap_robot_v50.urdf",
         usd_dir="F:/isaac/flap_robot_v50/urdf",
         usd_file_name="flap_robot_v50.usd",
@@ -36,7 +36,7 @@ FLAPPING_BOT_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 10.0),
+        pos=(0.0, 0.0, 10.0, lin_vel=(5.0, 0.0, 0.0), ang_vel=(0.0, 0.0, 0.0)),
         rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos={
             "left_wing": -0.3,
@@ -57,7 +57,7 @@ FLAPPING_BOT_CFG = ArticulationCfg(
             stiffness=40.0,
             damping=2.2,
         ),
-        # 不含中垂尾
-    },
+        # 涓嶅惈涓瀭灏?    },
 )
 """URDF-based articulation configuration for the flapping bot."""
+

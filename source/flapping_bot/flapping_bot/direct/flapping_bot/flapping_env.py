@@ -216,29 +216,21 @@ class FlappingBotEnv(DirectRLEnv):
                 self._qsm_joint_indices.append(idx)
                 self._qsm_name_to_local[wing.name] = local
             self._qsm_joint_tensor_idx = torch.tensor(self._qsm_joint_indices, dtype=torch.long, device=self.device)
-            self._qsm_mid_local_idx = self._qsm_name_to_local.get("mid_tail", None)
-            # Resolve rigid body id for mid-tail link to apply F/M at the body (not root)
-            self._mid_tail_body_id = None
-            try:
+                        # Resolve rigid body id for mid-tail link to apply F/M at the body (not root)
+                        try:
                 # Candidate link names for mid-tail from URDF
                 candidates = [
                     "a_9g_servo_arm1_3",
                     "mid_tail",
                     "mid_tail_connector",
                 ]
-                body_ids, body_names = self._robot.find_bodies(candidates, preserve_order=True)
-                if len(body_ids) > 0:
-                    self._mid_tail_body_id = body_ids[0]
-                    # Informative print to confirm per-body application path
+                                if len(body_ids) > 0:
+                                        # Informative print to confirm per-body application path
                     try:
                         name_str = body_names[0] if isinstance(body_names, (list, tuple)) and body_names else str(body_names)
-                        print(f"[AERO] mid-tail rigid body resolved: name='{name_str}', id={self._mid_tail_body_id}")
-                    except Exception:
-                        print(f"[AERO] mid-tail rigid body id={self._mid_tail_body_id}")
-            except Exception:
-                self._mid_tail_body_id = None
-            if self._mid_tail_body_id is None:
-                cand_str = ", ".join(candidates)
+                        print(f"[AERO] mid-tail rigid body resolved: name='{name_str}', id={                    except Exception:
+                        print(f"[AERO] mid-tail rigid body id={            except Exception:
+                            if                 cand_str = ", ".join(candidates)
                 print(f"[AERO][WARN] Could not resolve mid-tail rigid body. Candidates tried: [{cand_str}]. Applying resultant at root.")
         self._root_id = 0
 
@@ -372,19 +364,13 @@ class FlappingBotEnv(DirectRLEnv):
             # and the rest (other wings) to the root body as a combined resultant.
             try:
                 import torch as _torch
-                if self._qsm_mid_local_idx is not None and self._mid_tail_body_id is not None:
-                    # Separate mid-tail component
-                    f_mid = forces[:, self._qsm_mid_local_idx : self._qsm_mid_local_idx + 1, :]
-                    t_mid = torques[:, self._qsm_mid_local_idx : self._qsm_mid_local_idx + 1, :]
-                    f_others = forces.clone()
+                if                     # Separate mid-tail component
+                    f_mid = forces[:,                     t_mid = torques[:,                     f_others = forces.clone()
                     t_others = torques.clone()
-                    f_others[:, self._qsm_mid_local_idx, :] = 0.0
-                    t_others[:, self._qsm_mid_local_idx, :] = 0.0
-                    f_root = _torch.sum(f_others, dim=1, keepdim=True)
+                    f_others[:,                     t_others[:,                     f_root = _torch.sum(f_others, dim=1, keepdim=True)
                     t_root = _torch.sum(t_others, dim=1, keepdim=True)
                     self._robot.set_external_force_and_torque(f_root, t_root, body_ids=self._root_id)
-                    self._robot.set_external_force_and_torque(f_mid, t_mid, body_ids=self._mid_tail_body_id)
-                else:
+                    self._robot.set_external_force_and_torque(f_mid, t_mid, body_ids=                else:
                     # Fallback: apply resultant to root
                     f_root = _torch.sum(forces, dim=1, keepdim=True)
                     t_root = _torch.sum(torques, dim=1, keepdim=True)
@@ -397,10 +383,8 @@ class FlappingBotEnv(DirectRLEnv):
 
             joint_efforts = torch.zeros_like(joint_pos)
             # Avoid fighting the servo: do not inject hinge torque on mid-tail
-            if self._qsm_mid_local_idx is not None:
-                hinge_torques = hinge_torques.clone()
-                hinge_torques[:, self._qsm_mid_local_idx] = 0.0
-            joint_efforts[:, self._qsm_joint_tensor_idx] = hinge_torques
+            if                 hinge_torques = hinge_torques.clone()
+                hinge_torques[:,             joint_efforts[:, self._qsm_joint_tensor_idx] = hinge_torques
             self._robot.set_joint_effort_target(joint_efforts, joint_ids=self._joint_ids)
 
     # ---------------------------------------------------------------------
@@ -446,6 +430,8 @@ class FlappingBotEnv(DirectRLEnv):
         self._mid_tail_cmd_filt[env_ids] = 0.0
         self._mid_tail_cmd_prev[env_ids] = 0.0
         # Mid-tail aerodynamics enabled by default; no zeroing
+
+
 
 
 
