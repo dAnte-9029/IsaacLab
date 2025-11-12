@@ -1,0 +1,15 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs and outputs
+logs/
+*.log
+
+# OS/IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+
