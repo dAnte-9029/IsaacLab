@@ -61,7 +61,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     )
     joint_limit_softness: float = 0.98  # shrink hard limits slightly to avoid instability
     terminate_height_bounds: tuple[float, float] = (0.05, 2.0)
-        qsm: FlappingQSMCfg = FlappingQSMCfg(
+    qsm: FlappingQSMCfg = FlappingQSMCfg(
         wings=(
             WingQSMCfg(
                 name="left_wing",
