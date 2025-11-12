@@ -66,9 +66,9 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
             WingQSMCfg(
                 name="left_wing",
                 joint_name="left_wing",
-                hinge_axis_body=(0.0, 1.0, 0.0),
+                hinge_axis_body=(1.0, 0.0, 0.0),
                 lever_arm_body=(0.0, 0.18, 0.02),
-                area=0.0075,
+                area=0.165624,  # 来自 CAD：一片机翼 165624 mm^2 -> 0.165624 m^2
                 lift_coefficient=1.2,
                 drag_coefficient=0.18,
                 effective_radius_fraction=0.75,
@@ -77,48 +77,62 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
             WingQSMCfg(
                 name="right_wing",
                 joint_name="right_wing",
-                hinge_axis_body=(0.0, -1.0, 0.0),
+                hinge_axis_body=(-1.0, 0.0, 0.0),
                 lever_arm_body=(0.0, -0.18, 0.02),
-                area=0.0075,
+                area=0.165624,  # 同左翼，假设左右对称
                 lift_coefficient=1.2,
                 drag_coefficient=0.18,
                 effective_radius_fraction=0.75,
                 hinge_damping=0.01,
             ),
+            # 左尾拆分：安定面 + 活动面（共用同一关节）
             WingQSMCfg(
-                name="left_tail",
+                name="left_tail_stab",
                 joint_name="left_tail",
                 hinge_axis_body=(0.0, 1.0, 0.0),
                 lever_arm_body=(-0.01, -0.32, 0.04),
-                area=0.0025,
+                area=0.021616,  # 21616 mm^2
                 lift_coefficient=0.8,
                 drag_coefficient=0.12,
                 effective_radius_fraction=0.6,
                 hinge_damping=0.01,
             ),
             WingQSMCfg(
-                name="right_tail",
+                name="left_tail_flap",
+                joint_name="left_tail",
+                hinge_axis_body=(0.0, 1.0, 0.0),
+                lever_arm_body=(-0.01, -0.33, 0.04),  # 稍远离铰链，近似作用臂更长
+                area=0.016227,  # 16227 mm^2
+                lift_coefficient=0.8,
+                drag_coefficient=0.12,
+                effective_radius_fraction=0.6,
+                hinge_damping=0.01,
+            ),
+            # 右尾拆分：安定面 + 活动面（共用同一关节）
+            WingQSMCfg(
+                name="right_tail_stab",
                 joint_name="right_tail",
                 hinge_axis_body=(0.0, -1.0, 0.0),
                 lever_arm_body=(-0.01, -0.32, 0.04),
-                area=0.0025,
+                area=0.021616,
+                lift_coefficient=0.8,
+                drag_coefficient=0.12,
+                effective_radius_fraction=0.6,
+                hinge_damping=0.01,
+            ),
+            WingQSMCfg(
+                name="right_tail_flap",
+                joint_name="right_tail",
+                hinge_axis_body=(0.0, -1.0, 0.0),
+                lever_arm_body=(-0.01, -0.33, 0.04),
+                area=0.016227,
                 lift_coefficient=0.8,
                 drag_coefficient=0.12,
                 effective_radius_fraction=0.6,
                 hinge_damping=0.01,
             ),
             # Mid tail — add aerodynamic damping similar to L/R tails
-            WingQSMCfg(
-                name="mid_tail",
-                joint_name="mid_tail",
-                hinge_axis_body=(0.0, 1.0, 0.0),
-                lever_arm_body=(-0.01, 0.0, 0.04),
-                area=0.0020,
-                lift_coefficient=0.6,
-                drag_coefficient=0.10,
-                effective_radius_fraction=0.6,
-                hinge_damping=0.02,
-            ),
+            # 不包含中垂尾（v50 模型）
         ),
         air_density=1.225,
     )
@@ -165,14 +179,21 @@ class FlappingBotEnv(DirectRLEnv):
 
         super().__init__(cfg, render_mode, **kwargs)
 
-        # Resolve joints after scene creation
-        joint_ids, joint_names = self._robot.find_joints(self.cfg.controlled_joints, preserve_order=True)
-        if len(joint_ids) != self._num_actuators:
-            raise RuntimeError(
-                f"Expected {self._num_actuators} joints but resolved {len(joint_ids)}: {joint_names}. "
-                "Check controlled_joints names against the URDF."
-            )
+        # Resolve joints after scene creation (filter out names not present in current URDF)
+        available_names = list(self._robot.joint_names)
+        requested = [n for n in self.cfg.controlled_joints if n in available_names]
+        missing = [n for n in self.cfg.controlled_joints if n not in available_names]
+        if missing:
+            print(f"[WARN] 关节在当前 URDF 中缺失，已跳过: {missing}")
+        if not requested:
+            raise RuntimeError("未解析到任何受控关节，请检查 URDF 与 controlled_joints 配置。")
+        joint_ids, joint_names = self._robot.find_joints(requested, preserve_order=True)
+        # Use resolved joints only (allows optional joints like mid_tail to be absent)
         self._joint_ids = joint_ids
+        self._num_actuators = len(joint_ids)
+        # Name->index map in resolved order
+        self._resolved_joint_names = list(joint_names)
+        name_to_idx = {n: i for i, n in enumerate(self._resolved_joint_names)}
 
         joint_limits = self._robot.data.joint_pos_limits[0, self._joint_ids].to(device=self.device)
         lower = joint_limits[:, 0]
@@ -225,19 +246,20 @@ class FlappingBotEnv(DirectRLEnv):
                 pass
 
         if cfg.qsm and cfg.qsm.wings:
-            self._qsm_model = QuasiSteadyWingModel(cfg.qsm, self.device)
+            # 仅保留当前 URDF 中存在的关节对应的翼面配置
+            filtered_wings = [w for w in cfg.qsm.wings if w.joint_name in self._resolved_joint_names]
+            if not filtered_wings:
+                filtered_wings = []
+            qsm_cfg = FlappingQSMCfg(wings=tuple(filtered_wings), air_density=cfg.qsm.air_density)
+            self._qsm_model = QuasiSteadyWingModel(qsm_cfg, self.device)
             self._qsm_force = torch.zeros(self.num_envs, 1, 3, device=self.device)
             self._qsm_torque = torch.zeros(self.num_envs, 1, 3, device=self.device)
             # map wings to joint indices
             self._qsm_joint_indices = []
             self._qsm_name_to_local: dict[str, int] = {}
-            for wing in self.cfg.qsm.wings:
-                try:
-                    idx = self.cfg.controlled_joints.index(wing.joint_name)
-                except ValueError as exc:
-                    raise RuntimeError(
-                        f"QSM wing '{wing.name}' references joint '{wing.joint_name}' which is not part of controlled_joints."
-                    ) from exc
+            for wing in filtered_wings:
+                # Skip wings whose joints are not present (e.g., mid_tail absent in v50 model)
+                idx = name_to_idx[wing.joint_name]
                 local = len(self._qsm_joint_indices)
                 self._qsm_joint_indices.append(idx)
                 self._qsm_name_to_local[wing.name] = local
@@ -268,12 +290,12 @@ class FlappingBotEnv(DirectRLEnv):
                 print(f"[AERO][WARN] Could not resolve mid-tail rigid body. Candidates tried: [{cand_str}]. Applying resultant at root.")
         self._root_id = 0
 
-        # Control indices for convenience (ordered as controlled_joints)
-        self._IDX_LEFT_WING = 0
-        self._IDX_RIGHT_WING = 1
-        self._IDX_LEFT_TAIL = 2
-        self._IDX_RIGHT_TAIL = 3
-        self._IDX_MID_TAIL = 4
+        # Control indices for convenience (resolved from URDF)
+        self._IDX_LEFT_WING = name_to_idx.get("left_wing")
+        self._IDX_RIGHT_WING = name_to_idx.get("right_wing")
+        self._IDX_LEFT_TAIL = name_to_idx.get("left_tail")
+        self._IDX_RIGHT_TAIL = name_to_idx.get("right_tail")
+        self._IDX_MID_TAIL = name_to_idx.get("mid_tail")  # 可能不存在
 
         # Action indices: [freq, tail_pitch, tail_roll, mid_tail]
         self._ACT_IDX_FREQ = 0
@@ -334,28 +356,32 @@ class FlappingBotEnv(DirectRLEnv):
         self._right_tail_cmd = torch.clamp(tail_pitch - tail_roll,
                                            self._joint_lower_limits[self._IDX_RIGHT_TAIL],
                                            self._joint_upper_limits[self._IDX_RIGHT_TAIL])
-        # Mid tail (single deflection command)
-        mid_max = torch.minimum(
-            torch.abs(self._joint_lower_limits[self._IDX_MID_TAIL]),
-            torch.abs(self._joint_upper_limits[self._IDX_MID_TAIL]),
-        )
-        self._mid_tail_cmd = torch.clamp(
-            self._actions[:, self._ACT_IDX_MID_TAIL] * mid_max,
-            self._joint_lower_limits[self._IDX_MID_TAIL],
-            self._joint_upper_limits[self._IDX_MID_TAIL],
-        )
-        if self.cfg.mid_tail_cmd_tau > 0.0:
-            alpha = self.physics_dt / (self.cfg.mid_tail_cmd_tau + self.physics_dt)
-            self._mid_tail_cmd_filt += alpha * (self._mid_tail_cmd - self._mid_tail_cmd_filt)
+        # Mid tail（可选）
+        if self._IDX_MID_TAIL is not None:
+            mid_max = torch.minimum(
+                torch.abs(self._joint_lower_limits[self._IDX_MID_TAIL]),
+                torch.abs(self._joint_upper_limits[self._IDX_MID_TAIL]),
+            )
+            self._mid_tail_cmd = torch.clamp(
+                self._actions[:, self._ACT_IDX_MID_TAIL] * mid_max,
+                self._joint_lower_limits[self._IDX_MID_TAIL],
+                self._joint_upper_limits[self._IDX_MID_TAIL],
+            )
+            if self.cfg.mid_tail_cmd_tau > 0.0:
+                alpha = self.physics_dt / (self.cfg.mid_tail_cmd_tau + self.physics_dt)
+                self._mid_tail_cmd_filt += alpha * (self._mid_tail_cmd - self._mid_tail_cmd_filt)
+            else:
+                self._mid_tail_cmd_filt = self._mid_tail_cmd
+            # Rate limit (slew) on mid-tail command
+            if self.cfg.mid_tail_rate_limit_deg_s > 0.0:
+                max_delta = torch.deg2rad(torch.tensor(self.cfg.mid_tail_rate_limit_deg_s, device=self.device)) * self.physics_dt
+                delta = torch.clamp(self._mid_tail_cmd_filt - self._mid_tail_cmd_prev, -max_delta, max_delta)
+                self._mid_tail_cmd_prev = self._mid_tail_cmd_prev + delta
+            else:
+                self._mid_tail_cmd_prev = self._mid_tail_cmd_filt
         else:
-            self._mid_tail_cmd_filt = self._mid_tail_cmd
-        # Rate limit (slew) on mid-tail command
-        if self.cfg.mid_tail_rate_limit_deg_s > 0.0:
-            max_delta = torch.deg2rad(torch.tensor(self.cfg.mid_tail_rate_limit_deg_s, device=self.device)) * self.physics_dt
-            delta = torch.clamp(self._mid_tail_cmd_filt - self._mid_tail_cmd_prev, -max_delta, max_delta)
-            self._mid_tail_cmd_prev = self._mid_tail_cmd_prev + delta
-        else:
-            self._mid_tail_cmd_prev = self._mid_tail_cmd_filt
+            # 无中垂尾时，命令保持为 0
+            self._mid_tail_cmd_prev.zero_()
 
     def _apply_action(self):
         # Advance phase by instantaneous frequency: phase += 2π f dt
@@ -368,27 +394,46 @@ class FlappingBotEnv(DirectRLEnv):
         # Build joint targets per actuator
         jt = self._joint_targets.clone()
 
-        # Wing sine targets with asymmetric ranges:
-        # Left  in [-60°, 0°], Right in [0°, 60°].
-        # Use sin(phase) mapped to [0,1] then to [lower, upper].
-        # Left wing
-        lower_L = self._joint_lower_limits[self._IDX_LEFT_WING]
-        upper_L = self._joint_upper_limits[self._IDX_LEFT_WING]
-        span_L = (upper_L - lower_L) * 0.95
+        # Wing sine targets with asymmetric per-side ranges around the same hinge axis:
+        # Left in [min_limit, 0], Right in [0, max_limit]. This matches“left -A→0, right +A→0”的对称关系。
         phase01_L = 0.5 * (torch.sin(self._phase_left) + 1.0)
-        jt[:, self._IDX_LEFT_WING] = torch.clamp(lower_L + span_L * phase01_L, lower_L, upper_L)
-
-        # Right wing (mirror: 0..60)
-        lower_R = self._joint_lower_limits[self._IDX_RIGHT_WING]
-        upper_R = self._joint_upper_limits[self._IDX_RIGHT_WING]
-        span_R = (upper_R - lower_R) * 0.95
         phase01_R = 0.5 * (torch.sin(self._phase_right) + 1.0)
-        jt[:, self._IDX_RIGHT_WING] = torch.clamp(upper_R - span_R * phase01_R, lower_R, upper_R)
+
+        # Left wing: clamp upper to 0 so其上界为 0（即负半轴活动）
+        lower_L_full = self._joint_lower_limits[self._IDX_LEFT_WING]
+        upper_L_full = self._joint_upper_limits[self._IDX_LEFT_WING]
+        zero_L = torch.zeros_like(upper_L_full)
+        upper_L = torch.minimum(upper_L_full, zero_L)
+        span_L = (upper_L - lower_L_full) * 0.95
+        jt[:, self._IDX_LEFT_WING] = torch.clamp(lower_L_full + span_L * phase01_L, lower_L_full, upper_L)
+
+        # Right wing: clamp lower to 0 so其下界为 0（即正半轴活动）
+        lower_R_full = self._joint_lower_limits[self._IDX_RIGHT_WING]
+        upper_R_full = self._joint_upper_limits[self._IDX_RIGHT_WING]
+        zero_R = torch.zeros_like(lower_R_full)
+        lower_R = torch.maximum(lower_R_full, zero_R)
+        span_R = (upper_R_full - lower_R) * 0.95
+        # 方向取“由 +A 向 0”以与左翼同时趋向 0°
+        jt[:, self._IDX_RIGHT_WING] = torch.clamp(upper_R_full - span_R * phase01_R, lower_R, upper_R_full)
+
+        # Override: symmetric ±range around 0 for both wings
+        lower_L_full = self._joint_lower_limits[self._IDX_LEFT_WING]
+        upper_L_full = self._joint_upper_limits[self._IDX_LEFT_WING]
+        lower_R_full = self._joint_lower_limits[self._IDX_RIGHT_WING]
+        upper_R_full = self._joint_upper_limits[self._IDX_RIGHT_WING]
+        amp_L = torch.minimum(torch.abs(lower_L_full), torch.abs(upper_L_full)) * 0.95
+        amp_R = torch.minimum(torch.abs(lower_R_full), torch.abs(upper_R_full)) * 0.95
+        amp = torch.minimum(amp_L, amp_R)
+        sL = torch.sin(self._phase_left)
+        sR = torch.sin(self._phase_right)
+        jt[:, self._IDX_LEFT_WING] = torch.clamp(+amp * sL, lower_L_full, upper_L_full)
+        jt[:, self._IDX_RIGHT_WING] = torch.clamp(+amp * sR, lower_R_full, upper_R_full)
 
         # Tails
         jt[:, self._IDX_LEFT_TAIL] = self._left_tail_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_tail_cmd
-        jt[:, self._IDX_MID_TAIL] = self._mid_tail_cmd_prev
+        if self._IDX_MID_TAIL is not None:
+            jt[:, self._IDX_MID_TAIL] = self._mid_tail_cmd_prev
 
         self._joint_targets = jt
         self._robot.set_joint_position_target(self._joint_targets, joint_ids=self._joint_ids)
