@@ -20,3 +20,6 @@ reloadable = false
 
 [[python.module]]
 name = "isaaclab_tasks"
+
+[python]
+modulePaths = ["../flapping_bot"]
