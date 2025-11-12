@@ -136,10 +136,10 @@ class FlappingBotEnv(DirectRLEnv):
         requested = [n for n in self.cfg.controlled_joints if n in available_names]
         missing = [n for n in self.cfg.controlled_joints if n not in available_names]
         if missing:
-            print(f"[WARN] 关节在当�?URDF 中缺失，已跳�? {missing}")
+        if missing:        if missing:
+            print(f"[WARN] Missing controlled joints in URDF: {missing}")
         if not requested:
-            raise RuntimeError("未解析到任何受控关节，请检�?URDF �?controlled_joints 配置�?)
-        joint_ids, joint_names = self._robot.find_joints(requested, preserve_order=True)
+            raise RuntimeError("No controlled joints resolved. Check URDF and controlled_joints config.")
         # Use resolved joints only (allows optional joints like mid_tail to be absent)
         self._joint_ids = joint_ids
         self._num_actuators = len(joint_ids)
