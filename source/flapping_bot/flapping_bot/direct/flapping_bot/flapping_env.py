@@ -1,4 +1,4 @@
-"""Direct RL environment scaffolding for the flapping-wing robot."""
+﻿"""Direct RL environment scaffolding for the flapping-wing robot."""
 
 from __future__ import annotations
 
@@ -61,76 +61,32 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     )
     joint_limit_softness: float = 0.98  # shrink hard limits slightly to avoid instability
     terminate_height_bounds: tuple[float, float] = (0.05, 2.0)
-    qsm: FlappingQSMCfg = FlappingQSMCfg(
+        qsm: FlappingQSMCfg = FlappingQSMCfg(
         wings=(
             WingQSMCfg(
                 name="left_wing",
                 joint_name="left_wing",
                 hinge_axis_body=(1.0, 0.0, 0.0),
                 lever_arm_body=(0.0, 0.18, 0.02),
-                area=0.165624,  # 来自 CAD：一片机�?165624 mm^2 -> 0.165624 m^2
+                area=0.165624,
                 lift_coefficient=1.2,
                 drag_coefficient=0.18,
                 effective_radius_fraction=0.75,
-                hinge_damping=0.01,
+                hinge_damping=0.01
             ),
             WingQSMCfg(
                 name="right_wing",
                 joint_name="right_wing",
                 hinge_axis_body=(-1.0, 0.0, 0.0),
                 lever_arm_body=(0.0, -0.18, 0.02),
-                area=0.165624,  # 同左翼，假设左右对称
+                area=0.165624,
                 lift_coefficient=1.2,
                 drag_coefficient=0.18,
                 effective_radius_fraction=0.75,
-                hinge_damping=0.01,
-            ),
-            # 左尾拆分：安定面 + 活动面（共用同一关节�?            WingQSMCfg(
-                name="left_tail_stab",
-                joint_name="left_tail",
-                hinge_axis_body=(0.0, 1.0, 0.0),
-                lever_arm_body=(-0.01, -0.32, 0.04),
-                area=0.021616,  # 21616 mm^2
-                lift_coefficient=0.8,
-                drag_coefficient=0.12,
-                effective_radius_fraction=0.6,
-                hinge_damping=0.01,
-            ),
-            WingQSMCfg(
-                name="left_tail_flap",
-                joint_name="left_tail",
-                hinge_axis_body=(0.0, 1.0, 0.0),
-                lever_arm_body=(-0.01, -0.33, 0.04),  # 稍远离铰链，近似作用臂更�?                area=0.016227,  # 16227 mm^2
-                lift_coefficient=0.8,
-                drag_coefficient=0.12,
-                effective_radius_fraction=0.6,
-                hinge_damping=0.01,
-            ),
-            # 右尾拆分：安定面 + 活动面（共用同一关节�?            WingQSMCfg(
-                name="right_tail_stab",
-                joint_name="right_tail",
-                hinge_axis_body=(0.0, -1.0, 0.0),
-                lever_arm_body=(-0.01, -0.32, 0.04),
-                area=0.021616,
-                lift_coefficient=0.8,
-                drag_coefficient=0.12,
-                effective_radius_fraction=0.6,
-                hinge_damping=0.01,
-            ),
-            WingQSMCfg(
-                name="right_tail_flap",
-                joint_name="right_tail",
-                hinge_axis_body=(0.0, -1.0, 0.0),
-                lever_arm_body=(-0.01, -0.33, 0.04),
-                area=0.016227,
-                lift_coefficient=0.8,
-                drag_coefficient=0.12,
-                effective_radius_fraction=0.6,
-                hinge_damping=0.01,
-            ),
-            # Mid tail �?add aerodynamic damping similar to L/R tails
-            # 不包含中垂尾（v50 模型�?        ),
-        air_density=1.225,
+                hinge_damping=0.01
+            )
+        ),
+        air_density=1.225
     )
 
     # Flapping-only demo: fixed frequency in Hz for both wings (0-5)
@@ -180,9 +136,9 @@ class FlappingBotEnv(DirectRLEnv):
         requested = [n for n in self.cfg.controlled_joints if n in available_names]
         missing = [n for n in self.cfg.controlled_joints if n not in available_names]
         if missing:
-            print(f"[WARN] 关节在当�?URDF 中缺失，已跳�? {missing}")
+            print(f"[WARN] 关节在当�?URDF 中缺失，已跳�? {missing}")
         if not requested:
-            raise RuntimeError("未解析到任何受控关节，请检�?URDF �?controlled_joints 配置�?)
+            raise RuntimeError("未解析到任何受控关节，请检�?URDF �?controlled_joints 配置�?)
         joint_ids, joint_names = self._robot.find_joints(requested, preserve_order=True)
         # Use resolved joints only (allows optional joints like mid_tail to be absent)
         self._joint_ids = joint_ids
@@ -242,7 +198,7 @@ class FlappingBotEnv(DirectRLEnv):
                 pass
 
         if cfg.qsm and getattr(cfg.qsm, "wings", None):
-            # 仅保留当�?URDF 中存在的关节对应的翼面配�?            filtered_wings = [ (w if isinstance(w, WingQSMCfg) else WingQSMCfg(**w)) for w in cfg.qsm.wings if (w if isinstance(w, WingQSMCfg) else WingQSMCfg(**w)).joint_name in self._resolved_joint_names]
+            # 仅保留当�?URDF 中存在的关节对应的翼面配�?            filtered_wings = [ (w if isinstance(w, WingQSMCfg) else WingQSMCfg(**w)) for w in cfg.qsm.wings if (w if isinstance(w, WingQSMCfg) else WingQSMCfg(**w)).joint_name in self._resolved_joint_names]
             if not filtered_wings:
                 filtered_wings = []
             qsm_cfg = FlappingQSMCfg(wings=tuple(filtered_wings), air_density=getattr(cfg.qsm, "air_density", 1.225))
@@ -290,7 +246,7 @@ class FlappingBotEnv(DirectRLEnv):
         self._IDX_RIGHT_WING = name_to_idx.get("right_wing")
         self._IDX_LEFT_TAIL = name_to_idx.get("left_tail")
         self._IDX_RIGHT_TAIL = name_to_idx.get("right_tail")
-        self._IDX_MID_TAIL = name_to_idx.get("mid_tail")  # 可能不存�?
+        self._IDX_MID_TAIL = name_to_idx.get("mid_tail")  # 可能不存�?
         # Action indices: [freq, tail_pitch, tail_roll, mid_tail]
         self._ACT_IDX_FREQ = 0
         self._ACT_IDX_TAIL_PITCH = 1
@@ -374,7 +330,7 @@ class FlappingBotEnv(DirectRLEnv):
             else:
                 self._mid_tail_cmd_prev = self._mid_tail_cmd_filt
         else:
-            # 无中垂尾时，命令保持�?0
+            # 无中垂尾时，命令保持�?0
             self._mid_tail_cmd_prev.zero_()
 
     def _apply_action(self):
@@ -389,7 +345,7 @@ class FlappingBotEnv(DirectRLEnv):
         jt = self._joint_targets.clone()
 
         # Wing sine targets with asymmetric per-side ranges around the same hinge axis:
-        # Left in [min_limit, 0], Right in [0, max_limit]. This matches“left -A�?, right +A�?”的对称关系�?        phase01_L = 0.5 * (torch.sin(self._phase_left) + 1.0)
+        # Left in [min_limit, 0], Right in [0, max_limit]. This matches“left -A�?, right +A�?”的对称关系�?        phase01_L = 0.5 * (torch.sin(self._phase_left) + 1.0)
         phase01_R = 0.5 * (torch.sin(self._phase_right) + 1.0)
 
         # Left wing: clamp upper to 0 so其上界为 0（即负半轴活动）
@@ -406,7 +362,7 @@ class FlappingBotEnv(DirectRLEnv):
         zero_R = torch.zeros_like(lower_R_full)
         lower_R = torch.maximum(lower_R_full, zero_R)
         span_R = (upper_R_full - lower_R) * 0.95
-        # 方向取“由 +A �?0”以与左翼同时趋�?0°
+        # 方向取“由 +A �?0”以与左翼同时趋�?0°
         jt[:, self._IDX_RIGHT_WING] = torch.clamp(upper_R_full - span_R * phase01_R, lower_R, upper_R_full)
 
         # Override: symmetric ±range around 0 for both wings
@@ -531,3 +487,6 @@ class FlappingBotEnv(DirectRLEnv):
         self._mid_tail_cmd_filt[env_ids] = 0.0
         self._mid_tail_cmd_prev[env_ids] = 0.0
         # Mid-tail aerodynamics enabled by default; no zeroing
+
+
+
