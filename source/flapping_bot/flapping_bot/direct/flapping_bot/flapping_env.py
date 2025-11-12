@@ -231,14 +231,16 @@ class FlappingBotEnv(DirectRLEnv):
         self._phase_left = (self._phase_left + two_pi * self._freq_left * self.physics_dt) % two_pi
         self._phase_right = (self._phase_right + two_pi * self._freq_right * self.physics_dt) % two_pi
 
-        # simple sinusoidal wing motion within limits
+        # simple sinusoidal wing motion within limits (force strict symmetry by common amplitude)
         wing_amp_L = 0.5 * (self._joint_upper_limits[self._IDX_LEFT_WING] - self._joint_lower_limits[self._IDX_LEFT_WING])
         wing_amp_R = 0.5 * (self._joint_upper_limits[self._IDX_RIGHT_WING] - self._joint_lower_limits[self._IDX_RIGHT_WING])
         wing_mid_L = 0.5 * (self._joint_upper_limits[self._IDX_LEFT_WING] + self._joint_lower_limits[self._IDX_LEFT_WING])
         wing_mid_R = 0.5 * (self._joint_upper_limits[self._IDX_RIGHT_WING] + self._joint_lower_limits[self._IDX_RIGHT_WING])
+        wing_amp = torch.minimum(wing_amp_L, wing_amp_R)
 
-        left_cmd = wing_mid_L + wing_amp_L * torch.sin(self._phase_left)
-        right_cmd = wing_mid_R + wing_amp_R * torch.sin(self._phase_right + 3.141592653589793)
+        s = torch.sin(self._phase_left)
+        left_cmd = wing_mid_L + wing_amp * s
+        right_cmd = wing_mid_R - wing_amp * s  # enforce anti-phase symmetry
 
         jt = self._joint_targets
         jt[:, self._IDX_LEFT_WING] = left_cmd
@@ -246,6 +248,21 @@ class FlappingBotEnv(DirectRLEnv):
         jt[:, self._IDX_LEFT_TAIL] = self._left_tail_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_tail_cmd
         self._robot.set_joint_position_target(jt, joint_ids=self._joint_ids)
+
+        # aerodynamic forces via QSM (sum to base body)
+        if self._qsm_model is not None and self._qsm_joint_tensor_idx is not None:
+            # gather joint kinematics for wings used by QSM
+            jpos_all = self._robot.data.joint_pos[:, self._joint_ids]
+            jvel_all = self._robot.data.joint_vel[:, self._joint_ids]
+            jpos = jpos_all[:, self._qsm_joint_tensor_idx]
+            jvel = jvel_all[:, self._qsm_joint_tensor_idx]
+            v_b = self._robot.data.root_lin_vel_b
+            w_b = self._robot.data.root_ang_vel_b
+            f_b, tau_b, _ = self._qsm_model.compute_forces(jpos, jvel, v_b, w_b)
+            f_sum = torch.sum(f_b, dim=1).unsqueeze(1)  # [N,1,3]
+            t_sum = torch.sum(tau_b, dim=1).unsqueeze(1)  # [N,1,3]
+            # apply at base body (id 0) in body frame
+            self._robot.set_external_force_and_torque(forces=f_sum, torques=t_sum, body_ids=[0], is_global=False)
 
     # ------------------------------------------------------------------
     # Observations / Rewards / Dones
