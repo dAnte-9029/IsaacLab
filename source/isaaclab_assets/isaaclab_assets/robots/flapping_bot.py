@@ -11,9 +11,10 @@ from isaaclab_assets import ISAACLAB_ASSETS_DATA_DIR
 FLAPPING_BOT_CFG = ArticulationCfg(
     prim_path="{ENV_REGEX_NS}/FlappingBot",
     spawn=sim_utils.UrdfFileCfg(
-        asset_path=f"{ISAACLAB_ASSETS_DATA_DIR}/flapping_bot/robots/robot.urdf",
-        usd_dir=f"{ISAACLAB_ASSETS_DATA_DIR}/flapping_bot/robots",
-        usd_file_name="flapping_bot.usd",
+        # 使用当前 v50 模型（本地路径）
+        asset_path="F:/isaac/flap_robot_v50/urdf/flap_robot_v50.urdf",
+        usd_dir="F:/isaac/flap_robot_v50/urdf",
+        usd_file_name="flap_robot_v50.usd",
         fix_base=False,
         merge_fixed_joints=True,
         joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
@@ -29,7 +30,7 @@ FLAPPING_BOT_CFG = ArticulationCfg(
             stabilization_threshold=0.0,
         ),
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-            disable_gravity=True,
+            disable_gravity=False,
             max_depenetration_velocity=5.0,
             enable_gyroscopic_forces=True,
         ),
@@ -42,7 +43,6 @@ FLAPPING_BOT_CFG = ArticulationCfg(
             "right_wing": 0.3,
             "left_tail": 0.0,
             "right_tail": 0.0,
-            "mid_tail": 0.0,
         },
     ),
     actuators={
@@ -57,12 +57,7 @@ FLAPPING_BOT_CFG = ArticulationCfg(
             stiffness=40.0,
             damping=2.2,
         ),
-        # Mid tail servo (separate so we can damp it more to reduce ringing)
-        "mid_tail_servo": ImplicitActuatorCfg(
-            joint_names_expr=["mid_tail"],
-            stiffness=32.0,
-            damping=2.8,
-        ),
+        # 不含中垂尾
     },
 )
 """URDF-based articulation configuration for the flapping bot."""
