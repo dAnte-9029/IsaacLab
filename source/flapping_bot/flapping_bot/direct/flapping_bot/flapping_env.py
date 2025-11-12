@@ -250,6 +250,34 @@ class FlappingBotEnv(DirectRLEnv):
     # ------------------------------------------------------------------
     # Observations / Rewards / Dones
     # ------------------------------------------------------------------
+    def _reset_idx(self, env_ids: torch.Tensor | list[int]):
+        if isinstance(env_ids, list):
+            env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
+
+        # root: z=hover_height, initial forward vx=5 m/s
+        n = env_ids.shape[0]
+        pos = torch.zeros(n, 3, device=self.device)
+        pos[:, 2] = self.cfg.hover_height
+        rot = torch.zeros(n, 4, device=self.device)
+        rot[:, 0] = 1.0
+        lin_vel = torch.zeros(n, 3, device=self.device)
+        lin_vel[:, 0] = 5.0
+        ang_vel = torch.zeros(n, 3, device=self.device)
+        root_state = torch.cat([pos, rot, lin_vel, ang_vel], dim=1)
+        self._robot.write_root_state_to_sim(root_state, env_ids=env_ids)
+
+        # joints to default and zero velocity
+        jpos = self._default_joint_pos.expand(n, -1).clone()
+        jvel = torch.zeros_like(jpos)
+        self._robot.write_joint_state_to_sim(jpos, jvel, joint_ids=self._joint_ids, env_ids=env_ids)
+
+        # clear actions and phases
+        self._actions[env_ids] = 0.0
+        self._phase_left[env_ids] = 0.0
+        self._phase_right[env_ids] = 0.0
+        self._freq_left[env_ids] = self.cfg.flapping_freq_hz
+        self._freq_right[env_ids] = self.cfg.flapping_freq_hz
+
     def _get_observations(self) -> dict[str, torch.Tensor]:
         # base kin
         pos_w = self._robot.data.root_pos_w
@@ -299,4 +327,3 @@ class FlappingBotEnv(DirectRLEnv):
         fell = height <= self.cfg.terminate_ground_height
         timed_out = self.episode_length_buf >= self.max_episode_length - 1
         return fell, timed_out
-
