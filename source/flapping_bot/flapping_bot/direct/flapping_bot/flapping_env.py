@@ -421,19 +421,9 @@ class FlappingBotEnv(DirectRLEnv):
         )
         return {"policy": obs}
 
-    def _get_rewards(self) -> torch.Tensor:
-        height_error = self._robot.data.root_pos_w[:, 2] - self.cfg.hover_height
-        hover_reward = 1.0 - torch.tanh(torch.abs(height_error) / 0.2)
-        action_penalty = torch.sum(self._actions**2, dim=1) * 0.01
-        reward = hover_reward - action_penalty
-        return reward
+    def _get_rewards(self) -> torch.Tensor:\n        # Height tracking around hover\n        height = self._robot.data.root_pos_w[:, 2]\n        height_error = height - self.cfg.hover_height\n        r_height = 1.0 - torch.tanh(torch.abs(height_error) / 0.5)\n\n        # Attitude stability: minimize tilt (gx, gy near 0) and angular rates\n        g_b = self._robot.data.projected_gravity_b\n        tilt = torch.sqrt(g_b[:, 0]**2 + g_b[:, 1]**2)\n        r_tilt = 1.0 - torch.tanh(tilt * 2.0)\n        ang = torch.linalg.norm(self._robot.data.root_ang_vel_b, dim=1)\n        p_ang = 0.05 * torch.tanh(ang)\n\n        # Forward flight along body x (positive)\n        v_fwd = torch.clamp(self._robot.data.root_lin_vel_b[:, 0], min=0.0)\n        r_fwd = torch.tanh(v_fwd / 2.0)\n\n        # Action penalty\n        p_act = 0.01 * torch.sum(self._actions**2, dim=1)\n\n        reward = 0.5 * r_height + 0.3 * r_tilt + 0.3 * r_fwd - p_act - p_ang\n        return reward
 
-    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        height = self._robot.data.root_pos_w[:, 2]
-        lower, upper = self.cfg.terminate_height_bounds
-        fell = torch.logical_or(height < lower, height > upper)
-        timed_out = self.episode_length_buf >= self.max_episode_length - 1
-        return fell, timed_out
+    def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:\n        height = self._robot.data.root_pos_w[:, 2]\n        fell = height <= self.cfg.terminate_ground_height\n        timed_out = self.episode_length_buf >= self.max_episode_length - 1\n        return fell, timed_out
 
     # ---------------------------------------------------------------------
     # Reset handling
@@ -456,5 +446,7 @@ class FlappingBotEnv(DirectRLEnv):
         self._mid_tail_cmd_filt[env_ids] = 0.0
         self._mid_tail_cmd_prev[env_ids] = 0.0
         # Mid-tail aerodynamics enabled by default; no zeroing
+
+
 
 
