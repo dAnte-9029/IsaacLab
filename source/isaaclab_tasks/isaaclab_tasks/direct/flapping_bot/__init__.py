@@ -26,21 +26,21 @@ except Exception:  # pragma: no cover - best-effort path fix for local dev
     if str(_ext_root) not in sys.path:
         sys.path.insert(0, str(_ext_root))
 
-from . import agents  # noqa: E402
+from .agents.rsl_rl_ppo_cfg import FlappingBotPPORunnerCfg  # noqa: E402
+
+# Import environment classes directly to avoid string-based dynamic imports.
+from flapping_bot.flapping_bot.direct.flapping_bot.flapping_env import (  # noqa: E402
+    FlappingBotEnv,
+    FlappingBotEnvCfg,
+)
 
 
 gym.register(
     id="Isaac-FlappingBot-Direct-v0",
-    entry_point=(
-        "flapping_bot.flapping_bot.direct.flapping_bot.flapping_env:FlappingBotEnv"
-    ),
+    entry_point=FlappingBotEnv,
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": (
-            "flapping_bot.flapping_bot.direct.flapping_bot.flapping_env:FlappingBotEnvCfg"
-        ),
-        "rsl_rl_cfg_entry_point": (
-            f"{agents.__name__}.rsl_rl_ppo_cfg:FlappingBotPPORunnerCfg"
-        ),
+        "env_cfg_entry_point": FlappingBotEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotPPORunnerCfg,
     },
 )
