@@ -25,11 +25,11 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     # episode / control props
     episode_length_s = 10.0
     decimation = 2
-    action_space = 4
-    observation_space = 19
+    action_space = 3
+    observation_space = 17
     state_space = 0
     action_scale = 1.0
-    hover_height = 0.3
+    hover_height = 10.0
 
     # UI configuration: disable custom UI window to avoid Manager visualizer warnings
     ui_window_class_type = None
@@ -57,10 +57,10 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
         "right_wing",
         "left_tail",
         "right_tail",
-        "mid_tail",
     )
     joint_limit_softness: float = 0.98  # shrink hard limits slightly to avoid instability
     terminate_height_bounds: tuple[float, float] = (0.05, 2.0)
+    terminate_ground_height: float = 0.05
     qsm: FlappingQSMCfg = FlappingQSMCfg(
         wings=(
             WingQSMCfg(
@@ -99,12 +99,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     # Keep disabled by default for stability.
     mass_props_enable: bool = False
     mass_props_path: str | None = None  # If None, uses extension default config/mass_props.json
-    # First-order smoothing for mid-tail commands (seconds). 0 disables smoothing.
-    mid_tail_cmd_tau: float = 0.0
-    # Optional mid-tail rate limit (deg/s). 0 disables rate limiting.
-    mid_tail_rate_limit_deg_s: float = 0.0
-    # Include mid-tail in QSM aerodynamics (keep True; no switch per user request)
-    use_mid_tail_qsm: bool = True
+    # Mid-tail not used in current model; related knobs removed
 
 
 class FlappingBotEnv(DirectRLEnv):
@@ -136,10 +131,10 @@ class FlappingBotEnv(DirectRLEnv):
         requested = [n for n in self.cfg.controlled_joints if n in available_names]
         missing = [n for n in self.cfg.controlled_joints if n not in available_names]
         if missing:
-        if missing:        if missing:
-            print(f"[WARN] Missing controlled joints in URDF: {missing}")
+            print(f"[WARN] Missing controlled joints in URDF, skipping: {missing}")
         if not requested:
             raise RuntimeError("No controlled joints resolved. Check URDF and controlled_joints config.")
+        joint_ids, joint_names = self._robot.find_joints(requested, preserve_order=True)
         # Use resolved joints only (allows optional joints like mid_tail to be absent)
         self._joint_ids = joint_ids
         self._num_actuators = len(joint_ids)
@@ -197,10 +192,16 @@ class FlappingBotEnv(DirectRLEnv):
                 # Non-fatal: keep defaults if override fails
                 pass
 
-        if cfg.qsm and getattr(cfg.qsm, "wings", None):
-            # 仅保留当�?URDF 中存在的关节对应的翼面配�?            filtered_wings = [ (w if isinstance(w, WingQSMCfg) else WingQSMCfg(**w)) for w in cfg.qsm.wings if (w if isinstance(w, WingQSMCfg) else WingQSMCfg(**w)).joint_name in self._resolved_joint_names]
-            if not filtered_wings:
-                filtered_wings = []
+        if cfg.qsm and cfg.qsm.wings:
+            # Build typed wings and filter by available joints
+            typed_wings = []
+            for w in cfg.qsm.wings:
+                try:
+                    w_cfg = w if isinstance(w, WingQSMCfg) else WingQSMCfg(**w)
+                except Exception:
+                    continue
+                typed_wings.append(w_cfg)
+            filtered_wings = [w for w in typed_wings if w.joint_name in self._resolved_joint_names]
             qsm_cfg = FlappingQSMCfg(wings=tuple(filtered_wings), air_density=getattr(cfg.qsm, "air_density", 1.225))
             self._qsm_model = QuasiSteadyWingModel(qsm_cfg, self.device)
             self._qsm_force = torch.zeros(self.num_envs, 1, 3, device=self.device)
@@ -245,25 +246,15 @@ class FlappingBotEnv(DirectRLEnv):
         self._IDX_LEFT_WING = name_to_idx.get("left_wing")
         self._IDX_RIGHT_WING = name_to_idx.get("right_wing")
         self._IDX_LEFT_TAIL = name_to_idx.get("left_tail")
-        self._IDX_RIGHT_TAIL = name_to_idx.get("right_tail")
-        self._IDX_MID_TAIL = name_to_idx.get("mid_tail")  # 可能不存�?
-        # Action indices: [freq, tail_pitch, tail_roll, mid_tail]
+        self._IDX_RIGHT_TAIL = name_to_idx.get("right_tail")\n        # Action indices: [freq, tail_pitch, tail_roll]
         self._ACT_IDX_FREQ = 0
         self._ACT_IDX_TAIL_PITCH = 1
-        self._ACT_IDX_TAIL_ROLL = 2
-        self._ACT_IDX_MID_TAIL = 3
-
-        # Phase accumulators for flapping (radians); robust to time-varying frequency
+        self._ACT_IDX_TAIL_ROLL = 2\n        # Phase accumulators for flapping (radians); robust to time-varying frequency
         self._phase_left = torch.zeros(self.num_envs, device=self.device)
         self._phase_right = torch.zeros(self.num_envs, device=self.device)
         # Frequency buffers (Hz)
         self._freq_left = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)
-        self._freq_right = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)
-        # Mid-tail command filters/state
-        self._mid_tail_cmd_filt = torch.zeros(self.num_envs, device=self.device)
-        self._mid_tail_cmd_prev = torch.zeros(self.num_envs, device=self.device)
-
-    # ---------------------------------------------------------------------
+        self._freq_right = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)\n        # ---------------------------------------------------------------------
     # Scene / asset setup
     # ---------------------------------------------------------------------
     def _setup_scene(self):
@@ -306,7 +297,7 @@ class FlappingBotEnv(DirectRLEnv):
         self._right_tail_cmd = torch.clamp(tail_pitch - tail_roll,
                                            self._joint_lower_limits[self._IDX_RIGHT_TAIL],
                                            self._joint_upper_limits[self._IDX_RIGHT_TAIL])
-        # Mid tail（可选）
+        # Mid tail锛堝彲閫夛級
         if self._IDX_MID_TAIL is not None:
             mid_max = torch.minimum(
                 torch.abs(self._joint_lower_limits[self._IDX_MID_TAIL]),
@@ -330,11 +321,11 @@ class FlappingBotEnv(DirectRLEnv):
             else:
                 self._mid_tail_cmd_prev = self._mid_tail_cmd_filt
         else:
-            # 无中垂尾时，命令保持�?0
+            # 鏃犱腑鍨傚熬鏃讹紝鍛戒护淇濇寔涓?0
             self._mid_tail_cmd_prev.zero_()
 
     def _apply_action(self):
-        # Advance phase by instantaneous frequency: phase += 2π f dt
+        # Advance phase by instantaneous frequency: phase += 2蟺 f dt
         two_pi = 6.283185307179586
         self._phase_left += two_pi * self._freq_left * self.physics_dt
         self._phase_right += two_pi * self._freq_right * self.physics_dt
@@ -345,39 +336,17 @@ class FlappingBotEnv(DirectRLEnv):
         jt = self._joint_targets.clone()
 
         # Wing sine targets with asymmetric per-side ranges around the same hinge axis:
-        # Left in [min_limit, 0], Right in [0, max_limit]. This matches“left -A�?, right +A�?”的对称关系�?        phase01_L = 0.5 * (torch.sin(self._phase_left) + 1.0)
-        phase01_R = 0.5 * (torch.sin(self._phase_right) + 1.0)
-
-        # Left wing: clamp upper to 0 so其上界为 0（即负半轴活动）
-        lower_L_full = self._joint_lower_limits[self._IDX_LEFT_WING]
-        upper_L_full = self._joint_upper_limits[self._IDX_LEFT_WING]
-        zero_L = torch.zeros_like(upper_L_full)
-        upper_L = torch.minimum(upper_L_full, zero_L)
-        span_L = (upper_L - lower_L_full) * 0.95
-        jt[:, self._IDX_LEFT_WING] = torch.clamp(lower_L_full + span_L * phase01_L, lower_L_full, upper_L)
-
-        # Right wing: clamp lower to 0 so其下界为 0（即正半轴活动）
-        lower_R_full = self._joint_lower_limits[self._IDX_RIGHT_WING]
-        upper_R_full = self._joint_upper_limits[self._IDX_RIGHT_WING]
-        zero_R = torch.zeros_like(lower_R_full)
-        lower_R = torch.maximum(lower_R_full, zero_R)
-        span_R = (upper_R_full - lower_R) * 0.95
-        # 方向取“由 +A �?0”以与左翼同时趋�?0°
-        jt[:, self._IDX_RIGHT_WING] = torch.clamp(upper_R_full - span_R * phase01_R, lower_R, upper_R_full)
-
-        # Override: symmetric ±range around 0 for both wings
+        # Wing sine targets symmetric around 0 for both wings
         lower_L_full = self._joint_lower_limits[self._IDX_LEFT_WING]
         upper_L_full = self._joint_upper_limits[self._IDX_LEFT_WING]
         lower_R_full = self._joint_lower_limits[self._IDX_RIGHT_WING]
         upper_R_full = self._joint_upper_limits[self._IDX_RIGHT_WING]
         amp_L = torch.minimum(torch.abs(lower_L_full), torch.abs(upper_L_full)) * 0.95
         amp_R = torch.minimum(torch.abs(lower_R_full), torch.abs(upper_R_full)) * 0.95
-        amp = torch.minimum(amp_L, amp_R)
         sL = torch.sin(self._phase_left)
         sR = torch.sin(self._phase_right)
-        jt[:, self._IDX_LEFT_WING] = torch.clamp(+amp * sL, lower_L_full, upper_L_full)
-        jt[:, self._IDX_RIGHT_WING] = torch.clamp(+amp * sR, lower_R_full, upper_R_full)
-
+        jt[:, self._IDX_LEFT_WING] = torch.clamp(amp_L * sL, lower_L_full, upper_L_full)
+        jt[:, self._IDX_RIGHT_WING] = torch.clamp(amp_R * sR, lower_R_full, upper_R_full)
         # Tails
         jt[:, self._IDX_LEFT_TAIL] = self._left_tail_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_tail_cmd
@@ -487,6 +456,5 @@ class FlappingBotEnv(DirectRLEnv):
         self._mid_tail_cmd_filt[env_ids] = 0.0
         self._mid_tail_cmd_prev[env_ids] = 0.0
         # Mid-tail aerodynamics enabled by default; no zeroing
-
 
 

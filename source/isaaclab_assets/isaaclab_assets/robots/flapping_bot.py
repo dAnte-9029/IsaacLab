@@ -36,7 +36,7 @@ FLAPPING_BOT_CFG = ArticulationCfg(
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.3),
+        pos=(0.0, 0.0, 10.0),
         rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos={
             "left_wing": -0.3,
