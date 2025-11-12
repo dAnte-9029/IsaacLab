@@ -19,8 +19,10 @@ import gymnasium as gym
 try:  # pragma: no cover - import guard
     import flapping_bot  # noqa: F401
 except Exception:  # pragma: no cover - best-effort path fix for local dev
-    _tasks_dir = Path(__file__).resolve().parents[3]  # IsaacLab/source
-    _ext_root = _tasks_dir / "flapping_bot"
+    # __file__ = .../IsaacLab/source/isaaclab_tasks/isaaclab_tasks/direct/flapping_bot/__init__.py
+    # We want to add .../IsaacLab/source/flapping_bot to sys.path
+    _source_dir = Path(__file__).resolve().parents[4]
+    _ext_root = _source_dir / "flapping_bot"
     if str(_ext_root) not in sys.path:
         sys.path.insert(0, str(_ext_root))
 
@@ -42,4 +44,3 @@ gym.register(
         ),
     },
 )
-
