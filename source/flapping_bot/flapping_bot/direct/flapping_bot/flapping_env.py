@@ -215,23 +215,10 @@ class FlappingBotEnv(DirectRLEnv):
                 local = len(self._qsm_joint_indices)
                 self._qsm_joint_indices.append(idx)
                 self._qsm_name_to_local[wing.name] = local
-            self._qsm_joint_tensor_idx = torch.tensor(self._qsm_joint_indices, dtype=torch.long, device=self.device)
-                        # Resolve rigid body id for mid-tail link to apply F/M at the body (not root)
-                        try:
-                # Candidate link names for mid-tail from URDF
-                candidates = [
-                    "a_9g_servo_arm1_3",
-                    "mid_tail",
-                    "mid_tail_connector",
-                ]
-                                if len(body_ids) > 0:
-                                        # Informative print to confirm per-body application path
-                    try:
-                        name_str = body_names[0] if isinstance(body_names, (list, tuple)) and body_names else str(body_names)
-                        print(f"[AERO] mid-tail rigid body resolved: name='{name_str}', id={                    except Exception:
-                        print(f"[AERO] mid-tail rigid body id={            except Exception:
-                            if                 cand_str = ", ".join(candidates)
-                print(f"[AERO][WARN] Could not resolve mid-tail rigid body. Candidates tried: [{cand_str}]. Applying resultant at root.")
+            self._qsm_joint_tensor_idx = torch.tensor(
+                self._qsm_joint_indices, dtype=torch.long, device=self.device
+            )
+        # Root rigid body index (apply resultant at root if needed)
         self._root_id = 0
 
         # Control indices for convenience (resolved from URDF)
