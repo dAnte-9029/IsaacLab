@@ -11,6 +11,7 @@ import torch
 import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation, ArticulationCfg
 from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg
+from isaaclab.envs.common import ViewerCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
@@ -30,9 +31,17 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     state_space: int = 0
     action_scale: float = 1.0
     hover_height: float = 10.0
+    min_flap_hz: float = 1.0
 
     # UI
     ui_window_class_type = None
+    viewer: ViewerCfg = ViewerCfg(
+        origin_type="asset_root",
+        asset_name="robot",
+        env_index=0,
+        eye=(8.0, 0.0, 4.0),
+        lookat=(0.0, 0.0, 2.0),
+    )
 
     # physics
     sim: SimulationCfg = SimulationCfg(
@@ -202,6 +211,7 @@ class FlappingBotEnv(DirectRLEnv):
         # frequency from action 0 in [0, 5] Hz
         if self.cfg.use_action_frequency:
             f = 0.5 * (self._actions[:, 0] + 1.0) * 5.0
+            f = torch.clamp(f, min=self.cfg.min_flap_hz)
             self._freq_left = f
             self._freq_right = f
         else:
