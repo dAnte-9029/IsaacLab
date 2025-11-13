@@ -208,22 +208,22 @@ class FlappingBotEnv(DirectRLEnv):
             self._freq_left.fill_(self.cfg.flapping_freq_hz)
             self._freq_right.fill_(self.cfg.flapping_freq_hz)
 
-        # tail: action1 pitch, action2 roll
-        tail_max_L = self._joint_upper_limits[self._IDX_LEFT_TAIL]
-        tail_max_R = self._joint_upper_limits[self._IDX_RIGHT_TAIL]
-        tail_max = torch.minimum(tail_max_L, tail_max_R)
-        tail_pitch = self._actions[:, 1] * tail_max
-        tail_roll = self._actions[:, 2] * tail_max
-        self._left_tail_cmd = torch.clamp(
-            tail_pitch + tail_roll,
-            self._joint_lower_limits[self._IDX_LEFT_TAIL],
-            self._joint_upper_limits[self._IDX_LEFT_TAIL],
-        )
-        self._right_tail_cmd = torch.clamp(
-            tail_pitch - tail_roll,
-            self._joint_lower_limits[self._IDX_RIGHT_TAIL],
-            self._joint_upper_limits[self._IDX_RIGHT_TAIL],
-        )
+        # tail: 同号控制，范围 [-30deg, 41.5deg]
+        tail_lower_target = torch.tensor(-0.5235987756, device=self.device)  # -30 deg
+        tail_upper_target = torch.tensor(0.724311, device=self.device)       # 41.5 deg
+        # 取与 URDF 软限位的交集，保证安全
+        l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], tail_lower_target)
+        l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], tail_upper_target)
+        r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], tail_lower_target)
+        r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], tail_upper_target)
+        # 左右统一采用更保守的上下限，确保对称
+        lower = torch.minimum(l_lower, r_lower)
+        upper = torch.minimum(l_upper, r_upper)
+        mid = 0.5 * (lower + upper)
+        half = 0.5 * (upper - lower)
+        tail_cmd = torch.clamp(mid + half * self._actions[:, 1], lower, upper)
+        self._left_tail_cmd = tail_cmd
+        self._right_tail_cmd = tail_cmd
 
     def _apply_action(self):
         # advance phase
@@ -231,16 +231,21 @@ class FlappingBotEnv(DirectRLEnv):
         self._phase_left = (self._phase_left + two_pi * self._freq_left * self.physics_dt) % two_pi
         self._phase_right = (self._phase_right + two_pi * self._freq_right * self.physics_dt) % two_pi
 
-        # simple sinusoidal wing motion within limits (force strict symmetry by common amplitude)
-        wing_amp_L = 0.5 * (self._joint_upper_limits[self._IDX_LEFT_WING] - self._joint_lower_limits[self._IDX_LEFT_WING])
-        wing_amp_R = 0.5 * (self._joint_upper_limits[self._IDX_RIGHT_WING] - self._joint_lower_limits[self._IDX_RIGHT_WING])
-        wing_mid_L = 0.5 * (self._joint_upper_limits[self._IDX_LEFT_WING] + self._joint_lower_limits[self._IDX_LEFT_WING])
-        wing_mid_R = 0.5 * (self._joint_upper_limits[self._IDX_RIGHT_WING] + self._joint_lower_limits[self._IDX_RIGHT_WING])
-        wing_amp = torch.minimum(wing_amp_L, wing_amp_R)
+        # 机翼同号：范围目标 [-30deg, 30deg]，并与 URDF 软限位取交集后对称输出
+        target_lower = torch.tensor(-0.5235987756, device=self.device)
+        target_upper = torch.tensor(0.5235987756, device=self.device)
+        l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_WING], target_lower)
+        l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_WING], target_upper)
+        r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_WING], target_lower)
+        r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_WING], target_upper)
+        # 统一对称中心与幅度（取保守值）
+        mid_L = 0.5 * (l_lower + l_upper)
+        mid_R = 0.5 * (r_lower + r_upper)
+        amp = torch.minimum(0.5 * (l_upper - l_lower), 0.5 * (r_upper - r_lower))
 
         s = torch.sin(self._phase_left)
-        left_cmd = wing_mid_L + wing_amp * s
-        right_cmd = wing_mid_R - wing_amp * s  # enforce anti-phase symmetry
+        left_cmd = torch.clamp(mid_L + amp * s, l_lower, l_upper)
+        right_cmd = torch.clamp(mid_R + amp * s, r_lower, r_upper)
 
         jt = self._joint_targets
         jt[:, self._IDX_LEFT_WING] = left_cmd
