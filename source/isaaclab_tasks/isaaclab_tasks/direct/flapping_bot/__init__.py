@@ -20,11 +20,14 @@ try:  # pragma: no cover - import guard
     import flapping_bot  # noqa: F401
 except Exception:  # pragma: no cover - best-effort path fix for local dev
     # __file__ = .../IsaacLab/source/isaaclab_tasks/isaaclab_tasks/direct/flapping_bot/__init__.py
-    # We want to add .../IsaacLab/source/flapping_bot to sys.path
-    _source_dir = Path(__file__).resolve().parents[5]
-    _ext_root = _source_dir / "flapping_bot"
-    if str(_ext_root) not in sys.path:
-        sys.path.insert(0, str(_ext_root))
+    # We want to add .../IsaacLab/source/flapping_bot to sys.path. Be robust to path depth.
+    _here = Path(__file__).resolve()
+    for _p in _here.parents:
+        _candidate = _p / "flapping_bot"
+        if _candidate.exists():
+            if str(_candidate) not in sys.path:
+                sys.path.insert(0, str(_candidate))
+            break
 
 from .agents.rsl_rl_ppo_cfg import FlappingBotPPORunnerCfg  # noqa: E402
 
