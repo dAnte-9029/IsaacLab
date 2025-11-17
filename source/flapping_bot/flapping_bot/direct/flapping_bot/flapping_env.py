@@ -27,7 +27,8 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     episode_length_s: float = 10.0
     decimation: int = 2
     action_space: int = 3
-    observation_space: int = 14
+    # grouped frame stacking output dim (default stacks below -> 68)
+    observation_space: int = 68
     state_space: int = 0
     action_scale: float = 1.0
     hover_height: float = 10.0
@@ -41,6 +42,14 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     # action filtering (normalized action space [-1, 1])
     act_lpf_tau_s: float = 0.1  # 0: off; first-order low-pass time constant (s)
     act_rate_limit_per_s: float = 2.0  # 0: off; max |delta a| per second in normalized units
+    # grouped frame stacking (per-signal)
+    stack_gb: int = 6
+    stack_ang: int = 6
+    stack_vx: int = 6
+    stack_lin: int = 4
+    stack_z: int = 4
+    stack_tail: int = 4
+    stack_freq: int = 2
 
     # UI
     ui_window_class_type = None
@@ -179,6 +188,16 @@ class FlappingBotEnv(DirectRLEnv):
         self._actions = torch.zeros(self.num_envs, action_dim, device=self.device)
         self._act_lpf = torch.zeros_like(self._actions)
         self._act_cmd = torch.zeros_like(self._actions)
+        # grouped frame history buffers (N, K, D)
+        N = self.num_envs
+        self._hist_valid = torch.zeros(N, dtype=torch.bool, device=self.device)
+        self._hist_z = torch.zeros(N, self.cfg.stack_z, 1, device=self.device)
+        self._hist_lin = torch.zeros(N, self.cfg.stack_lin, 3, device=self.device)
+        self._hist_ang = torch.zeros(N, self.cfg.stack_ang, 3, device=self.device)
+        self._hist_gb = torch.zeros(N, self.cfg.stack_gb, 3, device=self.device)
+        self._hist_tail = torch.zeros(N, self.cfg.stack_tail, 2, device=self.device)
+        self._hist_freq = torch.zeros(N, self.cfg.stack_freq, 1, device=self.device)
+        self._hist_vx = torch.zeros(N, self.cfg.stack_vx, 1, device=self.device)
 
         # joint targets
         self._joint_targets = self._default_joint_pos.expand(self.num_envs, -1).clone()
@@ -348,6 +367,8 @@ class FlappingBotEnv(DirectRLEnv):
         self._phase_right[env_ids] = 0.0
         self._freq_left[env_ids] = self.cfg.flapping_freq_hz
         self._freq_right[env_ids] = self.cfg.flapping_freq_hz
+        # mark histories invalid for these envs (will be filled on next obs)
+        self._hist_valid[env_ids] = False
         # commands: randomize or set defaults per env
         if self.cfg.randomize_commands:
             vl, vh = self.cfg.vx_cmd_range
@@ -382,7 +403,46 @@ class FlappingBotEnv(DirectRLEnv):
         # forward velocity tracking: use error (vx - vx_cmd)
         vx_err_s = (lin_vel_b[:, 0] - self._vx_cmd).unsqueeze(1) / 5.0
 
-        obs = torch.cat([z_err.unsqueeze(1), lin_s, ang_s, g_s, tail_s, freq_s, vx_err_s], dim=1)
+        # update histories (roll and assign newest at -1)
+        def _roll_and_set(buf, new):
+            # buf: (N,K,D), new: (N,D)
+            buf.roll(shifts=-1, dims=1)
+            buf[:, -1, :] = new
+
+        # fill invalid envs fully with current values
+        if (~self._hist_valid).any():
+            ids = (~self._hist_valid).nonzero(as_tuple=False).squeeze(-1)
+            if ids.numel() > 0:
+                self._hist_z[ids] = z_err[ids].unsqueeze(1).expand(-1, self.cfg.stack_z, -1)
+                self._hist_lin[ids] = lin_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_lin, -1)
+                self._hist_ang[ids] = ang_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_ang, -1)
+                self._hist_gb[ids] = g_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_gb, -1)
+                self._hist_tail[ids] = tail_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_tail, -1)
+                self._hist_freq[ids] = freq_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_freq, -1)
+                self._hist_vx[ids] = vx_err_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_vx, -1)
+                self._hist_valid[ids] = True
+
+        _roll_and_set(self._hist_z, z_err.unsqueeze(1))
+        _roll_and_set(self._hist_lin, lin_s)
+        _roll_and_set(self._hist_ang, ang_s)
+        _roll_and_set(self._hist_gb, g_s)
+        _roll_and_set(self._hist_tail, tail_s)
+        _roll_and_set(self._hist_freq, freq_s)
+        _roll_and_set(self._hist_vx, vx_err_s)
+
+        # flatten per group and concatenate in prescribed order
+        obs = torch.cat(
+            [
+                self._hist_z.reshape(self.num_envs, -1),
+                self._hist_lin.reshape(self.num_envs, -1),
+                self._hist_ang.reshape(self.num_envs, -1),
+                self._hist_gb.reshape(self.num_envs, -1),
+                self._hist_tail.reshape(self.num_envs, -1),
+                self._hist_freq.reshape(self.num_envs, -1),
+                self._hist_vx.reshape(self.num_envs, -1),
+            ],
+            dim=1,
+        )
         return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
