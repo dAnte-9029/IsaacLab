@@ -38,6 +38,9 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     vx_cmd_range: tuple[float, float] = (0.0, 5.0)
     height_cmd_range: tuple[float, float] = (8.0, 12.0)
     min_flap_hz: float = 1.0
+    # action filtering (normalized action space [-1, 1])
+    act_lpf_tau_s: float = 0.1  # 0: off; first-order low-pass time constant (s)
+    act_rate_limit_per_s: float = 2.0  # 0: off; max |delta a| per second in normalized units
 
     # UI
     ui_window_class_type = None
@@ -123,6 +126,8 @@ class FlappingBotEnv(DirectRLEnv):
         self._default_joint_pos: torch.Tensor | None = None
         self._joint_targets: torch.Tensor | None = None
         self._actions: torch.Tensor | None = None
+        self._act_lpf: torch.Tensor | None = None
+        self._act_cmd: torch.Tensor | None = None
 
         # wing phase and frequency
         self._phase_left: torch.Tensor | None = None
@@ -172,6 +177,8 @@ class FlappingBotEnv(DirectRLEnv):
         # action buffer
         action_dim = gym.spaces.flatdim(self.single_action_space)
         self._actions = torch.zeros(self.num_envs, action_dim, device=self.device)
+        self._act_lpf = torch.zeros_like(self._actions)
+        self._act_cmd = torch.zeros_like(self._actions)
 
         # joint targets
         self._joint_targets = self._default_joint_pos.expand(self.num_envs, -1).clone()
@@ -219,11 +226,25 @@ class FlappingBotEnv(DirectRLEnv):
     # Control
     # ------------------------------------------------------------------
     def _pre_physics_step(self, actions: torch.Tensor):
+        # raw actions in [-1, 1]
         self._actions = actions.clamp(-1.0, 1.0)
+        # low-pass filter
+        if self.cfg.act_lpf_tau_s > 0.0:
+            alpha = float(self.step_dt) / (self.cfg.act_lpf_tau_s + float(self.step_dt))
+            self._act_lpf = self._act_lpf + alpha * (self._actions - self._act_lpf)
+        else:
+            self._act_lpf = self._actions
+        # slew-rate limit
+        if self.cfg.act_rate_limit_per_s > 0.0:
+            max_delta = self.cfg.act_rate_limit_per_s * float(self.step_dt)
+            delta = torch.clamp(self._act_lpf - self._act_cmd, min=-max_delta, max=max_delta)
+            self._act_cmd = self._act_cmd + delta
+        else:
+            self._act_cmd = self._act_lpf
 
         # frequency from action 0 in [0, 5] Hz
         if self.cfg.use_action_frequency:
-            f = 0.5 * (self._actions[:, 0] + 1.0) * 5.0
+            f = 0.5 * (self._act_cmd[:, 0] + 1.0) * 5.0
             f = torch.clamp(f, min=self.cfg.min_flap_hz)
             self._freq_left = f
             self._freq_right = f
@@ -245,8 +266,8 @@ class FlappingBotEnv(DirectRLEnv):
         mid = 0.5 * (lower + upper)
         half = 0.5 * (upper - lower)
         # 俯仰/滚转分量（均映射到 [-half, +half]）
-        pitch_off = half * self._actions[:, 1]
-        roll_off = half * self._actions[:, 2]
+        pitch_off = half * self._act_cmd[:, 1]
+        roll_off = half * self._act_cmd[:, 2]
         # 左右尾翼：同号俯仰 + 反号滚转
         left_cmd  = torch.clamp(mid + pitch_off + roll_off,  l_lower, l_upper)
         right_cmd = torch.clamp(mid + pitch_off - roll_off,  r_lower, r_upper)
@@ -381,7 +402,7 @@ class FlappingBotEnv(DirectRLEnv):
         r_fwd = torch.tanh(v_fwd / 2.0)
 
         # action penalty
-        p_act = 0.01 * torch.sum(self._actions ** 2, dim=1)
+        p_act = 0.01 * torch.sum(self._act_cmd ** 2, dim=1)
 
         return 0.5 * r_height + 0.3 * r_tilt + 0.3 * r_fwd - p_act - p_ang
 
