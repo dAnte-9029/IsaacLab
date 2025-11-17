@@ -379,9 +379,10 @@ class FlappingBotEnv(DirectRLEnv):
         r_den = torch.maximum(self._joint_upper_limits[r_idx].abs(), self._joint_lower_limits[r_idx].abs())
         tail_s = torch.stack([jpos[:, l_idx] / l_den, jpos[:, r_idx] / r_den], dim=1)
         freq_s = self._freq_left.unsqueeze(1) / 5.0
-        vx_cmd_s = self._vx_cmd.unsqueeze(1) / 5.0
+        # forward velocity tracking: use error (vx - vx_cmd)
+        vx_err_s = (lin_vel_b[:, 0] - self._vx_cmd).unsqueeze(1) / 5.0
 
-        obs = torch.cat([z_err.unsqueeze(1), lin_s, ang_s, g_s, tail_s, freq_s, vx_cmd_s], dim=1)
+        obs = torch.cat([z_err.unsqueeze(1), lin_s, ang_s, g_s, tail_s, freq_s, vx_err_s], dim=1)
         return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
