@@ -127,10 +127,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # multi-gpu training configuration
     if args_cli.distributed:
+        # per-rank device mapping
         env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"
         agent_cfg.device = f"cuda:{app_launcher.local_rank}"
 
-        # set seed to have diversity in different threads
+        # derive world size from environment if present (torchrun sets WORLD_SIZE)
+        try:
+            world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        except Exception:
+            world_size = 1
+        # split envs across ranks if user specified total num_envs
+        if args_cli.num_envs is not None and args_cli.num_envs > 0 and world_size > 1:
+            # ensure at least 1 env per rank
+            env_cfg.scene.num_envs = max(1, args_cli.num_envs // world_size)
+
+        # set seed to have diversity across ranks
         seed = agent_cfg.seed + app_launcher.local_rank
         env_cfg.seed = seed
         agent_cfg.seed = seed
@@ -145,6 +156,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     print(f"Exact experiment name requested from command line: {log_dir}")
     if agent_cfg.run_name:
         log_dir += f"_{agent_cfg.run_name}"
+    # avoid log collisions across ranks
+    if args_cli.distributed:
+        log_dir += f"_rank{app_launcher.local_rank}"
     log_dir = os.path.join(log_root_path, log_dir)
 
     # set the IO descriptors export flag if requested
