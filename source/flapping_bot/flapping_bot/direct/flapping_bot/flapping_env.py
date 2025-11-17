@@ -231,22 +231,27 @@ class FlappingBotEnv(DirectRLEnv):
             self._freq_left.fill_(self.cfg.flapping_freq_hz)
             self._freq_right.fill_(self.cfg.flapping_freq_hz)
 
-        # tail: 同号控制，范围 [-30deg, 41.5deg]
+        # tail: a1=俯仰(pitch)，a2=滚转(roll)，耦合成左右尾翼
         tail_lower_target = torch.tensor(-0.5235987756, device=self.device)  # -30 deg
         tail_upper_target = torch.tensor(0.724311, device=self.device)       # 41.5 deg
-        # 取与 URDF 软限位的交集，保证安全
+        # 与各自软限位求交集（安全范围）
         l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], tail_lower_target)
         l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], tail_upper_target)
         r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], tail_lower_target)
         r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], tail_upper_target)
-        # 左右统一采用更保守的上下限，确保对称
-        lower = torch.minimum(l_lower, r_lower)
+        # 左右共同工作区取交集：下界取更大者，上界取更小者
+        lower = torch.maximum(l_lower, r_lower)
         upper = torch.minimum(l_upper, r_upper)
         mid = 0.5 * (lower + upper)
         half = 0.5 * (upper - lower)
-        tail_cmd = torch.clamp(mid + half * self._actions[:, 1], lower, upper)
-        self._left_tail_cmd = tail_cmd
-        self._right_tail_cmd = tail_cmd
+        # 俯仰/滚转分量（均映射到 [-half, +half]）
+        pitch_off = half * self._actions[:, 1]
+        roll_off = half * self._actions[:, 2]
+        # 左右尾翼：同号俯仰 + 反号滚转
+        left_cmd  = torch.clamp(mid + pitch_off + roll_off,  l_lower, l_upper)
+        right_cmd = torch.clamp(mid + pitch_off - roll_off,  r_lower, r_upper)
+        self._left_tail_cmd = left_cmd
+        self._right_tail_cmd = right_cmd
 
     def _apply_action(self):
         # advance phase
