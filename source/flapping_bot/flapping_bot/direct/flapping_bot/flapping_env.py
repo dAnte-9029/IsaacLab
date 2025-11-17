@@ -27,7 +27,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     episode_length_s: float = 10.0
     decimation: int = 2
     action_space: int = 3
-    observation_space: int = 17
+    observation_space: int = 14
     state_space: int = 0
     action_scale: float = 1.0
     hover_height: float = 10.0
@@ -368,7 +368,8 @@ class FlappingBotEnv(DirectRLEnv):
         jpos = self._robot.data.joint_pos[:, self._joint_ids]
 
         # normalized/scaled observations + command targets
-        pos_s = pos_w[:, 0:3] / 10.0
+        # remove absolute x,y (invariance), keep height as error to command
+        z_err = (pos_w[:, 2] - self._height_cmd) / 20.0
         lin_s = lin_vel_b[:, 0:3] / 10.0
         ang_s = ang_vel_b[:, 0:3] / 10.0
         g_s = g_b[:, 0:3]
@@ -379,9 +380,8 @@ class FlappingBotEnv(DirectRLEnv):
         tail_s = torch.stack([jpos[:, l_idx] / l_den, jpos[:, r_idx] / r_den], dim=1)
         freq_s = self._freq_left.unsqueeze(1) / 5.0
         vx_cmd_s = self._vx_cmd.unsqueeze(1) / 5.0
-        h_cmd_s = self._height_cmd.unsqueeze(1) / 20.0
 
-        obs = torch.cat([pos_s, lin_s, ang_s, g_s, tail_s, freq_s, vx_cmd_s, h_cmd_s], dim=1)
+        obs = torch.cat([z_err.unsqueeze(1), lin_s, ang_s, g_s, tail_s, freq_s, vx_cmd_s], dim=1)
         return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
