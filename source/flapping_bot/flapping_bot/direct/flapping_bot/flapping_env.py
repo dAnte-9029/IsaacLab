@@ -31,6 +31,12 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     state_space: int = 0
     action_scale: float = 1.0
     hover_height: float = 10.0
+    # command targets (added to obs)
+    vx_cmd: float = 3.0
+    height_cmd: float = 10.0
+    randomize_commands: bool = False
+    vx_cmd_range: tuple[float, float] = (0.0, 5.0)
+    height_cmd_range: tuple[float, float] = (8.0, 12.0)
     min_flap_hz: float = 1.0
 
     # UI
@@ -68,6 +74,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     )
     joint_limit_softness: float = 0.98
     terminate_ground_height: float = 0.05
+    terminate_tilt_deg: float = 60.0  # terminate when tilt exceeds this (approx roll/pitch limit)
 
     # QSM (optional; kept minimal and robust to missing joints)
     qsm: FlappingQSMCfg = FlappingQSMCfg(
@@ -126,6 +133,9 @@ class FlappingBotEnv(DirectRLEnv):
         # tail command buffers
         self._left_tail_cmd: torch.Tensor | None = None
         self._right_tail_cmd: torch.Tensor | None = None
+        # command buffers
+        self._vx_cmd: torch.Tensor | None = None
+        self._height_cmd: torch.Tensor | None = None
 
         # indices
         self._IDX_LEFT_WING = None
@@ -193,6 +203,9 @@ class FlappingBotEnv(DirectRLEnv):
         self._phase_right = torch.zeros(self.num_envs, device=self.device)
         self._freq_left = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)
         self._freq_right = torch.full((self.num_envs,), self.cfg.flapping_freq_hz, device=self.device)
+        # initialize commands
+        self._vx_cmd = torch.full((self.num_envs,), float(self.cfg.vx_cmd), device=self.device)
+        self._height_cmd = torch.full((self.num_envs,), float(self.cfg.height_cmd), device=self.device)
 
     # ------------------------------------------------------------------
     # Scene
@@ -309,6 +322,15 @@ class FlappingBotEnv(DirectRLEnv):
         self._phase_right[env_ids] = 0.0
         self._freq_left[env_ids] = self.cfg.flapping_freq_hz
         self._freq_right[env_ids] = self.cfg.flapping_freq_hz
+        # commands: randomize or set defaults per env
+        if self.cfg.randomize_commands:
+            vl, vh = self.cfg.vx_cmd_range
+            zl, zh = self.cfg.height_cmd_range
+            self._vx_cmd[env_ids] = torch.rand_like(self._vx_cmd[env_ids]) * (vh - vl) + vl
+            self._height_cmd[env_ids] = torch.rand_like(self._height_cmd[env_ids]) * (zh - zl) + zl
+        else:
+            self._vx_cmd[env_ids] = float(self.cfg.vx_cmd)
+            self._height_cmd[env_ids] = float(self.cfg.height_cmd)
 
     def _get_observations(self) -> dict[str, torch.Tensor]:
         # base kin
@@ -319,17 +341,21 @@ class FlappingBotEnv(DirectRLEnv):
         # tail joint pos (if any)
         jpos = self._robot.data.joint_pos[:, self._joint_ids]
 
-        obs = torch.cat(
-            [
-                pos_w[:, 0:3],
-                lin_vel_b[:, 0:3],
-                ang_vel_b[:, 0:3],
-                g_b[:, 0:3],
-                jpos[:, [self._IDX_LEFT_TAIL, self._IDX_RIGHT_TAIL]],
-                self._freq_left.unsqueeze(1),
-            ],
-            dim=1,
-        )
+        # normalized/scaled observations + command targets
+        pos_s = pos_w[:, 0:3] / 10.0
+        lin_s = lin_vel_b[:, 0:3] / 10.0
+        ang_s = ang_vel_b[:, 0:3] / 10.0
+        g_s = g_b[:, 0:3]
+        # tail normalized by max magnitude of soft limits
+        l_idx, r_idx = self._IDX_LEFT_TAIL, self._IDX_RIGHT_TAIL
+        l_den = torch.maximum(self._joint_upper_limits[l_idx].abs(), self._joint_lower_limits[l_idx].abs())
+        r_den = torch.maximum(self._joint_upper_limits[r_idx].abs(), self._joint_lower_limits[r_idx].abs())
+        tail_s = torch.stack([jpos[:, l_idx] / l_den, jpos[:, r_idx] / r_den], dim=1)
+        freq_s = self._freq_left.unsqueeze(1) / 5.0
+        vx_cmd_s = self._vx_cmd.unsqueeze(1) / 5.0
+        h_cmd_s = self._height_cmd.unsqueeze(1) / 20.0
+
+        obs = torch.cat([pos_s, lin_s, ang_s, g_s, tail_s, freq_s, vx_cmd_s, h_cmd_s], dim=1)
         return {"policy": obs}
 
     def _get_rewards(self) -> torch.Tensor:
@@ -357,5 +383,10 @@ class FlappingBotEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         height = self._robot.data.root_pos_w[:, 2]
         fell = height <= self.cfg.terminate_ground_height
+        # tilt termination using projected gravity in body frame
+        g_b = self._robot.data.projected_gravity_b
+        tilt = torch.sqrt(g_b[:, 0] ** 2 + g_b[:, 1] ** 2)
+        tilt_thr = torch.sin(torch.deg2rad(torch.tensor(self.cfg.terminate_tilt_deg, device=self.device)))
+        fell = fell | (tilt > tilt_thr)
         timed_out = self.episode_length_buf >= self.max_episode_length - 1
         return fell, timed_out
