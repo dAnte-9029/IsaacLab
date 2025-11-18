@@ -24,7 +24,8 @@ except Exception:  # pragma: no cover - best-effort path fix for local dev
     _here = Path(__file__).resolve()
     for _p in _here.parents:
         _candidate = _p / "flapping_bot"
-        if _candidate.exists():
+        # prefer the real extension package root: it contains its own flapping_bot/ submodule
+        if _candidate.exists() and (_candidate / "flapping_bot").is_dir():
             if str(_candidate) not in sys.path:
                 sys.path.insert(0, str(_candidate))
             break
