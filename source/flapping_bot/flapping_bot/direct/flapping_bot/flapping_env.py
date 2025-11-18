@@ -390,7 +390,7 @@ class FlappingBotEnv(DirectRLEnv):
 
         # normalized/scaled observations + command targets
         # remove absolute x,y (invariance), keep height as error to command
-        z_err = (pos_w[:, 2] - self._height_cmd) / 20.0
+        z_s = (pos_w[:, 2] - self._height_cmd).unsqueeze(1) / 20.0
         lin_s = lin_vel_b[:, 0:3] / 10.0
         ang_s = ang_vel_b[:, 0:3] / 10.0
         g_s = g_b[:, 0:3]
@@ -406,23 +406,23 @@ class FlappingBotEnv(DirectRLEnv):
         # update histories (roll and assign newest at -1)
         def _roll_and_set(buf, new):
             # buf: (N,K,D), new: (N,D)
-            buf.roll(shifts=-1, dims=1)
+            buf.copy_(torch.roll(buf, shifts=-1, dims=1))
             buf[:, -1, :] = new
 
         # fill invalid envs fully with current values
         if (~self._hist_valid).any():
             ids = (~self._hist_valid).nonzero(as_tuple=False).squeeze(-1)
             if ids.numel() > 0:
-                self._hist_z[ids] = z_err[ids].unsqueeze(1).expand(-1, self.cfg.stack_z, -1)
-                self._hist_lin[ids] = lin_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_lin, -1)
-                self._hist_ang[ids] = ang_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_ang, -1)
-                self._hist_gb[ids] = g_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_gb, -1)
-                self._hist_tail[ids] = tail_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_tail, -1)
-                self._hist_freq[ids] = freq_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_freq, -1)
-                self._hist_vx[ids] = vx_err_s[ids].unsqueeze(1).expand(-1, self.cfg.stack_vx, -1)
+                self._hist_z[ids] = z_s[ids].unsqueeze(1).repeat(1, self.cfg.stack_z, 1)
+                self._hist_lin[ids] = lin_s[ids].unsqueeze(1).repeat(1, self.cfg.stack_lin, 1)
+                self._hist_ang[ids] = ang_s[ids].unsqueeze(1).repeat(1, self.cfg.stack_ang, 1)
+                self._hist_gb[ids] = g_s[ids].unsqueeze(1).repeat(1, self.cfg.stack_gb, 1)
+                self._hist_tail[ids] = tail_s[ids].unsqueeze(1).repeat(1, self.cfg.stack_tail, 1)
+                self._hist_freq[ids] = freq_s[ids].unsqueeze(1).repeat(1, self.cfg.stack_freq, 1)
+                self._hist_vx[ids] = vx_err_s[ids].unsqueeze(1).repeat(1, self.cfg.stack_vx, 1)
                 self._hist_valid[ids] = True
 
-        _roll_and_set(self._hist_z, z_err.unsqueeze(1))
+        _roll_and_set(self._hist_z, z_s)
         _roll_and_set(self._hist_lin, lin_s)
         _roll_and_set(self._hist_ang, ang_s)
         _roll_and_set(self._hist_gb, g_s)
