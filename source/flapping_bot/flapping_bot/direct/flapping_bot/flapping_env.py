@@ -50,6 +50,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     stack_z: int = 4
     stack_tail: int = 4
     stack_freq: int = 2
+    freeze_steps_after_reset: int = 240  # keep bot at spawn pose for N physics steps (0 disables)
 
     # UI
     ui_window_class_type = None
@@ -137,6 +138,8 @@ class FlappingBotEnv(DirectRLEnv):
         self._actions: torch.Tensor | None = None
         self._act_lpf: torch.Tensor | None = None
         self._act_cmd: torch.Tensor | None = None
+        self._freeze_steps: torch.Tensor | None = None
+        self._spawn_root_state: torch.Tensor | None = None
 
         # wing phase and frequency
         self._phase_left: torch.Tensor | None = None
@@ -198,6 +201,8 @@ class FlappingBotEnv(DirectRLEnv):
         self._hist_tail = torch.zeros(N, self.cfg.stack_tail, 2, device=self.device)
         self._hist_freq = torch.zeros(N, self.cfg.stack_freq, 1, device=self.device)
         self._hist_vx = torch.zeros(N, self.cfg.stack_vx, 1, device=self.device)
+        self._freeze_steps = torch.zeros(N, dtype=torch.int32, device=self.device)
+        self._spawn_root_state = torch.zeros(N, 13, device=self.device)
 
         # joint targets
         self._joint_targets = self._default_joint_pos.expand(self.num_envs, -1).clone()
@@ -322,6 +327,13 @@ class FlappingBotEnv(DirectRLEnv):
         jt[:, self._IDX_RIGHT_TAIL] = self._right_tail_cmd
         self._robot.set_joint_position_target(jt, joint_ids=self._joint_ids)
 
+        # hold root pose for a few steps after reset to avoid immediate drop
+        if self.cfg.freeze_steps_after_reset > 0:
+            hold_ids = torch.nonzero(self._freeze_steps > 0, as_tuple=False).squeeze(-1)
+            if hold_ids.numel() > 0:
+                self._robot.write_root_state_to_sim(self._spawn_root_state[hold_ids], env_ids=hold_ids)
+                self._freeze_steps[hold_ids] = torch.clamp_min(self._freeze_steps[hold_ids] - 1, 0)
+
         # aerodynamic forces via QSM (sum to base body)
         if self._qsm_model is not None and self._qsm_joint_tensor_idx is not None:
             # gather joint kinematics for wings used by QSM
@@ -355,6 +367,7 @@ class FlappingBotEnv(DirectRLEnv):
         ang_vel = torch.zeros(n, 3, device=self.device)
         root_state = torch.cat([pos, rot, lin_vel, ang_vel], dim=1)
         self._robot.write_root_state_to_sim(root_state, env_ids=env_ids)
+        self._spawn_root_state[env_ids] = root_state
 
         # joints to default and zero velocity
         jpos = self._default_joint_pos.expand(n, -1).clone()
@@ -369,6 +382,7 @@ class FlappingBotEnv(DirectRLEnv):
         self._freq_right[env_ids] = self.cfg.flapping_freq_hz
         # mark histories invalid for these envs (will be filled on next obs)
         self._hist_valid[env_ids] = False
+        self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
         # commands: randomize or set defaults per env
         if self.cfg.randomize_commands:
             vl, vh = self.cfg.vx_cmd_range
