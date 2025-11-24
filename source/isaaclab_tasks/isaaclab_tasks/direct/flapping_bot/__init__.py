@@ -9,6 +9,7 @@ extension package and provides an RSL-RL default configuration entry point.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -19,8 +20,9 @@ import gymnasium as gym
 try:  # pragma: no cover - import guard
     import flapping_bot  # noqa: F401
 except Exception:  # pragma: no cover - best-effort path fix for local dev
-    # __file__ = .../IsaacLab/source/isaaclab_tasks/isaaclab_tasks/direct/flapping_bot/__init__.py
-    # We want to add .../IsaacLab/source/flapping_bot to sys.path. Be robust to path depth.
+    # __file__ may point either inside the repository tree or to a site-packages
+    # install of isaaclab_tasks. First, walk upwards from this file looking for
+    # a sibling "flapping_bot" extension directory.
     _here = Path(__file__).resolve()
     for _p in _here.parents:
         _candidate = _p / "flapping_bot"
@@ -29,14 +31,23 @@ except Exception:  # pragma: no cover - best-effort path fix for local dev
             if str(_candidate) not in sys.path:
                 sys.path.insert(0, str(_candidate))
             break
+    else:
+        # If not found relative to this file (common when isaaclab_tasks is
+        # pip-installed), fall back to the ISAACLAB_PATH environment variable.
+        _root = os.environ.get("ISAACLAB_PATH")
+        if _root:
+            for _rel in ("source/flapping_bot", "flapping_bot"):
+                _candidate = Path(_root) / _rel
+                if _candidate.exists() and (_candidate / "flapping_bot").is_dir():
+                    if str(_candidate) not in sys.path:
+                        sys.path.insert(0, str(_candidate))
+                    break
 
 from .agents.rsl_rl_ppo_cfg import FlappingBotPPORunnerCfg  # noqa: E402
 
-# Import environment classes directly to avoid string-based dynamic imports.
-from flapping_bot.flapping_bot.direct.flapping_bot.flapping_env import (  # noqa: E402
-    FlappingBotEnv,
-    FlappingBotEnvCfg,
-)
+# Import environment classes directly from the extension's top-level package.
+# The flapping_bot extension re-exports these symbols in its __init__.py.
+from flapping_bot import FlappingBotEnv, FlappingBotEnvCfg  # noqa: E402
 
 
 gym.register(

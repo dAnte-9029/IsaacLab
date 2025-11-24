@@ -58,7 +58,8 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
         origin_type="asset_root",
         asset_name="robot",
         env_index=0,
-        eye=(8.0, 0.0, 4.0),
+        # Side view relative to the robot (y-offset), slightly above.
+        eye=(0.0, -8.0, 4.0),
         lookat=(0.0, 0.0, 2.0),
     )
 
@@ -85,6 +86,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
         "left_tail",
         "right_tail",
     )
+    lock_tail_at_zero: bool = False
     joint_limit_softness: float = 0.98
     terminate_ground_height: float = 0.05
     terminate_tilt_deg: float = 60.0  # terminate when tilt exceeds this (approx roll/pitch limit)
@@ -113,6 +115,30 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
                 drag_coefficient=0.18,
                 effective_radius_fraction=0.75,
                 hinge_damping=0.01,
+            ),
+            # Tail surfaces (stabilizer + control surface approximated together).
+            # These parameters are rough and should be tuned with flight data.
+            WingQSMCfg(
+                name="left_tail",
+                joint_name="left_tail",
+                hinge_axis_body=(0.0, 1.0, 0.0),
+                lever_arm_body=(-0.55, 0.15, 0.0),
+                area=0.01,
+                lift_coefficient=0.25,
+                drag_coefficient=0.05,
+                effective_radius_fraction=0.7,
+                hinge_damping=0.002,
+            ),
+            WingQSMCfg(
+                name="right_tail",
+                joint_name="right_tail",
+                hinge_axis_body=(0.0, 1.0, 0.0),
+                lever_arm_body=(-0.55, -0.15, 0.0),
+                area=0.01,
+                lift_coefficient=0.25,
+                drag_coefficient=0.05,
+                effective_radius_fraction=0.7,
+                hinge_damping=0.002,
             ),
         ),
         air_density=1.225,
@@ -276,27 +302,39 @@ class FlappingBotEnv(DirectRLEnv):
             self._freq_left.fill_(self.cfg.flapping_freq_hz)
             self._freq_right.fill_(self.cfg.flapping_freq_hz)
 
-        # tail: a1=俯仰(pitch)，a2=滚转(roll)，耦合成左右尾翼
-        tail_lower_target = torch.tensor(-0.5235987756, device=self.device)  # -30 deg
-        tail_upper_target = torch.tensor(0.724311, device=self.device)       # 41.5 deg
-        # 与各自软限位求交集（安全范围）
-        l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], tail_lower_target)
-        l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], tail_upper_target)
-        r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], tail_lower_target)
-        r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], tail_upper_target)
-        # 左右共同工作区取交集：下界取更大者，上界取更小者
-        lower = torch.maximum(l_lower, r_lower)
-        upper = torch.minimum(l_upper, r_upper)
-        mid = 0.5 * (lower + upper)
-        half = 0.5 * (upper - lower)
-        # 俯仰/滚转分量（均映射到 [-half, +half]）
-        pitch_off = half * self._act_cmd[:, 1]
-        roll_off = half * self._act_cmd[:, 2]
-        # 左右尾翼：同号俯仰 + 反号滚转
-        left_cmd  = torch.clamp(mid + pitch_off + roll_off,  l_lower, l_upper)
-        right_cmd = torch.clamp(mid + pitch_off - roll_off,  r_lower, r_upper)
-        self._left_tail_cmd = left_cmd
-        self._right_tail_cmd = right_cmd
+        # 尾翼控制：可选择锁死在 0（关节默认位），或用动作驱动
+        if self.cfg.lock_tail_at_zero:
+            # 使用默认关节位置（通常为 0）并钳制在软限位范围内
+            l_def = self._default_joint_pos[self._IDX_LEFT_TAIL]
+            r_def = self._default_joint_pos[self._IDX_RIGHT_TAIL]
+            l_lower = self._joint_lower_limits[self._IDX_LEFT_TAIL]
+            l_upper = self._joint_upper_limits[self._IDX_LEFT_TAIL]
+            r_lower = self._joint_lower_limits[self._IDX_RIGHT_TAIL]
+            r_upper = self._joint_upper_limits[self._IDX_RIGHT_TAIL]
+            self._left_tail_cmd = torch.full((self.num_envs,), l_def, device=self.device).clamp(l_lower, l_upper)
+            self._right_tail_cmd = torch.full((self.num_envs,), r_def, device=self.device).clamp(r_lower, r_upper)
+        else:
+            # tail: a1=俯仰(pitch)，a2=滚转(roll)，耦合成左右尾翼
+            tail_lower_target = torch.tensor(-0.5235987756, device=self.device)  # -30 deg
+            tail_upper_target = torch.tensor(0.724311, device=self.device)       # 41.5 deg
+            # 与各自软限位求交集（安全范围）
+            l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], tail_lower_target)
+            l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], tail_upper_target)
+            r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], tail_lower_target)
+            r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], tail_upper_target)
+            # 左右共同工作区取交集：下界取更大者，上界取更小者
+            lower = torch.maximum(l_lower, r_lower)
+            upper = torch.minimum(l_upper, r_upper)
+            mid = 0.5 * (lower + upper)
+            half = 0.5 * (upper - lower)
+            # 俯仰/滚转分量（均映射到 [-half, +half]）
+            pitch_off = half * self._act_cmd[:, 1]
+            roll_off = half * self._act_cmd[:, 2]
+            # 左右尾翼：同号俯仰 + 反号滚转
+            left_cmd  = torch.clamp(mid + pitch_off + roll_off,  l_lower, l_upper)
+            right_cmd = torch.clamp(mid + pitch_off - roll_off,  r_lower, r_upper)
+            self._left_tail_cmd = left_cmd
+            self._right_tail_cmd = right_cmd
 
     def _apply_action(self):
         # advance phase
@@ -356,12 +394,15 @@ class FlappingBotEnv(DirectRLEnv):
         if isinstance(env_ids, list):
             env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
 
-        # root: z=hover_height, initial forward vx=5 m/s
+        # root: z=hover_height, initial forward vx=5 m/s, pitch 15 deg up
         n = env_ids.shape[0]
         pos = torch.zeros(n, 3, device=self.device)
         pos[:, 2] = self.cfg.hover_height
         rot = torch.zeros(n, 4, device=self.device)
-        rot[:, 0] = 1.0
+        # Quaternion for -15 deg about +Y (nose-up if x-forward, y-left, z-up):
+        # (w, x, y, z) ≈ (0.9914, 0, -0.1305, 0)
+        rot[:, 0] = 0.9914448613738104
+        rot[:, 2] = -0.13052619222005157
         lin_vel = torch.zeros(n, 3, device=self.device)
         lin_vel[:, 0] = 5.0
         ang_vel = torch.zeros(n, 3, device=self.device)

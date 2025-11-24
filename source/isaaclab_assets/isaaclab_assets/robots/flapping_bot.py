@@ -7,13 +7,28 @@ from isaaclab.assets import ArticulationCfg
 import isaaclab.sim as sim_utils
 from isaaclab_assets import ISAACLAB_ASSETS_DATA_DIR
 
+import os
+
 
 FLAPPING_BOT_CFG = ArticulationCfg(
     prim_path="{ENV_REGEX_NS}/FlappingBot",
     spawn=sim_utils.UrdfFileCfg(
-        # 使用当前 v50 模型（本地路径）
-        asset_path="F:/isaac/flap_robot_v50/urdf/flap_robot_v50.urdf",
-        usd_dir="F:/isaac/flap_robot_v50/urdf",
+        # Use the v50 flapping robot from the repo (no machine-specific paths).
+        asset_path=os.path.join(
+            ISAACLAB_ASSETS_DATA_DIR,
+            "flapping_bot",
+            "robots",
+            "flap_robot_v50",
+            "urdf",
+            "flap_robot_v50.urdf",
+        ),
+        usd_dir=os.path.join(
+            ISAACLAB_ASSETS_DATA_DIR,
+            "flapping_bot",
+            "robots",
+            "flap_robot_v50",
+            "urdf",
+        ),
         usd_file_name="flap_robot_v50.usd",
         fix_base=False,
         merge_fixed_joints=True,
@@ -41,10 +56,12 @@ FLAPPING_BOT_CFG = ArticulationCfg(
         lin_vel=(5.0, 0.0, 0.0),
         ang_vel=(0.0, 0.0, 0.0),
         joint_pos={
-            "left_wing": -0.3,
-            "right_wing": 0.3,
-            "left_tail": 0.0,
-            "right_tail": 0.0,
+            # Wings start symmetrically; tails start at +20 deg to provide
+            # a small initial nose-up trim.
+            "left_wing": 0.0,
+            "right_wing": 0.0,
+            "left_tail": 0.3491,
+            "right_tail": 0.3491,
         },
     ),
     actuators={
@@ -63,4 +80,3 @@ FLAPPING_BOT_CFG = ArticulationCfg(
 )
 
 """URDF-based articulation configuration for the flapping bot."""
-

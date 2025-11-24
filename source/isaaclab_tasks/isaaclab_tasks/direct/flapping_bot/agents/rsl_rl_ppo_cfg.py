@@ -12,7 +12,7 @@ from isaaclab_rl.rsl_rl import (
 @configclass
 class FlappingBotPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     # Rollout and training schedule
-    num_steps_per_env = 24
+    num_steps_per_env = 32
     max_iterations = 2000
     save_interval = 200
     experiment_name = "flapping_bot_direct"
@@ -20,6 +20,7 @@ class FlappingBotPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     # Policy network
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
+        noise_std_type="log",
         actor_obs_normalization=False,
         critic_obs_normalization=False,
         actor_hidden_dims=[128, 128],
@@ -42,4 +43,3 @@ class FlappingBotPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
-

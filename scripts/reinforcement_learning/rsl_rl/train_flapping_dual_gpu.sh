@@ -17,7 +17,6 @@ EXTRA_ARGS=("--headless" "--distributed" "--task" "$TASK")
 # Pass-through CLI args
 EXTRA_ARGS+=("$@")
 
-# Launch with torchrun across NPROC GPUs on this node
-./isaaclab.sh -p torchrun --standalone --nnodes 1 --nproc_per_node "$NPROC" \
+# Launch with torch.distributed.run (torchrun equivalent) across NPROC GPUs on this node
+./isaaclab.sh -p -m torch.distributed.run --standalone --nnodes 1 --nproc_per_node "$NPROC" \
   scripts/reinforcement_learning/rsl_rl/train.py "${EXTRA_ARGS[@]}"
-
