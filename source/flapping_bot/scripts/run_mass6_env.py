@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Log QSM total force in body frame and save lift/thrust curves.",
     )
+    parser.add_argument(
+        "--log-wing-angle",
+        action="store_true",
+        help="Log wing joint angle response (env 0) to CSV.",
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args()
 
@@ -94,24 +99,29 @@ def main() -> int:
         except Exception as e:
             print("[WARN] debug-phys failed:", repr(e))
 
-    # Optional wing frequency measurement (env 0, left wing if present)
+    # Wing joint selection (env 0, left wing if present)
     measure = args.measure_wing_hz
     wing_joint_id = None
     prev_sign = None
     zero_cross_count = 0
     baseline = None
 
-    if measure:
-        # Map resolved joint names to tensor indices
-        name_to_idx = {n: i for i, n in enumerate(env._resolved_joint_names)}
-        # Prefer left_wing if present, otherwise right_wing
-        if "left_wing" in name_to_idx:
-            wing_joint_id = name_to_idx["left_wing"]
-        elif "right_wing" in name_to_idx:
-            wing_joint_id = name_to_idx["right_wing"]
-        if wing_joint_id is None:
-            print("[WARN] measure-wing-hz requested but no wing joint name found.")
-            measure = False
+    # Map resolved joint names to tensor indices (for wing logging / measurement)
+    name_to_idx = {n: i for i, n in enumerate(env._resolved_joint_names)}
+    # Prefer left_wing if present, otherwise right_wing
+    if "left_wing" in name_to_idx:
+        wing_joint_id = name_to_idx["left_wing"]
+    elif "right_wing" in name_to_idx:
+        wing_joint_id = name_to_idx["right_wing"]
+    if measure and wing_joint_id is None:
+        print("[WARN] measure-wing-hz requested but no wing joint name found.")
+        measure = False
+
+    # Optional wing angle logging (env 0)
+    log_angle = args.log_wing_angle and (wing_joint_id is not None)
+    angle_times: list[float] = []
+    angle_q: list[float] = []
+    angle_q_target: list[float] = []
 
     # If steps <= 0, keep the app running so the user can drive the sim from the UI.
     if args.steps <= 0:
@@ -136,6 +146,7 @@ def main() -> int:
     log_qsm = args.log_qsm_forces and qsm_ok
     if args.log_qsm_forces and not qsm_ok:
         print("[QSM] WARNING: QSM model or joint mapping not available; no force samples will be collected.")
+    # Total forces/torques on base (body frame)
     times: list[float] = []
     thrust_bx: list[float] = []
     side_by: list[float] = []
@@ -143,6 +154,37 @@ def main() -> int:
     roll_tx: list[float] = []
     pitch_ty: list[float] = []
     yaw_tz: list[float] = []
+    # Per-surface aggregated contributions (wings vs tails)
+    wing_fx: list[float] = []
+    wing_fy: list[float] = []
+    wing_fz: list[float] = []
+    wing_tx: list[float] = []
+    wing_ty: list[float] = []
+    wing_tz: list[float] = []
+    tail_fx: list[float] = []
+    tail_fy: list[float] = []
+    tail_fz: list[float] = []
+    tail_tx: list[float] = []
+    tail_ty: list[float] = []
+    tail_tz: list[float] = []
+
+    # Precompute which QSM entries correspond to wings vs tails (if available)
+    wing_indices = []
+    tail_indices = []
+    if log_qsm:
+        try:
+            # Map QSM joint tensor indices back to joint names resolved in env
+            qsm_joint_ids = env._qsm_joint_indices  # indices into _resolved_joint_names
+            qsm_names = [env._resolved_joint_names[j] for j in qsm_joint_ids]
+            for idx, name in enumerate(qsm_names):
+                if "wing" in name:
+                    wing_indices.append(idx)
+                elif "tail" in name:
+                    tail_indices.append(idx)
+        except Exception as e:
+            print("[QSM] WARNING: failed to resolve wing/tail indices for logging:", repr(e))
+            wing_indices = []
+            tail_indices = []
 
     for i in range(args.steps):
         actions = torch.as_tensor(env.action_space.sample(), device=env.device, dtype=torch.float32)
@@ -152,9 +194,20 @@ def main() -> int:
             done = terminated | truncated
         else:
             obs, rew, done, info = ret
-        if measure and wing_joint_id is not None:
+        if (measure or log_angle) and wing_joint_id is not None:
             # joint_pos shape: [num_envs, num_joints]
             q = env._robot.data.joint_pos[0, env._joint_ids[wing_joint_id]].item()
+            if log_angle:
+                t_now = (i + 1) * env.step_dt
+                # target joint position for the same wing (if available)
+                try:
+                    q_tgt = float(env._joint_targets[0, wing_joint_id].item())
+                except Exception:
+                    q_tgt = 0.0
+                angle_times.append(t_now)
+                angle_q.append(q)
+                angle_q_target.append(q_tgt)
+
             # Use the initial position as a simple baseline so we detect
             # oscillations around the starting offset rather than around 0.
             if baseline is None:
@@ -193,15 +246,47 @@ def main() -> int:
             v_b = env._robot.data.root_lin_vel_b
             w_b = env._robot.data.root_ang_vel_b
             f_b, tau_b, _ = env._qsm_model.compute_forces(jpos, jvel, v_b, w_b)
+            # Total over all QSM surfaces
             f_sum = torch.sum(f_b, dim=1)      # [N,3]
             tau_sum = torch.sum(tau_b, dim=1)  # [N,3]
-            times.append((i + 1) * env.step_dt)
+
+            # Aggregate wings and tails separately (env 0)
+            if wing_indices:
+                f_wing = torch.sum(f_b[0, wing_indices, :], dim=0)
+                tau_wing = torch.sum(tau_b[0, wing_indices, :], dim=0)
+            else:
+                f_wing = torch.zeros(3, device=env.device)
+                tau_wing = torch.zeros(3, device=env.device)
+            if tail_indices:
+                f_tail = torch.sum(f_b[0, tail_indices, :], dim=0)
+                tau_tail = torch.sum(tau_b[0, tail_indices, :], dim=0)
+            else:
+                f_tail = torch.zeros(3, device=env.device)
+                tau_tail = torch.zeros(3, device=env.device)
+
+            t_now = (i + 1) * env.step_dt
+            times.append(t_now)
+            # Total
             thrust_bx.append(float(f_sum[0, 0].item()))
             side_by.append(float(f_sum[0, 1].item()))
             lift_bz.append(float(f_sum[0, 2].item()))
             roll_tx.append(float(tau_sum[0, 0].item()))
             pitch_ty.append(float(tau_sum[0, 1].item()))
             yaw_tz.append(float(tau_sum[0, 2].item()))
+            # Wings
+            wing_fx.append(float(f_wing[0].item()))
+            wing_fy.append(float(f_wing[1].item()))
+            wing_fz.append(float(f_wing[2].item()))
+            wing_tx.append(float(tau_wing[0].item()))
+            wing_ty.append(float(tau_wing[1].item()))
+            wing_tz.append(float(tau_wing[2].item()))
+            # Tails
+            tail_fx.append(float(f_tail[0].item()))
+            tail_fy.append(float(f_tail[1].item()))
+            tail_fz.append(float(f_tail[2].item()))
+            tail_tx.append(float(tau_tail[0].item()))
+            tail_ty.append(float(tau_tail[1].item()))
+            tail_tz.append(float(tau_tail[2].item()))
 
         # Log base pose / velocity periodically to inspect forward flight.
         if args.debug_interval > 0 and (i + 1) % args.debug_interval == 0:
@@ -240,7 +325,15 @@ def main() -> int:
         if times:
             try:
                 with out_path.open("w", encoding="utf-8") as f:
-                    f.write("t,thrust_bx,side_by,lift_bz,roll_tx,pitch_ty,yaw_tz\n")
+                    f.write(
+                        "t,"
+                        "thrust_bx,side_by,lift_bz,"
+                        "roll_tx,pitch_ty,yaw_tz,"
+                        "wing_fx,wing_fy,wing_fz,"
+                        "wing_tx,wing_ty,wing_tz,"
+                        "tail_fx,tail_fy,tail_fz,"
+                        "tail_tx,tail_ty,tail_tz\n"
+                    )
                     for idx in range(len(times)):
                         f.write(
                             f"{times[idx]:.6f},"
@@ -249,13 +342,42 @@ def main() -> int:
                             f"{lift_bz[idx]:.6f},"
                             f"{roll_tx[idx]:.6f},"
                             f"{pitch_ty[idx]:.6f},"
-                            f"{yaw_tz[idx]:.6f}\n"
+                            f"{yaw_tz[idx]:.6f},"
+                            f"{wing_fx[idx]:.6f},"
+                            f"{wing_fy[idx]:.6f},"
+                            f"{wing_fz[idx]:.6f},"
+                            f"{wing_tx[idx]:.6f},"
+                            f"{wing_ty[idx]:.6f},"
+                            f"{wing_tz[idx]:.6f},"
+                            f"{tail_fx[idx]:.6f},"
+                            f"{tail_fy[idx]:.6f},"
+                            f"{tail_fz[idx]:.6f},"
+                            f"{tail_tx[idx]:.6f},"
+                            f"{tail_ty[idx]:.6f},"
+                            f"{tail_tz[idx]:.6f}\n"
                         )
                 print(f"[QSM] Saved lift/thrust samples to {out_path}")
             except Exception as e:
                 print("[QSM] Failed to save lift/thrust CSV:", repr(e))
         else:
             print("[QSM] No QSM force samples collected; CSV not written.")
+
+    # Optionally save wing angle response to CSV
+    if log_angle:
+        out_dir = Path("outputs")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "flapping_wing_angle.csv"
+        if angle_times:
+            try:
+                with out_path.open("w", encoding="utf-8") as f:
+                    f.write("t,q,q_target\n")
+                    for t_val, q_val, q_tgt in zip(angle_times, angle_q, angle_q_target):
+                        f.write(f"{t_val:.6f},{q_val:.6f},{q_tgt:.6f}\n")
+                print(f"[QSM] Saved wing angle samples to {out_path}")
+            except Exception as e:
+                print("[QSM] Failed to save wing angle CSV:", repr(e))
+        else:
+            print("[QSM] No wing angle samples collected; CSV not written.")
 
     if measure:
         if cmd_freq is not None:

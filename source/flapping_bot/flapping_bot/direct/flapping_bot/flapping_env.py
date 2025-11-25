@@ -98,7 +98,9 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
                 name="left_wing",
                 joint_name="left_wing",
                 hinge_axis_body=(1.0, 0.0, 0.0),
-                lever_arm_body=(0.0, 0.18, 0.02),
+                # Aerodynamic center slightly ahead of CG, with reduced
+                # longitudinal and vertical lever arms to weaken pitch torque.
+                lever_arm_body=(0.02, 0.18, 0.01),
                 area=0.165624,
                 lift_coefficient=1.2,
                 drag_coefficient=0.18,
@@ -109,7 +111,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
                 name="right_wing",
                 joint_name="right_wing",
                 hinge_axis_body=(-1.0, 0.0, 0.0),
-                lever_arm_body=(0.0, -0.18, 0.02),
+                lever_arm_body=(0.02, -0.18, 0.01),
                 area=0.165624,
                 lift_coefficient=1.2,
                 drag_coefficient=0.18,

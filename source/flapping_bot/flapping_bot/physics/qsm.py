@@ -141,30 +141,25 @@ class QuasiSteadyWingModel:
             dynamic_pressure = 0.5 * rho * speed.squeeze(1) ** 2
             area = self._areas[i]
 
+            # Geometric AoA from local flow in the wing/tail plane.
+            # Project relative velocity into plane orthogonal to hinge axis (span),
+            # then measure angle between incoming flow and chord direction.
+            v_rel = rel_linear_vel
+            span = axis
+            v_proj = v_rel - torch.sum(v_rel * span, dim=1, keepdim=True) * span
+            v_proj_norm = v_proj.norm(dim=1, keepdim=True).clamp(min=1e-6)
+            v_in = -v_proj / v_proj_norm  # incoming flow direction in wing/tail plane
+            dot = torch.sum(v_in * chord, dim=1).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+            cross_vec = torch.cross(chord, v_in, dim=1)
+            sin = torch.sum(cross_vec * span, dim=1)
+            alpha_geom = torch.atan2(sin, dot)  # [num_envs]
+
             # ------------------------------------------------------------------
-            # Angle-of-attack dependent lift/drag for flapping wings
+            # Angle-of-attack dependent lift/drag
             # ------------------------------------------------------------------
             if "wing" in self._joint_names[i]:
-                # Virtual twist / effective angle-of-attack model:
-                # - Use flapping joint speed to distinguish downstroke vs upstroke.
-                # - Geometric AoA comes from relative flow vs. chord direction.
+                # Main wings: geometric AoA + virtual twist from flapping speed.
                 phi_dot = joint_vel[:, i]  # [num_envs]
-
-                # Geometric AoA from local flow in the wing plane.
-                # Project relative velocity into plane orthogonal to hinge axis (span),
-                # then measure angle between incoming flow and chord direction.
-                v_rel = rel_linear_vel
-                span = axis
-                v_proj = v_rel - torch.sum(v_rel * span, dim=1, keepdim=True) * span
-                v_proj_norm = v_proj.norm(dim=1, keepdim=True).clamp(min=1e-6)
-                v_in = -v_proj / v_proj_norm  # incoming flow direction in wing plane
-                dot = torch.sum(v_in * chord, dim=1).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
-                cross_vec = torch.cross(chord, v_in, dim=1)
-                sin = torch.sum(cross_vec * span, dim=1)
-                alpha_geom = torch.atan2(sin, dot)  # [num_envs]
-
-                # Virtual twist term: downstroke (phi_dot < 0) -> larger AoA,
-                # upstroke (phi_dot > 0)  -> smaller AoA.
                 phi_dot_ref = 20.0  # typical peak for 5 Hz, +/-30deg
                 eps = 0.1 * phi_dot_ref  # smoothing region for tanh
                 sm = torch.tanh(-phi_dot / eps)  # >0 on downstroke, <0 on upstroke
@@ -173,28 +168,27 @@ class QuasiSteadyWingModel:
                 k_v = 0.005  # s, small directional term
                 alpha_eff = alpha_geom + k_p * sm + k_v * phi_dot
                 alpha_eff = torch.clamp(alpha_eff, -math.pi / 2.0, math.pi / 2.0)
-
-                # Lift coefficient: scale base CL so that at alpha_ref we recover self._lift_coeff[i]
-                if sin_2_alpha_ref > 1e-6:
-                    cl_shape = torch.sin(2.0 * alpha_eff) / sin_2_alpha_ref
-                else:
-                    cl_shape = torch.sin(2.0 * alpha_eff)
-                cl_eff = self._lift_coeff[i] * cl_shape
-
-                # Drag coefficient:
-                # - Keep a small base drag so upstroke still has some damping.
-                # - At alpha_ref, total Cd matches the original constant drag_coefficient.
-                cd0 = self._drag_coeff[i]
-                cd_base = cd_base_frac * cd0
-                cd_shape = 1.0 - torch.cos(2.0 * alpha_eff)
-                cd_eff = cd_base + cd_gain * cd0 * cd_shape
-
-                lift = (dynamic_pressure * area * cl_eff).unsqueeze(1)
-                drag = (dynamic_pressure * area * cd_eff).unsqueeze(1)
             else:
-                # Non-flapping surfaces (e.g., tail): keep simple constant CL/CD for now.
-                lift = (dynamic_pressure * area * self._lift_coeff[i]).unsqueeze(1)
-                drag = (dynamic_pressure * area * self._drag_coeff[i]).unsqueeze(1)
+                # Tail surfaces: use purely geometric AoA (no flapping twist).
+                alpha_eff = alpha_geom
+
+            # Lift coefficient: scale base CL so that at alpha_ref we recover self._lift_coeff[i]
+            if sin_2_alpha_ref > 1e-6:
+                cl_shape = torch.sin(2.0 * alpha_eff) / sin_2_alpha_ref
+            else:
+                cl_shape = torch.sin(2.0 * alpha_eff)
+            cl_eff = self._lift_coeff[i] * cl_shape
+
+            # Drag coefficient:
+            # - Keep a small base drag so upstroke still has some damping (for wings).
+            # - At alpha_ref, total Cd matches the original constant drag_coefficient.
+            cd0 = self._drag_coeff[i]
+            cd_base = cd_base_frac * cd0
+            cd_shape = 1.0 - torch.cos(2.0 * alpha_eff)
+            cd_eff = cd_base + cd_gain * cd0 * cd_shape
+
+            lift = (dynamic_pressure * area * cl_eff).unsqueeze(1)
+            drag = (dynamic_pressure * area * cd_eff).unsqueeze(1)
 
             wing_force = lift * lift_dir + drag * drag_dir  # [N, 3]
             wing_torque = torch.cross(lever, wing_force, dim=1)  # [N, 3]
