@@ -66,6 +66,10 @@ _build
 
 # Tests
 tests/
+!tests/
+!tests/conftest.py
+!tests/test_qsm.py
+!tests/test_fit_wing_geom.py
 
 # Docker history
 .isaac-lab-docker-history

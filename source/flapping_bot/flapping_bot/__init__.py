@@ -3,7 +3,12 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Custom flapping-wing robot tasks and assets for Isaac Lab."""
+"""Custom flapping-wing robot tasks and utilities.
+
+This package is intentionally *lazy* about importing IsaacSim-dependent modules.
+That keeps pure-Python utilities (e.g., aerodynamic models) importable in a
+standard Python environment without IsaacSim (`carb`, `omni.*`).
+"""
 
 from pathlib import Path
 
@@ -13,14 +18,20 @@ _EXT_DIR = Path(__file__).resolve().parent.parent
 _EXT_METADATA = toml.load(_EXT_DIR / "config" / "extension.toml")
 __version__ = _EXT_METADATA["package"]["version"]
 
-# Expose configuration entry points at package import time.
-from .assets import FlappingBotCfg  # noqa: E402
-from .direct.flapping_bot import FlappingBotEnv, FlappingBotEnvCfg  # noqa: E402
-from .scenes import FlappingRoomSceneCfg  # noqa: E402
+__all__ = ["__version__", "FlappingBotCfg", "FlappingRoomSceneCfg", "FlappingBotEnvCfg", "FlappingBotEnv"]
 
-__all__ = [
-    "FlappingBotCfg",
-    "FlappingRoomSceneCfg",
-    "FlappingBotEnvCfg",
-    "FlappingBotEnv",
-]
+
+def __getattr__(name: str):
+    if name == "FlappingBotCfg":
+        from .assets import FlappingBotCfg
+
+        return FlappingBotCfg
+    if name in ("FlappingBotEnv", "FlappingBotEnvCfg"):
+        from .direct.flapping_bot import FlappingBotEnv, FlappingBotEnvCfg
+
+        return {"FlappingBotEnv": FlappingBotEnv, "FlappingBotEnvCfg": FlappingBotEnvCfg}[name]
+    if name == "FlappingRoomSceneCfg":
+        from .scenes import FlappingRoomSceneCfg
+
+        return FlappingRoomSceneCfg
+    raise AttributeError(name)
