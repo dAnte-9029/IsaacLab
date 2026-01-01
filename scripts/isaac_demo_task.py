@@ -68,6 +68,7 @@ simulation_app = app_launcher.app
 import torch
 
 import isaaclab.sim as sim_utils
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import Articulation, ArticulationCfg
 from isaaclab.sim import SimulationCfg, SimulationContext
 
@@ -96,6 +97,9 @@ def main():
                 gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=1000.0, damping=50.0)
             ),
         ),
+        actuators={
+            "all_joints": ImplicitActuatorCfg(joint_names_expr=[".*"], stiffness=None, damping=None),
+        },
     )
     robot = Articulation(robot_cfg)
 

@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<robot name="wang2016_dual_wing_rig">
+  <!-- Dual-wing "wind-tunnel rig" for Wang2016 QSM demos.
+
+  Each wing uses the same 3-DoF kinematic chain as `wang2016_single_wing.urdf`:
+    - sweep: yaw about z
+    - heave: roll about y
+    - pitch: about x
+
+  Wing link frame convention (matches Wang2016 co-rotating frame):
+    x: spanwise (pitch axis)
+    y: surface normal
+    z: chordwise (in wing plane)
+  -->
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.02" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.02"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.10 0.40 0.05"/>
+      </geometry>
+      <material name="dark">
+        <color rgba="0.2 0.2 0.2 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.10 0.40 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Left wing chain -->
+  <link name="left_sweep_link"/>
+  <joint name="left_sweep" type="revolute">
+    <parent link="base_link"/>
+    <child link="left_sweep_link"/>
+    <origin xyz="0 0.18 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="100"/>
+  </joint>
+
+  <link name="left_heave_link"/>
+  <joint name="left_heave" type="revolute">
+    <parent link="left_sweep_link"/>
+    <child link="left_heave_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="10" velocity="100"/>
+  </joint>
+
+  <link name="left_wing">
+    <inertial>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+      <mass value="0.2"/>
+      <inertia ixx="0.0004" ixy="0" ixz="0" iyy="0.0004" iyz="0" izz="0.0004"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.10 0.002 0.05"/>
+      </geometry>
+      <material name="light">
+        <color rgba="0.75 0.75 0.75 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.10 0.002 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_pitch" type="revolute">
+    <parent link="left_heave_link"/>
+    <child link="left_wing"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="100"/>
+  </joint>
+
+  <!-- Right wing chain -->
+  <link name="right_sweep_link"/>
+  <joint name="right_sweep" type="revolute">
+    <parent link="base_link"/>
+    <child link="right_sweep_link"/>
+    <origin xyz="0 -0.18 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="100"/>
+  </joint>
+
+  <link name="right_heave_link"/>
+  <joint name="right_heave" type="revolute">
+    <parent link="right_sweep_link"/>
+    <child link="right_heave_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="10" velocity="100"/>
+  </joint>
+
+  <link name="right_wing">
+    <inertial>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+      <mass value="0.2"/>
+      <inertia ixx="0.0004" ixy="0" ixz="0" iyy="0.0004" iyz="0" izz="0.0004"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.10 0.002 0.05"/>
+      </geometry>
+      <material name="light2">
+        <color rgba="0.75 0.75 0.75 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.05 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.10 0.002 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_pitch" type="revolute">
+    <parent link="right_heave_link"/>
+    <child link="right_wing"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="100"/>
+  </joint>
+</robot>
+

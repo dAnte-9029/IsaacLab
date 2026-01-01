@@ -40,6 +40,8 @@
 
 - 纯 Python 复现（不依赖 IsaacSim）：`scripts/reproduce_wang2016_sweep_pitch.py`
 - IsaacLab 可视化/外力 demo：`scripts/isaac_demo_task.py`（对 `wing` link 施加外力/力矩并记录 CSV）
+- IsaacLab “风洞台架” demo：`scripts/isaac_wind_tunnel_rig.py`（双翼同步扑动 + 前飞速度 `v_forward`，并记录 CSV）
+- IsaacLab “风洞台架（v50 扑翼机）” demo：`scripts/isaac_wind_tunnel_flappingbot_v50.py`（对 `flap_robot_v50.urdf` 的左右翼 link 施加 Wang2016 QSM 外力，并记录 CSV）
 
 ## 柔性翼（虚拟被动扭转）
 

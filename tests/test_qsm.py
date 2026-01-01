@@ -70,6 +70,30 @@ def test_translation_at_90deg_aoa_is_finite_and_nonzero():
     assert float(F_c[1]) != 0.0
 
 
+def test_forward_velocity_contributes_to_translation_load():
+    # Paper note under eq. (2.5): forward-flight velocity must be added to v_c (eq. (2.4)).
+    # With no wing motion but non-zero v_forward in (y,z), translation-induced load should be non-zero.
+    geom = _geom(enable_rotation=False, enable_coupling=False, enable_added_mass=False)
+    F_c, tau_c = compute_aero_wrench(
+        phi=0.0,
+        theta=0.0,
+        eta=0.0,
+        phid=0.0,
+        thetad=0.0,
+        etad=0.0,
+        phidd=0.0,
+        thetadd=0.0,
+        etadd=0.0,
+        wing_geom=geom,
+        rho=1.225,
+        include_wagner=False,
+        v_forward_c=(0.0, 2.0, 2.0),
+    )
+    assert torch.isfinite(F_c).all()
+    assert torch.isfinite(tau_c).all()
+    assert float(F_c[1]) != 0.0
+
+
 def test_rotation_and_coupling_zero_when_omega_x_is_zero():
     # ω_xc = η̇ - φ̇ sinθ. Set η̇=0, φ̇=0 => ω_xc=0.
     geom = _geom(enable_translation=False, enable_added_mass=False)

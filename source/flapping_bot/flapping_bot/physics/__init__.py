@@ -4,6 +4,7 @@ from .qsm import FlappingQSMCfg, QuasiSteadyWingModel, WingQSMCfg
 from .qsm_wang2016 import (
     WingGeometry,
     compute_aero_wrench,
+    compute_aero_wrench_from_omega_alpha,
     cp_location_rotation,
     eta_shape_piecewise,
     rotation_matrix_i_from_c,
@@ -17,6 +18,7 @@ __all__ = [
     "QuasiSteadyWingModel",
     "WingGeometry",
     "compute_aero_wrench",
+    "compute_aero_wrench_from_omega_alpha",
     "cp_location_rotation",
     "eta_shape_piecewise",
     "rotation_matrix_i_from_c",
