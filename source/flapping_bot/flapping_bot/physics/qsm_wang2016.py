@@ -78,6 +78,10 @@ def compute_aero_wrench_from_omega_alpha(
     *,
     include_wagner: bool = False,
     v_forward_c: Tensor | Sequence[float] | None = None,
+    return_per_strip: bool = False,
+    profile_cd0: float | None = None,
+    profile_alpha1_deg: float = 15.0,
+    profile_alpha2_deg: float = 35.0,
 ) -> tuple[Tensor, Tensor]:
     """Compute Wang2016 quasi-steady aerodynamic wrench from ω_c and α_c.
 
@@ -92,9 +96,24 @@ def compute_aero_wrench_from_omega_alpha(
         include_wagner: If True, multiply circulatory loads by Wagner function φ(t*) (paper §2.2.5, eq. (2.26)).
         v_forward_c: Optional forward-flight velocity contribution expressed in the co-rotating frame, shape (..., 3).
             Per the note under paper eq. (2.5), this will be added to the translational velocity v_c in eq. (2.4).
+        return_per_strip: If True, return per-strip wrench contributions instead of the strip-integrated total.
+            The returned tensors have shape (..., N, 3) where the N dimension corresponds to `WingGeometry.x_mid`.
+        profile_cd0: Optional profile/viscous drag coefficient (dimensionless) applied per strip along -u_rel.
+            This is an *extension* for cases where the Wang2016 assumption "(resultant force ⟂ chord)" underestimates
+            tangential drag at low/moderate AOA. If provided and >0, an additional force is added:
+
+                dF_prof = -0.5 * rho * |u|^2 * (c*dx) * CD0 * w(aoa) * u_hat
+
+            where u is the relative velocity vector in the co-rotating frame for that strip.
+        profile_alpha1_deg: Lower AOA threshold for w(aoa) (deg). For aoa<=alpha1, w≈1.
+        profile_alpha2_deg: Upper AOA threshold for w(aoa) (deg). For aoa>=alpha2, w≈0.
 
     Returns:
-        (F_c, tau_c) each of shape (..., 3) in the co-rotating frame.
+        (F_c, tau_c) in the co-rotating frame.
+
+        - If `return_per_strip=False` (default), each has shape (..., 3) and is integrated over span.
+        - If `return_per_strip=True`, each has shape (..., N, 3) and represents the contribution of each strip
+          (including strip width `dx`) expressed in the same co-rotating frame as the corresponding strip kinematics.
     """
     if not isinstance(omega_c, torch.Tensor) or not isinstance(alpha_c, torch.Tensor):
         raise TypeError("omega_c and alpha_c must be torch tensors.")
@@ -126,25 +145,29 @@ def compute_aero_wrench_from_omega_alpha(
     # v_total(x) = v_motion(x) + v_forward_c
     # ------------------------------------------------------------------
     if v_forward_c is None:
-        v_forward = torch.zeros((*omega_c.shape[:-1], 3), device=device, dtype=dtype)
+        v_forward = torch.zeros_like(omega)
     else:
         v_forward = _as_tensor(v_forward_c, device=device, dtype=dtype)
         if v_forward.shape[-1] != 3:
-            raise ValueError("v_forward_c must have shape (..., 3).")
-        v_forward = torch.broadcast_to(v_forward, (*omega_c.shape[:-1], 3))
+            raise ValueError("v_forward_c must have last dimension 3.")
+        if v_forward.ndim == omega.ndim and v_forward.shape[-2] == N:
+            v_forward = torch.broadcast_to(v_forward, omega.shape)
+        else:
+            # Treat as a single velocity vector per batch (no strip dimension).
+            v_forward = torch.broadcast_to(v_forward, (*omega.shape[:-2], 3))
+            v_forward = v_forward.unsqueeze(-2).expand(*omega.shape[:-2], N, 3)
 
-    v_fx = v_forward[..., 0].unsqueeze(-1).expand_as(wy)
-    v_fy = v_forward[..., 1].unsqueeze(-1).expand_as(wy)
-    v_fz = v_forward[..., 2].unsqueeze(-1).expand_as(wy)
-    v_x = v_fx  # motion-induced v_c has zero x component for r=[x_c,0,0]^T
-    v_y = x * wz + v_fy
-    v_z = -x * wy + v_fz
+    v_xf, v_yf, v_zf = v_forward.unbind(-1)  # (...,N)
+    v_x = v_xf  # motion-induced v_c has zero x component for r=[x_c,0,0]^T
+    v_y = x * wz + v_yf
+    v_z = -x * wy + v_zf
     v2 = v_x**2 + v_y**2 + v_z**2
 
     # AOA α̃ (paper eq. (2.7)).
     denom = torch.sqrt(v2)
     aoa_raw = _safe_acos(_safe_div(torch.abs(v_z), denom))
     aoa = torch.where(denom > 1e-8, aoa_raw, torch.zeros_like(aoa_raw))
+    aoa_deg = aoa * (_as_tensor(180.0 / math.pi, device=device, dtype=dtype))
 
     # ------------------------------------------------------------------
     # Coefficients (paper eq. (2.6), (2.8)-(2.10), (2.12), (2.18))
@@ -164,58 +187,57 @@ def compute_aero_wrench_from_omega_alpha(
     # ------------------------------------------------------------------
     # 1) Translation-induced load (paper eq. (2.11)-(2.14))
     # ------------------------------------------------------------------
-    Fy_trans = torch.zeros_like(wx[..., 0])
-    tau_x_trans = torch.zeros_like(Fy_trans)
-    tau_z_trans = torch.zeros_like(Fy_trans)
+    dFy_trans = torch.zeros_like(wx)
+    dTau_x_trans = torch.zeros_like(wx)
+    dTau_z_trans = torch.zeros_like(wx)
     if geom.enable_translation:
         sgn_vy = _sgn(v_y)
-        dFy = -sgn_vy * 0.5 * rho_t * v2 * CF_y_trans * c * dx
-        Fy_trans = torch.sum(dFy, dim=-1)
-        tau_z_trans = torch.sum(x * dFy, dim=-1)
+        dFy_trans = -sgn_vy * 0.5 * rho_t * v2 * CF_y_trans * c * dx
+        dTau_z_trans = x * dFy_trans
 
         # paper eq. (2.13): LE/TE swap when ω_yc > 0
         k = torch.where(wy > 0.0, 1.0 - d_hat_cp_trans, d_hat_cp_trans)
-        tau_x_trans = torch.sum(dFy * (k - d_hat) * c, dim=-1)
+        dTau_x_trans = dFy_trans * (k - d_hat) * c
 
     # ------------------------------------------------------------------
     # 2) Rotation-induced load (paper eq. (2.15)-(2.19))
     # ------------------------------------------------------------------
-    Fy_rot = torch.zeros_like(Fy_trans)
-    tau_x_rot = torch.zeros_like(Fy_trans)
-    tau_z_rot = torch.zeros_like(Fy_trans)
+    dFy_rot = torch.zeros_like(wx)
+    dTau_x_rot = torch.zeros_like(wx)
+    dTau_z_rot = torch.zeros_like(wx)
     if geom.enable_rotation:
         base_rot = 0.5 * rho_t * wx * torch.abs(wx) * _as_tensor(CD_rot, device=device, dtype=dtype)
         poly3 = ((d_hat - 1.0) ** 3 + d_hat**3) / 3.0
         poly4 = ((d_hat - 1.0) ** 4 + d_hat**4) / 4.0
-        Fy_rot = torch.sum(base_rot * (c**3) * poly3 * dx, dim=-1)
-        tau_x_rot = torch.sum(-base_rot * (c**4) * poly4 * dx, dim=-1)
-        tau_z_rot = torch.sum(base_rot * x * (c**3) * poly3 * dx, dim=-1)
+        dFy_rot = base_rot * (c**3) * poly3 * dx
+        dTau_x_rot = -base_rot * (c**4) * poly4 * dx
+        dTau_z_rot = base_rot * x * (c**3) * poly3 * dx
 
     # ------------------------------------------------------------------
     # 3) Coupling load (paper eq. (2.21)-(2.23))
     # ------------------------------------------------------------------
-    Fy_coup = torch.zeros_like(Fy_trans)
-    tau_x_coup = torch.zeros_like(Fy_trans)
-    tau_z_coup = torch.zeros_like(Fy_trans)
+    dFy_coup = torch.zeros_like(wx)
+    dTau_x_coup = torch.zeros_like(wx)
+    dTau_z_coup = torch.zeros_like(wx)
     if geom.enable_coupling:
         base_coup = _as_tensor(math.pi, device=device, dtype=dtype) * rho_t * wx * wy
         main = torch.where(wy > 0.0, d_hat - 0.25, 0.75 - d_hat)
-        Fy_coup = torch.sum(base_coup * (main + 0.25) * (c**2) * x * dx, dim=-1)
-        tau_z_coup = torch.sum(base_coup * (main + 0.25) * (c**2) * (x**2) * dx, dim=-1)
+        dFy_coup = base_coup * (main + 0.25) * (c**2) * x * dx
+        dTau_z_coup = base_coup * (main + 0.25) * (c**2) * (x**2) * dx
 
         coefA_le = (0.75 - d_hat) * (0.25 - d_hat)
         coefB_le = 0.25 * (0.75 - d_hat)
         coefA_te = (d_hat - 0.25) * (0.75 - d_hat)
         coefB_te = 0.25 * (0.25 - d_hat)
         coef_sum = torch.where(wy > 0.0, coefA_te + coefB_te, coefA_le + coefB_le)
-        tau_x_coup = torch.sum(base_coup * coef_sum * (c**3) * x * dx, dim=-1)
+        dTau_x_coup = base_coup * coef_sum * (c**3) * x * dx
 
     # ------------------------------------------------------------------
     # 4) Added-mass load (paper eq. (2.24)-(2.25))
     # ------------------------------------------------------------------
-    Fy_am = torch.zeros_like(Fy_trans)
-    tau_x_am = torch.zeros_like(Fy_trans)
-    tau_z_am = torch.zeros_like(Fy_trans)
+    dFy_am = torch.zeros_like(wx)
+    dTau_x_am = torch.zeros_like(wx)
+    dTau_z_am = torch.zeros_like(wx)
     if geom.enable_added_mass:
         # Local spanwise acceleration along y_c for points on pitching axis (paper eq. (2.5), y-component).
         # a_yc(x_c) = x_c * (α_zc + ω_xc ω_yc)
@@ -235,9 +257,9 @@ def compute_aero_wrench_from_omega_alpha(
         # Integrate over span (eq. (2.25)).
         fy_strip = -(m22 * a_y + m24 * alpha_x)
         tx_strip = -(m42 * a_y + m44 * alpha_x)
-        Fy_am = torch.sum(fy_strip * dx, dim=-1)
-        tau_x_am = torch.sum(tx_strip * dx, dim=-1)
-        tau_z_am = torch.sum((x * fy_strip) * dx, dim=-1)
+        dFy_am = fy_strip * dx
+        dTau_x_am = tx_strip * dx
+        dTau_z_am = (x * fy_strip) * dx
 
     # ------------------------------------------------------------------
     # Wagner multiplier (paper §2.2.5, eq. (2.26)) applied to circulatory loads.
@@ -247,16 +269,47 @@ def compute_aero_wrench_from_omega_alpha(
         wagner = geom.wagner_multiplier()
     wagner_t = _as_tensor(wagner, device=device, dtype=dtype)
 
-    Fy_circ = (Fy_trans + Fy_rot + Fy_coup) * wagner_t
-    tau_x_circ = (tau_x_trans + tau_x_rot + tau_x_coup) * wagner_t
-    tau_z_circ = (tau_z_trans + tau_z_rot + tau_z_coup) * wagner_t
+    dFy_circ = (dFy_trans + dFy_rot + dFy_coup) * wagner_t
+    dTau_x_circ = (dTau_x_trans + dTau_x_rot + dTau_x_coup) * wagner_t
+    dTau_z_circ = (dTau_z_trans + dTau_z_rot + dTau_z_coup) * wagner_t
 
-    Fy = Fy_circ + Fy_am
-    tau_x = tau_x_circ + tau_x_am
-    tau_z = tau_z_circ + tau_z_am
+    dFy = dFy_circ + dFy_am
+    dTau_x = dTau_x_circ + dTau_x_am
+    dTau_z = dTau_z_circ + dTau_z_am
 
-    F_c = torch.stack((torch.zeros_like(Fy), Fy, torch.zeros_like(Fy)), dim=-1)
-    tau_c = torch.stack((tau_x, torch.zeros_like(tau_x), tau_z), dim=-1)
+    F_c_strip = torch.stack((torch.zeros_like(dFy), dFy, torch.zeros_like(dFy)), dim=-1)  # (...,N,3)
+    tau_c_strip = torch.stack((dTau_x, torch.zeros_like(dTau_x), dTau_z), dim=-1)  # (...,N,3)
+
+    # ------------------------------------------------------------------
+    # Optional profile/viscous drag extension (not in Wang2016):
+    # add per-strip force along -u_rel to reduce over-predicted thrust at low/moderate AOA.
+    # ------------------------------------------------------------------
+    if profile_cd0 is not None and float(profile_cd0) > 0.0:
+        a1 = float(profile_alpha1_deg)
+        a2 = float(profile_alpha2_deg)
+        if not (a2 > a1 >= 0.0):
+            raise ValueError("profile_alpha2_deg must be > profile_alpha1_deg >= 0.")
+
+        # Smooth switch w(aoa): 1 at aoa<=a1, 0 at aoa>=a2, smoothstep in between.
+        t = (aoa_deg - _as_tensor(a1, device=device, dtype=dtype)) / _as_tensor((a2 - a1), device=device, dtype=dtype)
+        t = torch.clamp(t, 0.0, 1.0)
+        w = 1.0 - t * t * (3.0 - 2.0 * t)  # reversed smoothstep
+
+        v_vec = torch.stack((v_x, v_y, v_z), dim=-1)  # (...,N,3)
+        v_hat = v_vec / denom.unsqueeze(-1).clamp(min=1e-8)
+        area = (c * dx)  # (...,N)
+        coef = -0.5 * rho_t * v2 * area * _as_tensor(float(profile_cd0), device=device, dtype=dtype) * w
+        dF_prof = coef.unsqueeze(-1) * v_hat  # (...,N,3)
+        F_c_strip = F_c_strip + dF_prof
+        # Minimal moment consistency about z due to added Fy at spanwise location x (force applied on pitching axis).
+        dTau_z = dTau_z + x * dF_prof[..., 1]
+        tau_c_strip = torch.stack((dTau_x, torch.zeros_like(dTau_x), dTau_z), dim=-1)
+
+    if return_per_strip:
+        return F_c_strip, tau_c_strip
+
+    F_c = torch.sum(F_c_strip, dim=-2)
+    tau_c = torch.sum(tau_c_strip, dim=-2)
     return F_c, tau_c
 
 
