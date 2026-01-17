@@ -1,0 +1,382 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{caption}
+
+\title{A Design-Oriented Flapping-Wing Aerodynamic Model\\(LaTeX rewrite with original equation numbering)}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document rewrites the paper into a clean, copyable \LaTeX{} form. The prose is paraphrased for clarity, while the governing equations follow the original notation and equation numbers.
+\end{abstract}
+
+\tableofcontents
+
+% =========================================================
+\section{Overview}
+We model the aerodynamic loads of harmonically flapping wings using a modified strip-theory approach.
+Each spanwise strip is treated as a 2D section with finite-span unsteady corrections. The model predicts
+instantaneous and cycle-averaged lift, thrust, input power, and propulsive efficiency, and includes
+(i) circulatory and apparent-mass normal forces, (ii) chordwise contributions from camber, leading-edge suction
+(with efficiency), and skin friction, and (iii) a localized post-stall (separated-flow) approximation with a
+crossflow-drag normal-force model.
+
+% =========================================================
+\section{Method of Analysis}
+
+\subsection{Section kinematics and basic normal force}
+The section kinematics are defined using the leading edge as the reference point.
+The motion of a section consists of a plunging velocity $\dot{h}$ and a pitch angle $\theta$.
+Note that $\dot{h}$ is not necessarily perpendicular to the mean-stream velocity $U$; for root-flapping motion,
+the displacement $h$ is perpendicular to the flapping axis. The wing aspect ratio is assumed sufficiently large
+so that, in the mean-stream direction, the flow over each section may be treated as essentially chordwise.
+
+The circulatory normal force on a strip is
+\begin{equation}
+dN_c=\frac{\rho U V}{2}\,C_n(y)\,c\,dy
+\tag{1}\label{eq:1}
+\end{equation}
+where $V$ is the relative speed at the quarter-chord location, and
+\begin{equation}
+C_n(y)=2\pi\left(\alpha^\prime+\alpha_0+\bar{\theta}\right)
+\tag{2}\label{eq:2}
+\end{equation}
+with $\alpha_0$ the section zero-lift angle and $\bar{\theta}$ the section mean pitch angle. The mean pitch is
+\begin{equation}
+\bar{\theta}=\bar{\theta}_a+\bar{\theta}_w
+\tag{3}\label{eq:3}
+\end{equation}
+where $\bar{\theta}_a$ is the flapping-axis angle relative to the freestream, and $\bar{\theta}_w$ is the mean chord
+angle relative to the flapping axis.
+
+\subsection{Finite-span unsteady correction}
+The effective unsteady term $\alpha^\prime$ is written as
+\begin{equation}
+\alpha^\prime=\left[\frac{AR\,C^\prime(k)}{2+AR}\right]\alpha-\frac{w_0}{U}
+\tag{4}\label{eq:4}
+\end{equation}
+where $\alpha$ is the relative angle of attack at the $3/4$-chord location due to the motion:
+\begin{equation}
+\alpha=\frac{\dot{h}\cos(\theta-\bar{\theta}_a)+\frac{3}{4}c\dot{\theta}+U(\theta-\bar{\theta})}{U}
+\tag{5}\label{eq:5}
+\end{equation}
+
+In the strip-theory interpretation adopted here, each chordwise strip is assumed to behave as if it were part of an
+equivalent elliptical-planform wing of the same aspect ratio, executing a simple harmonic motion consistent with the
+strip kinematics. For a finite-span wing, the unsteady normal-force coefficient increment may be expressed as
+\begin{equation}
+\delta C_n=2\pi\,C(k)_{\text{Jones}}\,\alpha
+\tag{6}\label{eq:6}
+\end{equation}
+where the reduced frequency is
+\begin{equation}
+k=\frac{c\omega}{2U}
+\tag{7}\label{eq:7}
+\end{equation}
+and a convenient representation is
+\begin{equation}
+C(k)_{\text{Jones}}=\frac{AR\,C^\prime(k)}{2+AR}
+\tag{8}\label{eq:8}
+\end{equation}
+with the complex function
+\begin{equation}
+C^\prime(k)=F^\prime(k)+iG^\prime(k).
+\tag{9}\label{eq:9}
+\end{equation}
+
+An approximation for the complex terms is
+\begin{align}
+F^\prime(k)&=1-\frac{C_1k^2}{k^2+C_2^2}\notag\\
+G^\prime(k)&=-\frac{C_1C_2k}{k^2+C_2^2}\notag\\
+C_1&=\frac{0.5\,AR}{2.32+AR}\notag\\
+C_2&=0.181+\frac{0.772}{AR}.
+\tag{9}\label{eq:9_block}
+\end{align}
+
+Assuming harmonic motion,
+\begin{equation}
+\alpha=Ae^{i\omega t}
+\tag{10}\label{eq:10}
+\end{equation}
+one obtains
+\begin{equation}
+\alpha^\prime=\frac{AR}{2+AR}\left[F^\prime(k)\alpha+\frac{c}{2U}\frac{G^\prime(k)}{k}\dot{\alpha}\right]-\frac{w_0}{U}.
+\tag{11}\label{eq:11}
+\end{equation}
+
+A compact approximation for downwash is
+\begin{equation}
+\frac{w_0}{U}=\frac{2(\alpha_0+\bar{\theta})}{2+AR}.
+\tag{12}\label{eq:12}
+\end{equation}
+If $(\alpha_0+\bar{\theta})$ varies significantly along the span, a more accurate evaluation of $w_0/U$
+may be required (e.g., a lifting-line type correction for twisted wings), beyond the compact estimate in \eqref{eq:12}.
+
+\subsection{Relative speed and apparent-mass normal force}
+The relative speed at the quarter-chord is
+\begin{equation}
+V=\left\{\left[U\cos\theta-\dot{h}\sin(\theta-\bar{\theta}_a)\right]^2+
+\left[U(\alpha^\prime+\bar{\theta})-\frac{1}{2}c\dot{\theta}\right]^2\right\}^{1/2}
+\tag{13}\label{eq:13}
+\end{equation}
+
+The apparent-mass contribution (acting at midchord) is
+\begin{equation}
+dN_a=\frac{\rho\pi c^2}{4}\,\dot{v}_2\,dy
+\tag{14}\label{eq:14}
+\end{equation}
+where the midchord normal-velocity rate is
+\begin{equation}
+\dot{v}_2=U\dot{\alpha}-\frac{1}{4}c\ddot{\theta}.
+\tag{15}\label{eq:15}
+\end{equation}
+Thus the total attached-flow normal force is
+\begin{equation}
+dN=dN_c+dN_a.
+\tag{16}\label{eq:16}
+\end{equation}
+
+\subsection{Chordwise forces: camber, leading-edge suction, and skin friction}
+The chordwise force due to camber is
+\begin{equation}
+dD_{\text{camber}}=-2\pi\alpha_0(\alpha^\prime+\bar{\theta})\left(\frac{\rho U V}{2}\right)c\,dy
+\tag{17}\label{eq:17}
+\end{equation}
+
+The leading-edge suction contribution (with efficiency $\eta_s$) is
+\begin{equation}
+dT_s=\eta_s\,2\pi\left(\alpha^\prime+\bar{\theta}-\frac{1}{4}\frac{c\dot{\theta}}{U}\right)^2
+\left(\frac{\rho U V}{2}\right)c\,dy
+\tag{18}\label{eq:18}
+\end{equation}
+
+Viscosity introduces chordwise skin-friction drag
+\begin{equation}
+dD_f=\left(C_d\right)_f\left(\frac{\rho V_x^2}{2}\right)c\,dy
+\tag{19}\label{eq:19}
+\end{equation}
+where the tangential speed is approximated by
+\begin{equation}
+V_x=U\cos\theta-\dot{h}\sin(\theta-\bar{\theta}_a).
+\tag{20}\label{eq:20}
+\end{equation}
+Hence the total chordwise force is
+\begin{equation}
+dF_x=dT_s-dD_{\text{camber}}-dD_f.
+\tag{21}\label{eq:21}
+\end{equation}
+
+\subsection{Dynamic stall criterion and separated-flow model}
+A localized dynamic-stall angle is modeled as
+\begin{equation}
+\alpha_{\text{stall}}=\left(\alpha_{\text{stall}}\right)_{\text{static}}+\xi\left[\frac{c\dot{\alpha}}{2U}\right]^{1/2}
+\tag{22}\label{eq:22}
+\end{equation}
+and applied at the leading edge. The attached-flow condition is
+\begin{equation}
+\left(\alpha_{\text{stall}}\right)_{\min}\le
+\left[\alpha^\prime+\bar{\theta}-\frac{3}{4}\left(\frac{c\dot{\theta}}{U}\right)\right]\le
+\left(\alpha_{\text{stall}}\right)_{\max}.
+\tag{23}\label{eq:23}
+\end{equation}
+
+When the attached-flow range is exceeded, totally separated flow is assumed to occur abruptly,
+in which case all chordwise forces are neglected:
+\begin{equation}
+dD_{\text{camber}},\,dT_s,\,dD_f=0.
+\tag{24}\label{eq:24}
+\end{equation}
+The normal force is then
+\begin{equation}
+dN=\left(dN_c\right)_{\text{sep}}+\left(dN_a\right)_{\text{sep}}.
+\tag{25}\label{eq:25}
+\end{equation}
+The separated-flow circulatory normal force (crossflow drag) is
+\begin{equation}
+\left(dN_c\right)_{\text{sep}}=\left(C_d\right)_{\text{cf}}\left(\frac{\rho\hat{V}V_n}{2}\right)c\,dy
+\tag{26}\label{eq:26}
+\end{equation}
+where
+\begin{equation}
+\hat{V}=\left(V_x^2+V_n^2\right)^{1/2}
+\tag{27}\label{eq:27}
+\end{equation}
+and the midchord normal velocity component is
+\begin{equation}
+V_n=\dot{h}\cos(\theta-\bar{\theta}_a)+\frac{1}{2}c\dot{\theta}+U\sin\theta.
+\tag{28}\label{eq:28}
+\end{equation}
+Note that $\dot{v}_2$ in \eqref{eq:15} corresponds to a linearized time derivative associated with $V_n$.
+The apparent-mass term in separation is taken as
+\begin{equation}
+\left(dN_a\right)_{\text{sep}}=\frac{1}{2}dN_a.
+\tag{29}\label{eq:29}
+\end{equation}
+
+\subsection{Instantaneous lift and thrust; span integration; cycle averaging}
+The strip lift and thrust are
+\begin{equation}
+dL=dN\cos\theta+dF_x\sin\theta
+\tag{30}\label{eq:30}
+\end{equation}
+\begin{equation}
+dT=dF_x\cos\theta-dN\sin\theta.
+\tag{31}\label{eq:31}
+\end{equation}
+
+Integrating along the span gives the whole-wing instantaneous lift and thrust:
+\begin{equation}
+L(t)=2\int_{0}^{b/2}\cos\gamma\,dL,\qquad
+T(t)=2\int_{0}^{b/2}dT
+\tag{32}\label{eq:32}
+\end{equation}
+where $\gamma(t)$ is the instantaneous dihedral angle of the section.
+
+It is convenient to integrate over cycle angle $\phi$ instead of time:
+\begin{equation}
+\phi=\omega t
+\tag{33}\label{eq:33}
+\end{equation}
+so that the cycle-averaged lift and thrust are
+\begin{equation}
+\bar{L}=\frac{1}{2\pi}\int_{0}^{2\pi}L(\phi)\,d\phi,\qquad
+\bar{T}=\frac{1}{2\pi}\int_{0}^{2\pi}T(\phi)\,d\phi.
+\tag{34}\label{eq:34}
+\end{equation}
+
+\subsection{Input power, output power, and efficiency}
+For attached flow, the instantaneous power required to move the section against aerodynamic loads is
+\begin{align}
+dP_{\text{in}}&=
+dF_x\,\dot{h}\sin(\theta-\bar{\theta}_a)
++dN\left[\dot{h}\cos(\theta-\bar{\theta}_a)+\frac{1}{4}c\dot{\theta}\right]
++dN_a\left[\frac{1}{4}c\dot{\theta}\right]
+-dM_{ac}\dot{\theta}-dM_a\dot{\theta}.
+\tag{35}\label{eq:35}
+\end{align}
+Here $dM_{ac}$ is the pitching moment about the aerodynamic centre and $dM_a$ includes apparent-camber and apparent-inertia moments:
+\begin{equation}
+dM_a=-\left[\frac{1}{16}\rho\pi c^3\dot{\theta}U+\frac{1}{128}\rho\pi c^4\ddot{\theta}\right]dy.
+\tag{36}\label{eq:36}
+\end{equation}
+
+For separated flow, the input power expression becomes
+\begin{equation}
+dP_{\text{in}}=dN_{\text{sep}}\left[\dot{h}\cos(\theta-\bar{\theta}_a)+\frac{1}{2}c\dot{\theta}\right].
+\tag{37}\label{eq:37}
+\end{equation}
+
+The instantaneous aerodynamic power absorbed by the whole wing is
+\begin{equation}
+P_{\text{in}}(t)=2\int_{0}^{b/2}dP_{\text{in}}
+\tag{38}\label{eq:38}
+\end{equation}
+and the average input power over the cycle is
+\begin{equation}
+\bar{P}_{\text{in}}=\frac{1}{2\pi}\int_{0}^{2\pi}P_{\text{in}}(\phi)\,d\phi.
+\tag{39}\label{eq:39}
+\end{equation}
+
+The average output power is
+\begin{equation}
+\bar{P}_{\text{out}}=\bar{T}U
+\tag{40}\label{eq:40}
+\end{equation}
+and the average propulsive efficiency is
+\begin{equation}
+\bar{\eta}=\frac{\bar{P}_{\text{out}}}{\bar{P}_{\text{in}}}.
+\tag{41}\label{eq:41}
+\end{equation}
+
+% =========================================================
+\section{Numerical Example (parameter and discretization statements)}
+This section records the example parameter choices and discretizations in a compact, reproducible form.
+
+\subsection{Example parameter set}
+In the reported example setup, negative-$\alpha^\prime$ stalling is assumed not to occur,
+so $(\alpha_{\text{stall}})_{\min}$ is not specified. In addition, the dynamic-stall criterion
+was not effectively used in the calculations at the time, so the parameter $\xi$ in \eqref{eq:22}
+is taken as zero for the example.
+
+A representative parameter set is
+\begin{align}
+\alpha_0&=0.5^\circ\notag\\
+\eta_s&=0.98\notag\\
+C_{mac}&=0.025\notag\\
+\left(\alpha_{\text{stall}}\right)_{\max}&=13^\circ.
+\tag{42}\label{eq:42}
+\end{align}
+
+For the separated-flow normal-force model, a high-aspect-ratio flat-plate value is used:
+$(C_d)_{\text{cf}}=1.98$ (example setting). The assumed kinematics also fix the phasing between
+plunging and pitching at $-90^\circ$.
+
+\subsection{Skin-friction drag coefficient (example)}
+A friction-drag coefficient for a fully turbulent boundary layer is taken as
+\begin{equation}
+\left(C_d\right)_f=\frac{0.89}{\left[\log(R_n)\right]^{2.58}}
+\tag{43}\label{eq:43}
+\end{equation}
+where $R_n$ is based on the local chord.
+
+\subsection{Root-flapping kinematics used in the example}
+With root-flapping kinematics and no spanwise bending, the plunging motion is
+\begin{equation}
+h=-(\Gamma y)\cos\phi
+\tag{44}\label{eq:44}
+\end{equation}
+where $\Gamma$ is the maximum flapping-angle magnitude (e.g., $\Gamma=0.3491~\text{rad}$).
+
+A linear spanwise dynamic twist distribution is assumed:
+\begin{equation}
+\delta\theta=-(\beta_0 y)\sin\phi
+\tag{45}\label{eq:45}
+\end{equation}
+where $\beta_0$ is a chosen dynamic-twist parameter.
+
+\subsection{Discrete integration (cycle and span)}
+A discrete approximation of the cycle integral (example shown for $\bar{L}$) is
+\begin{equation}
+\bar{L}\cong\frac{1}{m}\sum_{j=1}^{m}L_j
+\tag{46}\label{eq:46}
+\end{equation}
+and, using the span integral structure of \eqref{eq:32}, one may approximate
+\begin{equation}
+L_j\cong 2\sum_{i=1}^{n}\cos\gamma_{ij}\,\Delta L_{ij}.
+\tag{47}\label{eq:47}
+\end{equation}
+
+% =========================================================
+\section{Notes for implementation}
+To reproduce results numerically:
+\begin{itemize}
+\item Discretize span ($i=1\ldots n$) and cycle phase ($j=1\ldots m$).
+\item For each $(i,j)$, compute $c(y_i)$, kinematics $(\theta,\dot{\theta},\ddot{\theta},h,\dot{h})$ and derived
+quantities $(\alpha,\dot{\alpha},\alpha^\prime,V,V_x,V_n)$ using \eqref{eq:4}--\eqref{eq:28}.
+\item Apply attached/separated switching via \eqref{eq:23}; compute forces with \eqref{eq:16}--\eqref{eq:31}.
+\item Compute power via \eqref{eq:35} or \eqref{eq:37}, then integrate with \eqref{eq:38}--\eqref{eq:41} and
+(optional) discrete rules \eqref{eq:46}--\eqref{eq:47}.
+\item If the time history is not uniform in phase (e.g., downstroke faster than upstroke), perform time-weighted
+averaging using the correct $dt$ rather than uniform $\phi$ sampling.
+\end{itemize}
+
+% =========================================================
+\section{Conclusions (paraphrased)}
+A finite-span, unsteady strip-theory framework can be assembled to estimate mean lift, thrust, and power of
+harmonically flapping wings while accounting for leading-edge suction efficiency, friction drag, and localized
+stall/separation effects. A central assumption is that the semispan remains constant throughout the motion;
+the example application indicates that sustained flight may depend strongly on an appropriate dynamic twist distribution.
+
+\section*{Acknowledgements (paraphrased)}
+This rewrite omits the original reference list by request.
+
+\end{document}
