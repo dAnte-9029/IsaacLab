@@ -3,9 +3,9 @@
 
 Example:
     ./isaaclab.sh -p scripts/plot_windtunnel_wrench.py \\
-      --csv outputs/wang2016_v50_windtunnel.csv \\
+      --csv outputs_DeLaurier/windtunnel_v50.csv \\
       --frame wang \\
-      --out outputs/wang2016_v50_windtunnel_wang_wrench.png
+      --out outputs_DeLaurier/windtunnel_v50_wang_wrench.png
 """
 
 from __future__ import annotations
@@ -152,7 +152,7 @@ def main() -> None:
 
     out_path = args.out
     if out_path is None:
-        out_path = Path("outputs") / f"{args.csv.stem}_{frame}_wrench.png"
+        out_path = Path("outputs_DeLaurier") / f"{args.csv.stem}_{frame}_wrench.png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     import matplotlib.pyplot as plt  # type: ignore

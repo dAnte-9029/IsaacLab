@@ -157,7 +157,7 @@ def main() -> None:
 
     out = args.out
     if out is None:
-        out = Path("outputs") / f"{args.csv.stem}_thrust_lift.png"
+        out = Path("outputs_DeLaurier") / f"{args.csv.stem}_thrust_lift.png"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     import matplotlib.pyplot as plt  # type: ignore

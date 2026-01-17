@@ -18,7 +18,7 @@ Scenario:
 
 .. code-block:: bash
 
-    ./isaaclab.sh -p scripts/isaac_wind_tunnel_flappingbot_v50.py --headless --steps 2400 --csv wang2016_v50_windtunnel.csv
+    ./isaaclab.sh -p scripts/isaac_wind_tunnel_flappingbot_v50.py --headless --steps 2400 --run-root outputs_DeLaurier/runs
 """
 
 from __future__ import annotations
@@ -32,15 +32,70 @@ import importlib.util
 
 from isaaclab.app import AppLauncher
 
+
 parser = argparse.ArgumentParser(description="Wang2016 QSM wind-tunnel: FlappingBot v50 fixed-base + forward flight.")
 parser.add_argument("--steps", type=int, default=2400, help="Number of physics steps.")
-parser.add_argument("--csv", type=Path, default=Path("wang2016_v50_windtunnel.csv"), help="Output CSV path.")
+parser.add_argument("--csv", type=Path, default=None, help="Output CSV path. If omitted, auto-create a run folder.")
+parser.add_argument(
+    "--run-root",
+    type=Path,
+    default=Path("outputs_DeLaurier/runs"),
+    help="Root folder for per-run outputs when --csv is omitted.",
+)
+parser.add_argument(
+    "--run-id",
+    type=int,
+    default=None,
+    help="Optional run index (e.g. 1 => run_0001). If omitted, auto-increment.",
+)
 
 parser.add_argument("--dt", type=float, default=1.0 / 240.0, help="Physics step (s).")
 parser.add_argument("--rho", type=float, default=1.225, help="Air density (kg/m^3).")
 parser.add_argument("--N", type=int, default=60, help="Spanwise strip count for BEM discretization.")
 
 parser.add_argument("--f_hz", type=float, default=2.0, help="Flapping frequency (Hz).")
+parser.add_argument(
+    "--aero-model",
+    type=str,
+    choices=("wang2016", "delaurier1993"),
+    default="wang2016",
+    help="Aerodynamic model to use for the wind-tunnel rig.",
+)
+parser.add_argument(
+    "--enable-modulation",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Enable non-uniform flapping (downstroke faster/slower than upstroke).",
+)
+parser.add_argument(
+    "--downstroke-ratio",
+    type=float,
+    default=0.5,
+    help="Downstroke duration ratio delta in (0,1). Downstroke lasts delta*T.",
+)
+parser.add_argument(
+    "--modulation-mode",
+    type=str,
+    choices=("fixed_f", "fixed_peak_qd"),
+    default="fixed_f",
+    help=(
+        "Phase-warp constraint: "
+        "'fixed_f' keeps --f_hz as the period, "
+        "'fixed_peak_qd' sets f so downstroke peak |qdot| matches a sine at --modulation-f-ref-hz."
+    ),
+)
+parser.add_argument(
+    "--modulation-smoothness",
+    type=float,
+    default=0.0,
+    help="Smooth transition width (fraction of cycle) for the down/up stroke speed change.",
+)
+parser.add_argument(
+    "--modulation-f-ref-hz",
+    type=float,
+    default=4.5,
+    help="Reference frequency for 'fixed_peak_qd' mode (defines peak |qdot| limit).",
+)
 parser.add_argument("--body_pitch_deg", type=float, default=15.0, help="Fixed body pitch angle about +Y (deg).")
 parser.add_argument("--airspeed", type=float, default=5.0, help="Wind-tunnel airspeed magnitude (m/s).")
 parser.add_argument(
@@ -127,8 +182,11 @@ parser.add_argument(
 parser.add_argument(
     "--wing-geom-csv",
     type=Path,
-    default=None,
-    help="Optional wing geometry CSV from fit_wing_geom_from_points.py (columns: x_mid_m,c_m,dhat). Overrides --R/--c.",
+    default=Path("outputs_DeLaurier/right_wing_te_fit_poly5_gap50.csv"),
+    help=(
+        "Wing geometry CSV from fit_wing_geom_from_points.py (columns: x_mid_m,c_m,dhat). "
+        "Overrides --R/--c."
+    ),
 )
 
 parser.add_argument(
@@ -235,6 +293,58 @@ parser.add_argument(
 )
 parser.add_argument("--profile-alpha1-deg", type=float, default=15.0, help="Profile drag weight: α1 (deg), w≈1 for aoa<=α1.")
 parser.add_argument("--profile-alpha2-deg", type=float, default=35.0, help="Profile drag weight: α2 (deg), w≈0 for aoa>=α2.")
+parser.add_argument("--delaurier-alpha0-deg", type=float, default=0.5, help="DeLaurier: zero-lift angle α0 (deg).")
+parser.add_argument("--delaurier-eta-s", type=float, default=0.98, help="DeLaurier: leading-edge suction efficiency η_s.")
+parser.add_argument(
+    "--delaurier-cd-cf",
+    type=float,
+    default=1.98,
+    help="DeLaurier: separated-flow crossflow drag coefficient C_d_cf.",
+)
+parser.add_argument(
+    "--delaurier-alpha-stall-max-deg",
+    type=float,
+    default=13.0,
+    help="DeLaurier: static stall angle α_stall_max (deg).",
+)
+parser.add_argument(
+    "--delaurier-alpha-stall-min-deg",
+    type=float,
+    default=-180.0,
+    help="DeLaurier: lower stall bound α_stall_min (deg).",
+)
+parser.add_argument("--delaurier-xi", type=float, default=0.0, help="DeLaurier: dynamic stall coefficient ξ.")
+parser.add_argument("--delaurier-cmac", type=float, default=0.025, help="DeLaurier: pitching moment coefficient C_mac.")
+parser.add_argument(
+    "--delaurier-cd-f",
+    type=float,
+    default=None,
+    help="DeLaurier: friction drag coefficient C_d_f. If omitted, compute from Re via Eq.(43).",
+)
+parser.add_argument(
+    "--delaurier-nu",
+    type=float,
+    default=1.5e-5,
+    help="DeLaurier: kinematic viscosity nu (m^2/s) used for C_d_f if not provided.",
+)
+parser.add_argument(
+    "--delaurier-theta-a-deg",
+    type=float,
+    default=None,
+    help="DeLaurier: flapping-axis angle theta_a (deg). Default: body_pitch_deg.",
+)
+parser.add_argument(
+    "--delaurier-theta-w-deg",
+    type=float,
+    default=0.0,
+    help="DeLaurier: mean chord angle relative to flapping axis theta_w (deg).",
+)
+parser.add_argument(
+    "--delaurier-enable-separation",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="DeLaurier: enable separated-flow model (Eq. 24-29).",
+)
 parser.add_argument(
     "--force-exit",
     action="store_true",
@@ -274,6 +384,8 @@ from isaaclab.utils.math import quat_apply, quat_apply_inverse
 
 from flapping_bot.flapping_bot.assets import FlappingBotCfg
 from flapping_bot.flapping_bot.physics.qsm_wang2016 import WingGeometry, compute_aero_wrench_from_omega_alpha, eta_shape_piecewise
+from flapping_bot.flapping_bot.physics.phase_warp import PhaseWarp
+from flapping_bot.flapping_bot.physics.qsm_delaurier1993 import DeLaurierParams, compute_aero_wrench_delaurier1993
 from flapping_bot.flapping_bot.physics.virtual_twist import (
     VirtualTwistCfg,
     VirtualTwistState,
@@ -315,6 +427,20 @@ def _infer_span_from_x_mid(xs: list[float]) -> float:
     if dx <= 0:
         raise ValueError("x_mid must be strictly increasing.")
     return float(xs[-1] + 0.5 * dx)
+
+
+def _resolve_run_dir(run_root: Path, run_id: int | None) -> Path:
+    run_root.mkdir(parents=True, exist_ok=True)
+    if run_id is not None:
+        return run_root / f"run_{run_id:04d}"
+    existing: list[int] = []
+    for p in run_root.iterdir():
+        if p.is_dir() and p.name.startswith("run_"):
+            suffix = p.name[4:]
+            if suffix.isdigit():
+                existing.append(int(suffix))
+    next_id = max(existing) + 1 if existing else 1
+    return run_root / f"run_{next_id:04d}"
 
 
 def _interp1d_torch(xp: torch.Tensor, fp: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
@@ -574,6 +700,9 @@ def main():
         xs, cs, _dhats = _load_wing_geom_csv(wing_geom_csv)
         R = _infer_span_from_x_mid(xs)
         print(f"[INFO] Loaded wing geometry from CSV: {wing_geom_csv} (inferred R≈{R:.4f} m)")
+        print(f"[INFO] Chord check (root->tip): c_root≈{cs[0]:.4f} m, c_tip≈{cs[-1]:.4f} m")
+        if cs[0] < cs[-1]:
+            print("[WARN] Root chord is smaller than tip chord; check wing-geom orientation (root->tip should decrease).")
     elif args_cli.auto_geom_from_urdf:
         urdf_path = Path(robot_cfg.spawn.asset_path).resolve()
         aL, aR = _estimate_wing_area_from_urdf(urdf_path, mesh_scale=float(args_cli.mesh_scale))
@@ -691,8 +820,30 @@ def main():
         f"(auto={bool(args_cli.auto_twist_sign)})"
     )
 
-    # Wing joint profile.
-    w = 2.0 * math.pi * args_cli.f_hz
+    # Wing joint profile (optionally phase-warped).
+    mod_enabled = bool(args_cli.enable_modulation)
+    mod_delta = float(args_cli.downstroke_ratio)
+    mod_mode = str(args_cli.modulation_mode)
+    mod_mode_code = 0 if mod_mode == "fixed_f" else 1
+    mod_smooth = float(args_cli.modulation_smoothness)
+    mod_f_ref = float(args_cli.modulation_f_ref_hz)
+    phase_warp = None
+    if mod_enabled:
+        phase_warp = PhaseWarp(
+            f_hz=float(args_cli.f_hz),
+            delta=mod_delta,
+            smoothness=mod_smooth,
+            mode=mod_mode,
+            f_ref_hz=mod_f_ref,
+        )
+        f_eff = phase_warp.f_eff
+        f_down = phase_warp.f_down
+        f_up = phase_warp.f_up
+    else:
+        f_eff = float(args_cli.f_hz)
+        f_down = f_eff
+        f_up = f_eff
+    w = 2.0 * math.pi * f_eff
     # Fixed ±30° as per your v50 rig, but clamp to URDF joint limits to avoid saturation/jitter.
     amp = math.radians(30.0)
     urdf_path = Path(robot_cfg.spawn.asset_path).resolve()
@@ -704,6 +855,12 @@ def main():
         if amp > amp_limit:
             print(f"[WARN] Clamping flap amplitude from {math.degrees(amp):.3f} deg to {math.degrees(amp_limit):.3f} deg due to URDF limits.")
             amp = max(0.0, float(amp_limit))
+    if mod_enabled and phase_warp is not None:
+        print(
+            "[INFO] modulation enabled: "
+            f"delta={mod_delta:.3f} mode={mod_mode} smooth={mod_smooth:.3f} "
+            f"f_eff={f_eff:.3f} Hz (fd={f_down:.3f}, fu={f_up:.3f})"
+        )
 
     # Wind-tunnel air flow in world frame (fixed, not body-aligned).
     # The paper's note under eq. (2.5) adds the wing's forward-flight velocity to v_c.
@@ -727,10 +884,31 @@ def main():
     )
     twist_state = VirtualTwistState.zeros((2,), device=sim.device, dtype=torch.float32)
     eta_rest = math.radians(float(args_cli.twist_rest_deg))
+    aero_model = str(args_cli.aero_model)
+    if aero_model == "delaurier1993" and twist_mode in ("quasi_static", "dynamic"):
+        raise ValueError("--aero-model delaurier1993 currently supports twist-mode off/prescribed only.")
+    delaurier_params = DeLaurierParams(
+        alpha0_rad=math.radians(float(args_cli.delaurier_alpha0_deg)),
+        eta_s=float(args_cli.delaurier_eta_s),
+        cd_cf=float(args_cli.delaurier_cd_cf),
+        alpha_stall_min_rad=math.radians(float(args_cli.delaurier_alpha_stall_min_deg)),
+        alpha_stall_max_rad=math.radians(float(args_cli.delaurier_alpha_stall_max_deg)),
+        xi=float(args_cli.delaurier_xi),
+        c_mac=float(args_cli.delaurier_cmac),
+        nu=float(args_cli.delaurier_nu),
+        cd_f=float(args_cli.delaurier_cd_f) if args_cli.delaurier_cd_f is not None else None,
+    )
+    theta_a_deg = float(args_cli.body_pitch_deg) if args_cli.delaurier_theta_a_deg is None else float(args_cli.delaurier_theta_a_deg)
+    theta_a = math.radians(theta_a_deg)
+    theta_w = math.radians(float(args_cli.delaurier_theta_w_deg))
+    theta_bar = theta_a + theta_w
 
     # Split the wing into (inner rigid) + (outer twisting) segments.
     # Note: when x0==0 (full-span twist), the "inner" segment is empty and is skipped.
     eta_shape_outer = None  # (N_outer,) in [0,1] when twist enabled
+    twist_x0 = 0.0
+    twist_x1 = float(wing_geom.R)
+    twist_shape_kind = str(args_cli.twist_eta_shape)
     if args_cli.twist_mode != "off":
         x0 = float(args_cli.twist_x0)
         x1 = float(wing_geom.R) if args_cli.twist_x1 is None else float(args_cli.twist_x1)
@@ -745,15 +923,22 @@ def main():
             )
         wing_geom_inner = None if x0 <= 0.0 else wing_geom.subspan(0.0, x0)
         wing_geom_outer = wing_geom.subspan(x0, x1)
-        shape_kind = str(args_cli.twist_eta_shape)
-        if shape_kind == "uniform":
+        twist_x0 = x0
+        twist_x1 = x1
+        twist_shape_kind = str(args_cli.twist_eta_shape)
+        if twist_shape_kind == "uniform":
             eta_shape_outer = torch.ones_like(wing_geom_outer.x_mid)
         else:
-            eta_shape_outer = eta_shape_piecewise(wing_geom_outer.x_mid, x0=x0, x1=x1, kind=shape_kind)
+            eta_shape_outer = eta_shape_piecewise(wing_geom_outer.x_mid, x0=x0, x1=x1, kind=twist_shape_kind)
     else:
         wing_geom_inner = wing_geom
         wing_geom_outer = None
 
+    if args_cli.csv is None:
+        run_dir = _resolve_run_dir(args_cli.run_root, args_cli.run_id)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        args_cli.csv = run_dir / "windtunnel_v50.csv"
+        print(f"[INFO] Run directory: {run_dir}")
     args_cli.csv.parent.mkdir(parents=True, exist_ok=True)
     with args_cli.csv.open("w", newline="") as f:
         writer = csv.writer(f)
@@ -772,6 +957,13 @@ def main():
                 "v_air_wy",
                 "v_air_wz",
                 "body_pitch_deg",
+                "mod_enabled",
+                "mod_delta",
+                "mod_mode",
+                "mod_smooth",
+                "mod_f_eff_hz",
+                "mod_fd_hz",
+                "mod_fu_hz",
                 "omega_w_norm_L",
                 "omega_w_norm_R",
                 "omega_c_norm_L",
@@ -784,6 +976,11 @@ def main():
                 "eta_tip_R",
                 "tau_twist_x_L",
                 "tau_twist_x_R",
+                "tau_hinge_L",
+                "tau_hinge_R",
+                "power_in_L",
+                "power_in_R",
+                "power_in_T",
                 "F_wang_x_L",
                 "F_wang_y_L",
                 "F_wang_z_L",
@@ -848,16 +1045,32 @@ def main():
                 "aoa_frac_mid_R",
                 "aoa_frac_post_L",
                 "aoa_frac_post_R",
+                "del_sep_ratio_L",
+                "del_sep_ratio_R",
             ]
         )
 
         for step in range(args_cli.steps):
             t = step * sim_dt
 
-            # Prescribed wing motion (fixed amplitude, sinusoidal).
-            q_cmd = amp * math.sin(w * t)
-            qd_cmd = amp * w * math.cos(w * t)
-            qdd_cmd = -amp * (w**2) * math.sin(w * t)
+            # Prescribed wing motion (fixed amplitude, optional phase warp).
+            if phase_warp is None:
+                q_cmd = amp * math.sin(w * t)
+                qd_cmd = amp * w * math.cos(w * t)
+                qdd_cmd = -amp * (w**2) * math.sin(w * t)
+                qddd_cmd = -(w**2) * qd_cmd
+                psi_dot = w
+            else:
+                st = phase_warp.eval(t)
+                s = math.sin(st.psi)
+                c = math.cos(st.psi)
+                q_cmd = amp * s
+                qd_cmd = amp * c * st.psi_dot
+                qdd_cmd = amp * (-s * (st.psi_dot**2) + c * st.psi_ddot)
+                qddd_cmd = amp * (
+                    -c * (st.psi_dot**3) - 3.0 * s * st.psi_dot * st.psi_ddot + c * st.psi_dddot
+                )
+                psi_dot = st.psi_dot
 
             # Drive the mechanism like a test stand: enforce the joint motion kinematically (default),
             # or use position targets (so aerodynamic torques can perturb wing motion).
@@ -875,15 +1088,17 @@ def main():
             omega_w = robot.data.body_ang_vel_w[0, wing_body_ids, :]  # (2,3)
             alpha_w = robot.data.body_ang_acc_w[0, wing_body_ids, :]  # (2,3)
 
+            # Wing hinge axes in world (left/right use opposite signs).
+            if base_body_ids:
+                q_base_w = robot.data.body_quat_w[0, base_body_ids[0], :].view(1, 4).expand(2, 4)
+            else:
+                q_base_w = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=sim.device, dtype=torch.float32).expand(2, 4)
+            axis_b = torch.tensor([[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]], device=sim.device, dtype=torch.float32)  # (2,3)
+            axis_w = quat_apply(q_base_w, axis_b)  # (2,3)
+
             if args_cli.qsm_from_command:
                 # Use commanded kinematics, but keep the frame mapping consistent with --wang-axes.
                 # The wing DOF rotates about the base_link x-axis, with opposite signs for left vs right (URDF axes).
-                if base_body_ids:
-                    q_base_w = robot.data.body_quat_w[0, base_body_ids[0], :].view(1, 4).expand(2, 4)
-                else:
-                    q_base_w = torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=sim.device, dtype=torch.float32).expand(2, 4)
-                axis_b = torch.tensor([[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]], device=sim.device, dtype=torch.float32)  # (2,3)
-                axis_w = quat_apply(q_base_w, axis_b)  # (2,3)
                 omega_w_cmd = axis_w * float(qd_cmd)
                 alpha_w_cmd = axis_w * float(qdd_cmd)
                 omega_l = quat_apply_inverse(q_w_link, omega_w_cmd)
@@ -953,7 +1168,7 @@ def main():
                         # If η=k*q̇ then η̇=k*q̈ and η̈=k*q⃛. For q=amp*sin(wt): q⃛ = -w^2*q̇.
                         k = eta_max / qd_ref
                         etad = k * float(qdd_cmd)
-                        etadd = k * (-(w**2) * float(qd_cmd))
+                        etadd = k * float(qddd_cmd)
                         etad_tip = torch.tensor([sgn_L * etad, sgn_R * etad], device=sim.device, dtype=torch.float32)
                         etadd_tip = torch.tensor([sgn_L * etadd, sgn_R * etadd], device=sim.device, dtype=torch.float32)
                     else:
@@ -1056,78 +1271,149 @@ def main():
                         )
 
             # Compute aerodynamic wrench in Wang co-rotating frame, with optional outer-segment twist.
-            if wing_geom_inner is None:
-                F_inner = torch.zeros((2, 3), device=sim.device, dtype=torch.float32)
-                tau_inner = torch.zeros((2, 3), device=sim.device, dtype=torch.float32)
-            else:
-                F_inner, tau_inner = compute_aero_wrench_from_omega_alpha(
-                    omega_c,
-                    alpha_c,
-                    wing_geom_inner,
-                    rho=args_cli.rho,
-                    include_wagner=bool(args_cli.include_wagner),
-                    v_forward_c=v_forward_c,
-                    profile_cd0=float(args_cli.profile_cd0) if float(args_cli.profile_cd0) > 0.0 else None,
-                    profile_alpha1_deg=float(args_cli.profile_alpha1_deg),
-                    profile_alpha2_deg=float(args_cli.profile_alpha2_deg),
-                )  # (2,3)
-
-            if args_cli.twist_mode == "off":
-                F_c, tau_c = F_inner, tau_inner
-            else:
-                if wing_geom_outer is None or eta_shape_outer is None:
-                    raise RuntimeError("twist enabled but outer geometry/shape is missing.")
-                N_outer = int(wing_geom_outer.x_mid.numel())
-
-                # Distributed twist: η(x,t)=g(x)*η_tip(t) over the twist region.
-                eta_strip = eta_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
-                etad_strip = etad_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
-                etadd_strip = etadd_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
-
-                if omega_c.ndim >= 3 and omega_c.shape[-2] == N_outer:
-                    omega_base = omega_c
+            del_sep_ratio = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+            power_in = None
+            omega_outer = None
+            v_forward_outer = None
+            if aero_model == "delaurier1993":
+                N_full = int(wing_geom.x_mid.numel())
+                y_full = wing_geom.x_mid.view(1, N_full).expand(2, N_full)
+                h_full = -float(q_cmd) * y_full
+                hdot_full = -float(qd_cmd) * y_full
+                hddot_full = -float(qdd_cmd) * y_full
+                if args_cli.twist_mode == "off":
+                    eta_shape_full = torch.zeros_like(wing_geom.x_mid)
                 else:
-                    omega_base = omega_c.unsqueeze(-2).expand(2, N_outer, 3)
-                if alpha_c.ndim >= 3 and alpha_c.shape[-2] == N_outer:
-                    alpha_base = alpha_c
-                else:
-                    alpha_base = alpha_c.unsqueeze(-2).expand(2, N_outer, 3)
-                if v_forward_c.ndim >= 3 and v_forward_c.shape[-2] == N_outer:
-                    v_forward_base = v_forward_c
-                else:
-                    v_forward_base = v_forward_c.unsqueeze(-2).expand(2, N_outer, 3)
+                    if twist_shape_kind == "uniform":
+                        eta_shape_full = torch.where(
+                            (wing_geom.x_mid >= twist_x0) & (wing_geom.x_mid <= twist_x1),
+                            torch.ones_like(wing_geom.x_mid),
+                            torch.zeros_like(wing_geom.x_mid),
+                        )
+                    else:
+                        eta_shape_full = eta_shape_piecewise(
+                            wing_geom.x_mid, x0=twist_x0, x1=twist_x1, kind=twist_shape_kind
+                        )
+                        eta_shape_full = torch.where(
+                            (wing_geom.x_mid < twist_x0) | (wing_geom.x_mid > twist_x1),
+                            torch.zeros_like(eta_shape_full),
+                            eta_shape_full,
+                        )
+                eta_strip_full = eta_tip.unsqueeze(-1) * eta_shape_full.view(1, N_full)
+                etad_strip_full = etad_tip.unsqueeze(-1) * eta_shape_full.view(1, N_full)
+                etadd_strip_full = etadd_tip.unsqueeze(-1) * eta_shape_full.view(1, N_full)
 
-                # Express base wing ω/α in each strip's twisted frame, then add local twist rates about +x.
-                omega_outer = _rotate_about_x(omega_base, -eta_strip)
-                alpha_outer = _rotate_about_x(alpha_base, -eta_strip)
-                omega_outer = omega_outer + torch.stack(
-                    (etad_strip, torch.zeros_like(etad_strip), torch.zeros_like(etad_strip)), dim=-1
+                theta_full = theta_bar + eta_strip_full
+                thetad_full = etad_strip_full
+                thetadd_full = etadd_strip_full
+                F_c, tau_c, power_in, del_sep_ratio = compute_aero_wrench_delaurier1993(
+                    h_full,
+                    hdot_full,
+                    hddot_full,
+                    theta_full,
+                    thetad_full,
+                    thetadd_full,
+                    wing_geom,
+                    rho=float(args_cli.rho),
+                    U=float(args_cli.airspeed),
+                    theta_a=theta_a,
+                    theta_bar=theta_bar,
+                    omega_ref=float(psi_dot),
+                    params=delaurier_params,
+                    enable_separation=bool(args_cli.delaurier_enable_separation),
                 )
-                alpha_outer = alpha_outer + torch.stack(
-                    (etadd_strip, torch.zeros_like(etad_strip), torch.zeros_like(etad_strip)), dim=-1
-                )
-                v_forward_outer = _rotate_about_x(v_forward_base, -eta_strip)
 
-                # Compute per-strip loads in each strip frame, rotate back to the base Wang frame, then sum.
-                F_outer_strip, tau_outer_strip = compute_aero_wrench_from_omega_alpha(
-                    omega_outer,
-                    alpha_outer,
-                    wing_geom_outer,
-                    rho=args_cli.rho,
-                    include_wagner=bool(args_cli.include_wagner),
-                    v_forward_c=v_forward_outer,
-                    return_per_strip=True,
-                    profile_cd0=float(args_cli.profile_cd0) if float(args_cli.profile_cd0) > 0.0 else None,
-                    profile_alpha1_deg=float(args_cli.profile_alpha1_deg),
-                    profile_alpha2_deg=float(args_cli.profile_alpha2_deg),
-                )  # (2,N,3) in per-strip frames
-                F_outer_strip = _rotate_about_x(F_outer_strip, eta_strip)
-                tau_outer_strip = _rotate_about_x(tau_outer_strip, eta_strip)
-                F_outer = F_outer_strip.sum(dim=-2)  # (2,3)
-                tau_outer = tau_outer_strip.sum(dim=-2)  # (2,3)
+                if wing_geom_outer is not None and eta_shape_outer is not None:
+                    N_outer = int(wing_geom_outer.x_mid.numel())
+                    eta_strip = eta_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
+                    etad_strip = etad_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
+                    etadd_strip = etadd_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
+                    if omega_c.ndim >= 3 and omega_c.shape[-2] == N_outer:
+                        omega_base = omega_c
+                    else:
+                        omega_base = omega_c.unsqueeze(-2).expand(2, N_outer, 3)
+                    if v_forward_c.ndim >= 3 and v_forward_c.shape[-2] == N_outer:
+                        v_forward_base = v_forward_c
+                    else:
+                        v_forward_base = v_forward_c.unsqueeze(-2).expand(2, N_outer, 3)
+                    omega_outer = _rotate_about_x(omega_base, -eta_strip)
+                    omega_outer = omega_outer + torch.stack(
+                        (etad_strip, torch.zeros_like(etad_strip), torch.zeros_like(etad_strip)), dim=-1
+                    )
+                    v_forward_outer = _rotate_about_x(v_forward_base, -eta_strip)
+            else:
+                if wing_geom_inner is None:
+                    F_inner = torch.zeros((2, 3), device=sim.device, dtype=torch.float32)
+                    tau_inner = torch.zeros((2, 3), device=sim.device, dtype=torch.float32)
+                else:
+                    F_inner, tau_inner = compute_aero_wrench_from_omega_alpha(
+                        omega_c,
+                        alpha_c,
+                        wing_geom_inner,
+                        rho=args_cli.rho,
+                        include_wagner=bool(args_cli.include_wagner),
+                        v_forward_c=v_forward_c,
+                        profile_cd0=float(args_cli.profile_cd0) if float(args_cli.profile_cd0) > 0.0 else None,
+                        profile_alpha1_deg=float(args_cli.profile_alpha1_deg),
+                        profile_alpha2_deg=float(args_cli.profile_alpha2_deg),
+                    )  # (2,3)
 
-                F_c = F_inner + F_outer
-                tau_c = tau_inner + tau_outer
+                if args_cli.twist_mode == "off":
+                    F_c, tau_c = F_inner, tau_inner
+                else:
+                    if wing_geom_outer is None or eta_shape_outer is None:
+                        raise RuntimeError("twist enabled but outer geometry/shape is missing.")
+                    N_outer = int(wing_geom_outer.x_mid.numel())
+
+                    # Distributed twist: η(x,t)=g(x)*η_tip(t) over the twist region.
+                    eta_strip = eta_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
+                    etad_strip = etad_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
+                    etadd_strip = etadd_tip.unsqueeze(-1) * eta_shape_outer.view(1, N_outer)  # (2,N)
+
+                    if omega_c.ndim >= 3 and omega_c.shape[-2] == N_outer:
+                        omega_base = omega_c
+                    else:
+                        omega_base = omega_c.unsqueeze(-2).expand(2, N_outer, 3)
+                    if alpha_c.ndim >= 3 and alpha_c.shape[-2] == N_outer:
+                        alpha_base = alpha_c
+                    else:
+                        alpha_base = alpha_c.unsqueeze(-2).expand(2, N_outer, 3)
+                    if v_forward_c.ndim >= 3 and v_forward_c.shape[-2] == N_outer:
+                        v_forward_base = v_forward_c
+                    else:
+                        v_forward_base = v_forward_c.unsqueeze(-2).expand(2, N_outer, 3)
+
+                    # Express base wing ω/α in each strip's twisted frame, then add local twist rates about +x.
+                    omega_outer = _rotate_about_x(omega_base, -eta_strip)
+                    alpha_outer = _rotate_about_x(alpha_base, -eta_strip)
+                    omega_outer = omega_outer + torch.stack(
+                        (etad_strip, torch.zeros_like(etad_strip), torch.zeros_like(etad_strip)), dim=-1
+                    )
+                    alpha_outer = alpha_outer + torch.stack(
+                        (etadd_strip, torch.zeros_like(etad_strip), torch.zeros_like(etad_strip)), dim=-1
+                    )
+                    v_forward_outer = _rotate_about_x(v_forward_base, -eta_strip)
+
+                    # Compute per-strip loads in each strip frame, rotate back to the base Wang frame, then sum.
+                    F_outer_strip, tau_outer_strip = compute_aero_wrench_from_omega_alpha(
+                        omega_outer,
+                        alpha_outer,
+                        wing_geom_outer,
+                        rho=args_cli.rho,
+                        include_wagner=bool(args_cli.include_wagner),
+                        v_forward_c=v_forward_outer,
+                        return_per_strip=True,
+                        profile_cd0=float(args_cli.profile_cd0) if float(args_cli.profile_cd0) > 0.0 else None,
+                        profile_alpha1_deg=float(args_cli.profile_alpha1_deg),
+                        profile_alpha2_deg=float(args_cli.profile_alpha2_deg),
+                    )  # (2,N,3) in per-strip frames
+                    F_outer_strip = _rotate_about_x(F_outer_strip, eta_strip)
+                    tau_outer_strip = _rotate_about_x(tau_outer_strip, eta_strip)
+                    F_outer = F_outer_strip.sum(dim=-2)  # (2,3)
+                    tau_outer = tau_outer_strip.sum(dim=-2)  # (2,3)
+
+                    F_c = F_inner + F_outer
+                    tau_c = tau_inner + tau_outer
 
             # AOA stats (area-weighted) using the same kinematics used by QSM:
             # AOA is computed from v_c components in each segment's local co-rotating frame.
@@ -1181,6 +1467,14 @@ def main():
             F_w = quat_apply(q_w_link, F_l)
             tau_w = quat_apply(q_w_link, tau_l)
 
+            # Hinge-axis torque and input power (positive = motor work against aero).
+            if power_in is None:
+                tau_hinge = torch.sum(tau_w * axis_w, dim=1)  # (2,)
+                power_in = -tau_hinge * float(qd_cmd)  # (2,)
+            else:
+                tau_hinge = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+            power_in_T = power_in.sum()
+
             # Total wrench in world.
             F_w_T = F_w.sum(dim=0)  # (3,)
             tau_w_T = tau_w.sum(dim=0)  # (3,) sum of pure torques
@@ -1213,11 +1507,12 @@ def main():
                     pass
 
             if args_cli.print_every > 0 and (step % int(args_cli.print_every) == 0):
+                fy_tag = "del" if aero_model == "delaurier1993" else "wang"
                 print(
-                    f"[step {step:05d}] t={t:7.3f} qL={q_cmd:+.3f} rad qdL={qd_cmd:+.3f} rad/s | "
+                    f"[step {step:05d}] model={aero_model} t={t:7.3f} qL={q_cmd:+.3f} rad qdL={qd_cmd:+.3f} rad/s | "
                     f"omega_c_norm(L,R)=({float(torch.linalg.norm(omega_c[0]).item()):.3f},{float(torch.linalg.norm(omega_c[1]).item()):.3f}) | "
                     f"eta_tip(L,R)=({float(eta_tip[0]):+.3f},{float(eta_tip[1]):+.3f}) rad | "
-                    f"Fy_wang(L,R)=({float(F_c[0,1]):+.3f},{float(F_c[1,1]):+.3f}) N | "
+                    f"Fy_{fy_tag}(L,R)=({float(F_c[0,1]):+.3f},{float(F_c[1,1]):+.3f}) N | "
                     f"F_world_T=({float(F_w_T[0]):+.3f},{float(F_w_T[1]):+.3f},{float(F_w_T[2]):+.3f}) N"
                 )
 
@@ -1236,6 +1531,13 @@ def main():
                     float(v_air_w[1].item()),
                     float(v_air_w[2].item()),
                     float(args_cli.body_pitch_deg),
+                    1 if mod_enabled else 0,
+                    float(mod_delta),
+                    float(mod_mode_code),
+                    float(mod_smooth),
+                    float(f_eff),
+                    float(f_down),
+                    float(f_up),
                     float(torch.linalg.norm(omega_w[0]).item()),
                     float(torch.linalg.norm(omega_w[1]).item()),
                     float(torch.linalg.norm(omega_c[0]).item()),
@@ -1248,6 +1550,11 @@ def main():
                     float(eta_tip[1].item()),
                     float(tau_twist_x[0].item()),
                     float(tau_twist_x[1].item()),
+                    float(tau_hinge[0].item()),
+                    float(tau_hinge[1].item()),
+                    float(power_in[0].item()),
+                    float(power_in[1].item()),
+                    float(power_in_T.item()),
                     float(F_c[0, 0].item()),
                     float(F_c[0, 1].item()),
                     float(F_c[0, 2].item()),
@@ -1312,6 +1619,8 @@ def main():
                     float(frac_mid[1].item()),
                     float(frac_post[0].item()),
                     float(frac_post[1].item()),
+                    float(del_sep_ratio[0].item()),
+                    float(del_sep_ratio[1].item()),
                 ]
             )
 
