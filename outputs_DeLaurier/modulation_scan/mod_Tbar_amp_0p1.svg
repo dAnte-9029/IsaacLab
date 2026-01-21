@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Mean Thrust vs delta (amp=0.10)</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<polyline points="50.0,330.0 80.0,313.2 110.0,295.2 140.0,283.8 170.0,265.4 200.0,250.6 230.0,235.0 260.0,216.6 290.0,200.5 320.0,189.1 350.0,172.2 380.0,163.2 410.0,151.1 440.0,138.5 470.0,128.4 500.0,111.8 530.0,100.0 560.0,80.5 590.0,67.9 620.0,58.1 650.0,50.0" fill="none" stroke="#2a5caa" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">T_bar (N)</text>
+</svg>

@@ -68,6 +68,13 @@ parser.add_argument(
     help="Enable non-uniform flapping (downstroke faster/slower than upstroke).",
 )
 parser.add_argument(
+    "--modulation-profile",
+    type=str,
+    choices=("phase_warp", "phase_ff"),
+    default="phase_warp",
+    help="Modulation profile: time-warped phase ('phase_warp') or phase feedforward ('phase_ff').",
+)
+parser.add_argument(
     "--downstroke-ratio",
     type=float,
     default=0.5,
@@ -89,6 +96,18 @@ parser.add_argument(
     type=float,
     default=0.0,
     help="Smooth transition width (fraction of cycle) for the down/up stroke speed change.",
+)
+parser.add_argument(
+    "--modulation-ff-amp",
+    type=float,
+    default=0.0,
+    help="Phase feedforward amplitude (fraction of nominal phase speed, e.g. 0.2).",
+)
+parser.add_argument(
+    "--modulation-ff-shift-deg",
+    type=float,
+    default=180.0,
+    help="Phase feedforward shift (deg). Default 180 aligns max modulation with downstroke mid.",
 )
 parser.add_argument(
     "--modulation-f-ref-hz",
@@ -117,6 +136,29 @@ parser.add_argument("--print-every", type=int, default=60, help="Print a summary
 parser.add_argument("--draw-forces", action="store_true", help="Draw force/torque arrows in the viewport (if available).")
 parser.add_argument("--force-scale", type=float, default=0.02, help="Scale factor for drawing force vectors (m/N).")
 parser.add_argument("--torque-scale", type=float, default=0.05, help="Scale factor for drawing torque vectors (m/(N·m)).")
+parser.add_argument("--draw-frames", action="store_true", help="Draw wing link frame axes (viewport required).")
+parser.add_argument("--draw-wang-frames", action="store_true", help="Also draw Wang co-rotating axes (cyan/magenta/yellow).")
+parser.add_argument("--frame-axis-length", type=float, default=0.08, help="Axis length for frame drawing (m).")
+parser.add_argument("--frame-axis-thickness", type=float, default=2.0, help="Line thickness for frame drawing.")
+parser.add_argument(
+    "--draw-world-frame",
+    action="store_true",
+    help="Draw world axes (uses origin or base_link as the anchor).",
+)
+parser.add_argument("--world-axis-length", type=float, default=None, help="World axis length (m). Defaults to --frame-axis-length.")
+parser.add_argument(
+    "--world-axis-thickness",
+    type=float,
+    default=None,
+    help="World axis line thickness. Defaults to --frame-axis-thickness.",
+)
+parser.add_argument(
+    "--world-frame-origin",
+    type=str,
+    choices=("origin", "base"),
+    default="base",
+    help="Anchor point for world axes (default: base_link position).",
+)
 parser.add_argument(
     "--drive-mode",
     type=str,
@@ -467,6 +509,34 @@ def _interp1d_torch(xp: torch.Tensor, fp: torch.Tensor, x: torch.Tensor) -> torc
     return y0 + t * (y1 - y0)
 
 
+def _phase_ff_state(
+    psi: float,
+    w: float,
+    ff_amp: float,
+    down_scale: float,
+    up_scale: float,
+    ff_bias: float,
+    ff_shift_rad: float,
+) -> tuple[float, float, float, float]:
+    """Return (psi_dot, psi_ddot, psi_dddot, u_phase) for phase feedforward modulation."""
+    phi = psi + ff_shift_rad - math.pi
+    u_raw = ff_amp * math.cos(phi)
+    scale = down_scale if u_raw >= 0.0 else up_scale
+    u_phase = u_raw * scale - ff_bias
+    # Clamp to keep psi_dot positive (avoid direction reversal).
+    u_phase = max(-0.95, min(0.95, u_phase))
+    psi_dot = w * (1.0 + u_phase)
+
+    du_raw = -ff_amp * math.sin(phi)
+    du = scale * du_raw
+    d2u_raw = -ff_amp * math.cos(phi)
+    d2u = scale * d2u_raw
+
+    psi_ddot = w * du * psi_dot
+    psi_dddot = w * (d2u * psi_dot * psi_dot + du * psi_ddot)
+    return psi_dot, psi_ddot, psi_dddot, u_phase
+
+
 def _read_urdf_joint_limits(urdf_path: Path, joint_name: str) -> tuple[float | None, float | None]:
     import xml.etree.ElementTree as ET
 
@@ -677,7 +747,7 @@ def main():
 
     # Optional debug draw (works when a viewport is active; may be unavailable in strict headless runs).
     draw_interface = None
-    if args_cli.draw_forces:
+    if args_cli.draw_forces or args_cli.draw_frames or args_cli.draw_wang_frames or args_cli.draw_world_frame:
         try:
             import isaacsim.util.debug_draw._debug_draw as omni_debug_draw
 
@@ -822,13 +892,22 @@ def main():
 
     # Wing joint profile (optionally phase-warped).
     mod_enabled = bool(args_cli.enable_modulation)
+    mod_profile = str(args_cli.modulation_profile)
+    mod_profile_code = 0 if mod_profile == "phase_warp" else 1
     mod_delta = float(args_cli.downstroke_ratio)
     mod_mode = str(args_cli.modulation_mode)
     mod_mode_code = 0 if mod_mode == "fixed_f" else 1
     mod_smooth = float(args_cli.modulation_smoothness)
     mod_f_ref = float(args_cli.modulation_f_ref_hz)
+    mod_ff_amp = float(args_cli.modulation_ff_amp)
+    mod_ff_shift_deg = float(args_cli.modulation_ff_shift_deg)
+    mod_ff_shift_rad = math.radians(mod_ff_shift_deg)
+    down_scale = mod_delta / 0.5
+    up_scale = (1.0 - mod_delta) / 0.5
+    mod_ff_bias = mod_ff_amp * (down_scale - up_scale) / math.pi
     phase_warp = None
-    if mod_enabled:
+    phase_ff_enabled = mod_enabled and (mod_profile == "phase_ff")
+    if mod_enabled and mod_profile == "phase_warp":
         phase_warp = PhaseWarp(
             f_hz=float(args_cli.f_hz),
             delta=mod_delta,
@@ -839,6 +918,11 @@ def main():
         f_eff = phase_warp.f_eff
         f_down = phase_warp.f_down
         f_up = phase_warp.f_up
+    elif phase_ff_enabled:
+        mod_mode_code = 2
+        f_eff = float(args_cli.f_hz)
+        f_down = f_eff / (2.0 * mod_delta)
+        f_up = f_eff / (2.0 * (1.0 - mod_delta))
     else:
         f_eff = float(args_cli.f_hz)
         f_down = f_eff
@@ -855,11 +939,17 @@ def main():
         if amp > amp_limit:
             print(f"[WARN] Clamping flap amplitude from {math.degrees(amp):.3f} deg to {math.degrees(amp_limit):.3f} deg due to URDF limits.")
             amp = max(0.0, float(amp_limit))
-    if mod_enabled and phase_warp is not None:
+    if mod_enabled and mod_profile == "phase_warp" and phase_warp is not None:
         print(
             "[INFO] modulation enabled: "
             f"delta={mod_delta:.3f} mode={mod_mode} smooth={mod_smooth:.3f} "
             f"f_eff={f_eff:.3f} Hz (fd={f_down:.3f}, fu={f_up:.3f})"
+        )
+    elif phase_ff_enabled:
+        print(
+            "[INFO] modulation enabled: "
+            f"profile=phase_ff delta={mod_delta:.3f} amp={mod_ff_amp:.3f} "
+            f"shift={mod_ff_shift_deg:.1f} deg f_eff={f_eff:.3f} Hz"
         )
 
     # Wind-tunnel air flow in world frame (fixed, not body-aligned).
@@ -1047,19 +1137,66 @@ def main():
                 "aoa_frac_post_R",
                 "del_sep_ratio_L",
                 "del_sep_ratio_R",
+                "del_Nc_L",
+                "del_Nc_R",
+                "del_Na_L",
+                "del_Na_R",
+                "del_Fx_suction_L",
+                "del_Fx_suction_R",
+                "del_Fx_camber_L",
+                "del_Fx_camber_R",
+                "del_Fx_friction_L",
+                "del_Fx_friction_R",
+                "del_Fx_total_L",
+                "del_Fx_total_R",
+                "del_k_mean_L",
+                "del_k_mean_R",
+                "del_alpha_prime_mean_L",
+                "del_alpha_prime_mean_R",
+                "del_alpha_le_mean_L",
+                "del_alpha_le_mean_R",
+                "del_alpha_tip_deg_L",
+                "del_alpha_tip_deg_R",
+                "del_alpha_prime_tip_deg_L",
+                "del_alpha_prime_tip_deg_R",
+                "del_alpha_le_tip_deg_L",
+                "del_alpha_le_tip_deg_R",
+                "del_theta_tip_deg_L",
+                "del_theta_tip_deg_R",
+                "mod_profile",
+                "mod_ff_amp",
+                "mod_ff_shift_deg",
             ]
         )
 
+        psi_ff = 0.0
         for step in range(args_cli.steps):
             t = step * sim_dt
 
             # Prescribed wing motion (fixed amplitude, optional phase warp).
-            if phase_warp is None:
+            if phase_warp is None and not phase_ff_enabled:
                 q_cmd = amp * math.sin(w * t)
                 qd_cmd = amp * w * math.cos(w * t)
                 qdd_cmd = -amp * (w**2) * math.sin(w * t)
                 qddd_cmd = -(w**2) * qd_cmd
                 psi_dot = w
+            elif phase_ff_enabled:
+                psi_dot, psi_ddot, psi_dddot, _u_phase = _phase_ff_state(
+                    psi_ff,
+                    w,
+                    mod_ff_amp,
+                    down_scale,
+                    up_scale,
+                    mod_ff_bias,
+                    mod_ff_shift_rad,
+                )
+                s = math.sin(psi_ff)
+                c = math.cos(psi_ff)
+                q_cmd = amp * s
+                qd_cmd = amp * c * psi_dot
+                qdd_cmd = amp * (-s * (psi_dot**2) + c * psi_ddot)
+                qddd_cmd = amp * (-c * (psi_dot**3) - 3.0 * s * psi_dot * psi_ddot + c * psi_dddot)
+                psi_ff = psi_ff + psi_dot * sim_dt + 0.5 * psi_ddot * sim_dt * sim_dt
             else:
                 st = phase_warp.eval(t)
                 s = math.sin(st.psi)
@@ -1275,6 +1412,7 @@ def main():
             power_in = None
             omega_outer = None
             v_forward_outer = None
+            del_terms = None
             if aero_model == "delaurier1993":
                 N_full = int(wing_geom.x_mid.numel())
                 y_full = wing_geom.x_mid.view(1, N_full).expand(2, N_full)
@@ -1306,7 +1444,7 @@ def main():
                 theta_full = theta_bar + eta_strip_full
                 thetad_full = etad_strip_full
                 thetadd_full = etadd_strip_full
-                F_c, tau_c, power_in, del_sep_ratio = compute_aero_wrench_delaurier1993(
+                F_c, tau_c, power_in, del_sep_ratio, del_terms = compute_aero_wrench_delaurier1993(
                     h_full,
                     hdot_full,
                     hddot_full,
@@ -1321,6 +1459,7 @@ def main():
                     omega_ref=float(psi_dot),
                     params=delaurier_params,
                     enable_separation=bool(args_cli.delaurier_enable_separation),
+                    return_terms=True,
                 )
 
                 if wing_geom_outer is not None and eta_shape_outer is not None:
@@ -1495,13 +1634,84 @@ def main():
                 try:
                     draw_interface.clear_lines()
                     p = robot.data.body_pos_w[0, wing_body_ids, :]  # (2,3)
-                    pF = p + float(args_cli.force_scale) * F_w
-                    pT = p + float(args_cli.torque_scale) * tau_w
-                    colors_F = [[0.1, 0.8, 1.0, 1.0]] * 2
-                    colors_T = [[1.0, 0.6, 0.1, 1.0]] * 2
-                    thickness = [3.0] * 2
-                    draw_interface.draw_lines(p.tolist(), pF.tolist(), colors_F, thickness)
-                    draw_interface.draw_lines(p.tolist(), pT.tolist(), colors_T, thickness)
+                    if args_cli.draw_forces:
+                        pF = p + float(args_cli.force_scale) * F_w
+                        pT = p + float(args_cli.torque_scale) * tau_w
+                        colors_F = [[0.1, 0.8, 1.0, 1.0]] * 2
+                        colors_T = [[1.0, 0.6, 0.1, 1.0]] * 2
+                        thickness = [3.0] * 2
+                        draw_interface.draw_lines(p.tolist(), pF.tolist(), colors_F, thickness)
+                        draw_interface.draw_lines(p.tolist(), pT.tolist(), colors_T, thickness)
+                    if args_cli.draw_frames or args_cli.draw_wang_frames:
+                        axis_len = float(args_cli.frame_axis_length)
+                        axis_th = float(args_cli.frame_axis_thickness)
+                        link_colors = [
+                            [1.0, 0.2, 0.2, 1.0],
+                            [0.2, 1.0, 0.2, 1.0],
+                            [0.2, 0.2, 1.0, 1.0],
+                        ]  # x,y,z (link)
+                        wang_colors = [
+                            [0.2, 1.0, 1.0, 1.0],
+                            [1.0, 0.2, 1.0, 1.0],
+                            [1.0, 1.0, 0.2, 1.0],
+                        ]  # x_c,y_c,z_c
+                        starts = []
+                        ends = []
+                        colors = []
+                        thicknesses = []
+                        eye = torch.eye(3, device=sim.device, dtype=torch.float32)
+                        for i in range(2):
+                            p0 = p[i]
+                            q = q_w_link[i].view(1, 4)
+                            if args_cli.draw_frames:
+                                for axis_idx in range(3):
+                                    v_link = eye[axis_idx].view(1, 3)
+                                    v_w = quat_apply(q, v_link)[0]
+                                    starts.append(p0.tolist())
+                                    ends.append((p0 + axis_len * v_w).tolist())
+                                    colors.append(link_colors[axis_idx])
+                                    thicknesses.append(axis_th)
+                            if args_cli.draw_wang_frames:
+                                for axis_idx in range(3):
+                                    v_link = A_l2w[i, axis_idx].view(1, 3)
+                                    v_w = quat_apply(q, v_link)[0]
+                                    starts.append(p0.tolist())
+                                    ends.append((p0 + axis_len * v_w).tolist())
+                                    colors.append(wang_colors[axis_idx])
+                                    thicknesses.append(axis_th)
+                        draw_interface.draw_lines(starts, ends, colors, thicknesses)
+                    if args_cli.draw_world_frame:
+                        axis_len = (
+                            float(args_cli.world_axis_length)
+                            if args_cli.world_axis_length is not None
+                            else float(args_cli.frame_axis_length)
+                        )
+                        axis_th = (
+                            float(args_cli.world_axis_thickness)
+                            if args_cli.world_axis_thickness is not None
+                            else float(args_cli.frame_axis_thickness)
+                        )
+                        if args_cli.world_frame_origin == "base":
+                            p0 = p_base_w
+                        else:
+                            p0 = torch.zeros((3,), device=sim.device, dtype=torch.float32)
+                        world_colors = [
+                            [0.9, 0.9, 0.9, 1.0],
+                            [0.6, 0.6, 0.6, 1.0],
+                            [0.3, 0.3, 0.3, 1.0],
+                        ]  # x,y,z (world)
+                        starts = []
+                        ends = []
+                        colors = []
+                        thicknesses = []
+                        eye = torch.eye(3, device=sim.device, dtype=torch.float32)
+                        for axis_idx in range(3):
+                            v_w = eye[axis_idx]
+                            starts.append(p0.tolist())
+                            ends.append((p0 + axis_len * v_w).tolist())
+                            colors.append(world_colors[axis_idx])
+                            thicknesses.append(axis_th)
+                        draw_interface.draw_lines(starts, ends, colors, thicknesses)
                 except Exception:
                     # Keep simulation running even if drawing fails intermittently.
                     pass
@@ -1515,6 +1725,36 @@ def main():
                     f"Fy_{fy_tag}(L,R)=({float(F_c[0,1]):+.3f},{float(F_c[1,1]):+.3f}) N | "
                     f"F_world_T=({float(F_w_T[0]):+.3f},{float(F_w_T[1]):+.3f},{float(F_w_T[2]):+.3f}) N"
                 )
+
+            if del_terms is None:
+                del_Nc = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_Na = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_Fx_suction = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_Fx_camber = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_Fx_friction = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_Fx_total = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_k_mean = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_alpha_prime_mean = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_alpha_le_mean = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_alpha_tip_deg = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_alpha_prime_tip_deg = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_alpha_le_tip_deg = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+                del_theta_tip_deg = torch.full((2,), float("nan"), device=sim.device, dtype=torch.float32)
+            else:
+                del_Nc = del_terms["N_c"]
+                del_Na = del_terms["N_a"]
+                del_Fx_suction = del_terms["Fx_suction"]
+                del_Fx_camber = del_terms["Fx_camber"]
+                del_Fx_friction = del_terms["Fx_friction"]
+                del_Fx_total = del_terms["Fx_total"]
+                del_k_mean = del_terms["k_mean"]
+                del_alpha_prime_mean = del_terms["alpha_prime_mean"]
+                del_alpha_le_mean = del_terms["alpha_le_mean"]
+                rad2deg = 180.0 / math.pi
+                del_alpha_tip_deg = del_terms["alpha_tip"] * rad2deg
+                del_alpha_prime_tip_deg = del_terms["alpha_prime_tip"] * rad2deg
+                del_alpha_le_tip_deg = del_terms["alpha_le_tip"] * rad2deg
+                del_theta_tip_deg = theta_full[:, -1] * rad2deg
 
             writer.writerow(
                 [
@@ -1621,6 +1861,35 @@ def main():
                     float(frac_post[1].item()),
                     float(del_sep_ratio[0].item()),
                     float(del_sep_ratio[1].item()),
+                    float(del_Nc[0].item()),
+                    float(del_Nc[1].item()),
+                    float(del_Na[0].item()),
+                    float(del_Na[1].item()),
+                    float(del_Fx_suction[0].item()),
+                    float(del_Fx_suction[1].item()),
+                    float(del_Fx_camber[0].item()),
+                    float(del_Fx_camber[1].item()),
+                    float(del_Fx_friction[0].item()),
+                    float(del_Fx_friction[1].item()),
+                    float(del_Fx_total[0].item()),
+                    float(del_Fx_total[1].item()),
+                    float(del_k_mean[0].item()),
+                    float(del_k_mean[1].item()),
+                    float(del_alpha_prime_mean[0].item()),
+                    float(del_alpha_prime_mean[1].item()),
+                    float(del_alpha_le_mean[0].item()),
+                    float(del_alpha_le_mean[1].item()),
+                    float(del_alpha_tip_deg[0].item()),
+                    float(del_alpha_tip_deg[1].item()),
+                    float(del_alpha_prime_tip_deg[0].item()),
+                    float(del_alpha_prime_tip_deg[1].item()),
+                    float(del_alpha_le_tip_deg[0].item()),
+                    float(del_alpha_le_tip_deg[1].item()),
+                    float(del_theta_tip_deg[0].item()),
+                    float(del_theta_tip_deg[1].item()),
+                    float(mod_profile_code),
+                    float(mod_ff_amp),
+                    float(mod_ff_shift_deg),
                 ]
             )
 

@@ -1,0 +1,132 @@
+amp=0.00 (reference delta=0.5)
+  Tbar: best delta=0.300, rel_gain=+0.000
+  Lbar: best delta=0.300, rel_gain=+0.000
+  eta: best delta=0.300, rel_gain=+0.000
+  Pinbar (lower better): best delta=0.300, rel_gain=-0.000
+  sep_ratio (lower better): best delta=0.300, rel_gain=-0.000
+  peak_power (lower better): best delta=0.300, rel_gain=-0.000
+  peak_normal (lower better): best delta=0.300, rel_gain=-0.000
+  Shares (higher better):
+  Fx_suction share: best delta=0.300, rel_gain=+0.000
+  Na share: best delta=0.300, rel_gain=+0.000
+
+amp=0.02 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.003
+  Lbar: best delta=0.700, rel_gain=+0.001
+  eta: best delta=0.700, rel_gain=+0.005
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.002
+  sep_ratio (lower better): best delta=0.680, rel_gain=+0.001
+  peak_power (lower better): best delta=0.300, rel_gain=+0.007
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.003
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.300, rel_gain=+0.034
+
+amp=0.04 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.006
+  Lbar: best delta=0.700, rel_gain=+0.001
+  eta: best delta=0.700, rel_gain=+0.011
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.005
+  sep_ratio (lower better): best delta=0.700, rel_gain=+0.002
+  peak_power (lower better): best delta=0.300, rel_gain=+0.013
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.007
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.300, rel_gain=+0.018
+
+amp=0.06 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.008
+  Lbar: best delta=0.700, rel_gain=+0.002
+  eta: best delta=0.700, rel_gain=+0.015
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.007
+  sep_ratio (lower better): best delta=0.700, rel_gain=+0.003
+  peak_power (lower better): best delta=0.300, rel_gain=+0.019
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.010
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.700, rel_gain=+0.062
+
+amp=0.08 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.013
+  Lbar: best delta=0.700, rel_gain=+0.003
+  eta: best delta=0.700, rel_gain=+0.022
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.009
+  sep_ratio (lower better): best delta=0.700, rel_gain=+0.006
+  peak_power (lower better): best delta=0.300, rel_gain=+0.027
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.013
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.700, rel_gain=+0.070
+
+amp=0.10 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.014
+  Lbar: best delta=0.700, rel_gain=+0.003
+  eta: best delta=0.700, rel_gain=+0.024
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.012
+  sep_ratio (lower better): best delta=0.680, rel_gain=+0.004
+  peak_power (lower better): best delta=0.300, rel_gain=+0.035
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.017
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.700, rel_gain=+0.082
+
+amp=0.12 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.020
+  Lbar: best delta=0.700, rel_gain=+0.005
+  eta: best delta=0.700, rel_gain=+0.033
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.014
+  sep_ratio (lower better): best delta=0.700, rel_gain=+0.009
+  peak_power (lower better): best delta=0.300, rel_gain=+0.042
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.018
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.700, rel_gain=+0.073
+
+amp=0.14 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.023
+  Lbar: best delta=0.700, rel_gain=+0.005
+  eta: best delta=0.700, rel_gain=+0.038
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.017
+  sep_ratio (lower better): best delta=0.700, rel_gain=+0.010
+  peak_power (lower better): best delta=0.300, rel_gain=+0.047
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.023
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.700, rel_gain=+0.084
+
+amp=0.16 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.028
+  Lbar: best delta=0.700, rel_gain=+0.006
+  eta: best delta=0.700, rel_gain=+0.045
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.019
+  sep_ratio (lower better): best delta=0.700, rel_gain=+0.012
+  peak_power (lower better): best delta=0.300, rel_gain=+0.053
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.027
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.700, rel_gain=+0.072
+
+amp=0.18 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.031
+  Lbar: best delta=0.700, rel_gain=+0.007
+  eta: best delta=0.700, rel_gain=+0.050
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.021
+  sep_ratio (lower better): best delta=0.700, rel_gain=+0.012
+  peak_power (lower better): best delta=0.300, rel_gain=+0.055
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.031
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.700, rel_gain=+0.067
+
+amp=0.20 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.034
+  Lbar: best delta=0.700, rel_gain=+0.006
+  eta: best delta=0.700, rel_gain=+0.055
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.023
+  sep_ratio (lower better): best delta=0.700, rel_gain=+0.012
+  peak_power (lower better): best delta=0.300, rel_gain=+0.063
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.031
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.000
+  Na share: best delta=0.700, rel_gain=+0.058
+

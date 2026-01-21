@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Propulsive Efficiency vs delta (amp=0.12)</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<polyline points="50.0,330.0 80.0,312.6 110.0,297.2 140.0,279.5 170.0,263.9 200.0,248.2 230.0,233.5 260.0,218.8 290.0,203.7 320.0,191.7 350.0,178.4 380.0,162.2 410.0,150.1 440.0,135.3 470.0,122.3 500.0,109.6 530.0,95.4 560.0,83.1 590.0,70.3 620.0,59.6 650.0,50.0" fill="none" stroke="#2a5caa" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">eta_bar</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Separated-Flow Ratio vs delta (amp=0.16)</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<polyline points="50.0,50.0 80.0,55.4 110.0,63.9 140.0,81.0 170.0,102.3 200.0,108.8 230.0,117.4 260.0,128.5 290.0,139.7 320.0,154.7 350.0,173.3 380.0,198.1 410.0,215.7 440.0,226.7 470.0,243.9 500.0,251.8 530.0,268.8 560.0,279.9 590.0,294.0 620.0,307.5 650.0,330.0" fill="none" stroke="#b04a2f" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">sep_ratio</text>
+</svg>

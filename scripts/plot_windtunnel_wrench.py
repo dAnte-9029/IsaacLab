@@ -155,7 +155,12 @@ def main() -> None:
         out_path = Path("outputs_DeLaurier") / f"{args.csv.stem}_{frame}_wrench.png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    import matplotlib.pyplot as plt  # type: ignore
+    import os
+    import matplotlib
+
+    os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl")
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt  # type: ignore  # noqa: E402
 
     fig, axes = plt.subplots(3, 2, figsize=(12, 9), sharex=True)
     title = f"Wing Wrench ({frame} frame): {args.csv}"

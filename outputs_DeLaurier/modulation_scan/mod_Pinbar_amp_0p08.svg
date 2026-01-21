@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Mean Input Power vs delta (amp=0.08)</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<polyline points="50.0,330.0 80.0,315.6 110.0,301.5 140.0,287.2 170.0,272.8 200.0,258.7 230.0,245.0 260.0,230.1 290.0,216.1 320.0,202.0 350.0,187.7 380.0,173.9 410.0,160.2 440.0,146.5 470.0,132.9 500.0,118.7 530.0,105.2 560.0,91.2 590.0,78.0 620.0,64.7 650.0,50.0" fill="none" stroke="#2a5caa" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">P_in_bar (W)</text>
+</svg>

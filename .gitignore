@@ -3,6 +3,8 @@
 **/build*/
 **/*.so
 **/*.log*
+**/*.etli
+${data}/
 
 # Omniverse
 **/*.dmp

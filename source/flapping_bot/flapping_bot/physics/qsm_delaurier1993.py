@@ -75,7 +75,8 @@ def compute_aero_wrench_delaurier1993(
     omega_ref: float,
     params: DeLaurierParams,
     enable_separation: bool = True,
-) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    return_terms: bool = False,
+) -> tuple[Tensor, Tensor, Tensor, Tensor] | tuple[Tensor, Tensor, Tensor, Tensor, dict[str, Tensor]]:
     """Compute DeLaurier (1993) strip-theory loads.
 
     Returns (F_c, tau_c, power_in, sep_ratio). F_c is in the co-rotating frame
@@ -199,6 +200,29 @@ def compute_aero_wrench_delaurier1993(
     tau_c = torch.zeros_like(F_c)
 
     area = (c * dx)
-    sep_ratio = (torch.where(attached, torch.zeros_like(area), area).sum(dim=1)) / torch.clamp(area.sum(dim=1), min=1e-12)
+    area_sum = torch.clamp(area.sum(dim=1), min=1e-12)
+    sep_ratio = (torch.where(attached, torch.zeros_like(area), area).sum(dim=1)) / area_sum
     power_in = dP_in.sum(dim=1)
+
+    if return_terms:
+        def _wmean(x: Tensor) -> Tensor:
+            return (x * area).sum(dim=1) / area_sum
+
+        terms = {
+            "N_c": dN_c.sum(dim=1),
+            "N_a": dN_a.sum(dim=1),
+            "Fx_suction": dT_s.sum(dim=1),
+            "Fx_camber": (-dD_camber).sum(dim=1),
+            "Fx_friction": (-dD_f).sum(dim=1),
+            "Fx_total_att": dF_x_att.sum(dim=1),
+            "Fx_total": dF_x.sum(dim=1),
+            "k_mean": _wmean(k),
+            "alpha_prime_mean": _wmean(alpha_prime),
+            "alpha_le_mean": _wmean(alpha_le),
+            "alpha_tip": alpha[:, -1],
+            "alpha_prime_tip": alpha_prime[:, -1],
+            "alpha_le_tip": alpha_le[:, -1],
+        }
+        return F_c, tau_c, power_in, sep_ratio, terms
+
     return F_c, tau_c, power_in, sep_ratio
