@@ -1,0 +1,38 @@
+% Fallback entry point for editors/compilers that don't ship IEEEtran (e.g., some lightweight environments).
+% This file is not RA-L formatted; it exists only to compile the content without external IEEE files.
+\documentclass[10pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{hyperref}
+
+% Compatibility shim for 00_abstract.tex (IEEEtran provides this env; article does not).
+\newenvironment{IEEEkeywords}{\par\noindent\textbf{Index Terms---}}{\par}
+
+\title{Duty-Cycle Modulation for Flapping-Wing MAVs: Trim-Based Tradeoffs and Control Implications}
+\author{TODO: Author list}
+\date{}
+
+\begin{document}
+\maketitle
+
+\input{00_abstract}
+\input{01_introduction}
+\input{02_related_work}
+\input{03_duty_cycle_modulation}
+\input{04_aero_sim_model}
+\input{05_trim_protocol}
+\input{06_results}
+\input{07_pareto}
+\input{08_hardware_flight}
+\input{09_limitations}
+\input{10_conclusion}
+\input{11_reproducibility}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}
+

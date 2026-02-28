@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Added-Mass Share vs delta</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<polyline points="50.0,123.8 80.0,110.4 110.0,79.0 140.0,59.6 170.0,50.0 200.0,111.4 230.0,132.9 260.0,125.1 290.0,125.1 320.0,132.5 350.0,147.3 380.0,151.0 410.0,162.4 440.0,182.0 470.0,210.4 500.0,148.9 530.0,174.4 560.0,211.2 590.0,261.9 620.0,330.0 650.0,155.9" fill="none" stroke="#d28b26" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">Na share</text>
+</svg>

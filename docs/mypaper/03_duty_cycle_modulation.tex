@@ -1,0 +1,32 @@
+% !TeX root = main.tex
+\section{Duty-Cycle Modulation via Phase Warping}
+\subsection{Downstroke Ratio}
+We define the downstroke ratio $\delta \in (0,1)$ as the fraction of a period $T$ spent on the downstroke half-stroke.
+For a fixed effective frequency $f_{\mathrm{eff}}=1/T$, the corresponding half-stroke frequencies are
+\begin{equation}
+f_{\mathrm{down}} = \frac{f_{\mathrm{eff}}}{2\delta}, \qquad
+f_{\mathrm{up}} = \frac{f_{\mathrm{eff}}}{2(1-\delta)}.
+\end{equation}
+When $\delta = 0.5$, the cycle is symmetric in time.
+
+\subsection{Phase-Warped SCCPFM Waveform}
+Let $u = (t \bmod T)/T \in [0,1)$ denote the normalized phase time within a cycle.
+We define a phase map $p(u)$ that allocates $p \in [0,0.5]$ to the downstroke segment and $p \in [0.5,1]$ to the upstroke segment:
+\begin{equation}
+p(u) =
+\begin{cases}
+\frac{1}{2\delta}u, & u \le \delta,\\
+\frac{1}{2} + \frac{1}{2(1-\delta)}(u-\delta), & u > \delta.
+\end{cases}
+\end{equation}
+The warped phase is $\psi(t) = 2\pi p(u)$.
+The commanded stroke angle is then defined using a cosine waveform
+\begin{equation}
+q(t) = A \cos(\psi(t)),
+\end{equation}
+with amplitude $A$.
+This formulation makes $\delta$ a single scalar input that reshapes instantaneous velocity and acceleration profiles while preserving the stroke amplitude.
+
+\subsection{Interpretation as Time Reparameterization}
+Duty-cycle modulation does not alter the geometric trajectory in the $q$--$\psi$ domain; it alters how quickly the trajectory is traversed within different segments of the cycle.
+Since aerodynamic forces are nonlinear in instantaneous kinematics and depend on phase-dependent effective angle of attack, time reparameterization can change cycle-averaged force and power even when the stroke amplitude is fixed.

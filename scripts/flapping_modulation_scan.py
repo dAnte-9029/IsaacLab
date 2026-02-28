@@ -87,6 +87,23 @@ def _minmax(vals: list[float]) -> tuple[float, float]:
     return (vmin, vmax)
 
 
+def _format_tick(v: float) -> str:
+    if not _is_finite(v):
+        return ""
+    av = abs(v)
+    if av >= 1000.0:
+        return f"{v:.0f}"
+    if av >= 100.0:
+        return f"{v:.1f}"
+    if av >= 10.0:
+        return f"{v:.2f}"
+    if av >= 1.0:
+        return f"{v:.3f}"
+    if av >= 0.1:
+        return f"{v:.4f}"
+    return f"{v:.3g}"
+
+
 def _write_svg_line(
     path: Path,
     x: list[float],
@@ -104,6 +121,8 @@ def _write_svg_line(
     width = 700.0
     height = 380.0
     margin = 50.0
+    tick_size = 5.0
+    n_ticks = 5
 
     def to_px(xv: float, yv: float) -> tuple[float, float]:
         px = margin + (xv - xmin) / (xmax - xmin) * (width - 2 * margin)
@@ -133,6 +152,31 @@ def _write_svg_line(
         f.write(f'<line x1="{margin:.1f}" y1="{margin:.1f}" '
                 f'x2="{margin:.1f}" y2="{height - margin:.1f}" '
                 f'stroke="#333" stroke-width="1"/>\n')
+        # Ticks and labels.
+        for i in range(n_ticks):
+            xt = xmin + (xmax - xmin) * i / (n_ticks - 1)
+            px, _ = to_px(xt, ymin)
+            f.write(
+                f'<line x1="{px:.1f}" y1="{height - margin:.1f}" '
+                f'x2="{px:.1f}" y2="{height - margin + tick_size:.1f}" '
+                f'stroke="#333" stroke-width="1"/>\n'
+            )
+            f.write(
+                f'<text x="{px:.1f}" y="{height - margin + 18:.1f}" font-size="10" '
+                f'font-family="sans-serif" text-anchor="middle">{_format_tick(xt)}</text>\n'
+            )
+        for i in range(n_ticks):
+            yt = ymin + (ymax - ymin) * i / (n_ticks - 1)
+            _, py = to_px(xmin, yt)
+            f.write(
+                f'<line x1="{margin - tick_size:.1f}" y1="{py:.1f}" '
+                f'x2="{margin:.1f}" y2="{py:.1f}" '
+                f'stroke="#333" stroke-width="1"/>\n'
+            )
+            f.write(
+                f'<text x="{margin - tick_size - 2:.1f}" y="{py + 3:.1f}" font-size="10" '
+                f'font-family="sans-serif" text-anchor="end">{_format_tick(yt)}</text>\n'
+            )
         # Line.
         f.write(f'<polyline points="{pts_str}" fill="none" stroke="{color}" stroke-width="1.5"/>\n')
         # Labels.
@@ -307,9 +351,8 @@ def _run_once(
     if not t:
         raise ValueError(f"CSV missing 't' column or empty after slicing: {out_csv}")
 
-    flow_hat = _normalize(flow_dir_world)
-    e_forward = (-flow_hat[0], -flow_hat[1], -flow_hat[2])
-    thrust = [_dot((Fx[i], Fy[i], Fz[i]), e_forward) for i in range(len(t))]
+    # Thrust is reported along +X world (user convention).
+    thrust = Fx
     lift = Fz
     use_del = bool(del_sep_L and del_sep_R and any(_is_finite(v) for v in del_sep_L + del_sep_R))
     if use_del:
@@ -455,15 +498,20 @@ def main() -> None:
         help="Path to isaaclab.sh",
     )
     ap.add_argument("--delta", type=str, default="0.3:0.7:0.02", help="Delta range list, e.g. 0.3:0.7:0.02.")
-    ap.add_argument("--amp", type=str, default="0.0:0.2:0.02", help="Phase_ff amp list, e.g. 0.0:0.2:0.02.")
+    ap.add_argument(
+        "--amp",
+        type=str,
+        default="0.0",
+        help="Phase_ff amp list (ignored for phase_warp). Example: 0.0:0.2:0.02.",
+    )
     ap.add_argument("--smoothness", type=float, default=0.0, help="Smoothness width (fraction of cycle).")
     ap.add_argument("--mode", type=str, choices=("fixed_f", "fixed_peak_qd"), default="fixed_f")
     ap.add_argument(
         "--modulation-profile",
         type=str,
         choices=("phase_warp", "phase_ff"),
-        default="phase_ff",
-        help="Modulation profile: phase warp or phase feedforward.",
+        default="phase_warp",
+        help="Modulation profile: phase warp (SCCPFM) or phase feedforward.",
     )
     ap.add_argument("--modulation-ff-amp", type=float, default=0.0, help="Phase feedforward amplitude (fraction).")
     ap.add_argument("--modulation-ff-shift-deg", type=float, default=180.0, help="Phase feedforward shift (deg).")

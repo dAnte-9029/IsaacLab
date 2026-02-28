@@ -1,0 +1,14 @@
+% !TeX root = main.tex
+\section{Pareto-Optimal Tradeoffs}
+\subsection{Multi-Objective Formulation}
+The duty-cycle sweep produces a set of discrete operating points parameterized by $\delta$.
+We treat operating-point selection as a three-objective tradeoff:
+\begin{equation}
+\max~\bar{F}_x,\qquad \max~\bar{F}_z,\qquad \min~\bar{P}_{in}.
+\end{equation}
+Since these objectives are generally conflicting, there is no single globally optimal point.
+
+\subsection{Pareto Frontier Extraction}
+We compute the non-dominated set (Pareto frontier) from the sweep data under an optional lift feasibility constraint (e.g., $\bar{F}_z \ge F_{z,\min}$).
+A point is dominated if another point achieves greater or equal $(\bar{F}_x,\bar{F}_z)$ while requiring less or equal $\bar{P}_{in}$, with at least one strict improvement.
+The resulting frontier summarizes the best achievable thrust--power tradeoffs without sacrificing lift feasibility and provides a compact representation for control-oriented operating-point selection.

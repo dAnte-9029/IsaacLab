@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Separated-Flow Ratio vs delta (amp=0.00)</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="330.0" x2="50.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="50.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.3000</text>
+<line x1="200.0" y1="330.0" x2="200.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="200.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.4000</text>
+<line x1="350.0" y1="330.0" x2="350.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="350.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.5000</text>
+<line x1="500.0" y1="330.0" x2="500.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="500.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.6000</text>
+<line x1="650.0" y1="330.0" x2="650.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="650.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.7000</text>
+<line x1="45.0" y1="330.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="333.0" font-size="10" font-family="sans-serif" text-anchor="end">0.2548</text>
+<line x1="45.0" y1="260.0" x2="50.0" y2="260.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="263.0" font-size="10" font-family="sans-serif" text-anchor="end">0.3123</text>
+<line x1="45.0" y1="190.0" x2="50.0" y2="190.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="193.0" font-size="10" font-family="sans-serif" text-anchor="end">0.3698</text>
+<line x1="45.0" y1="120.0" x2="50.0" y2="120.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="123.0" font-size="10" font-family="sans-serif" text-anchor="end">0.4273</text>
+<line x1="45.0" y1="50.0" x2="50.0" y2="50.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="53.0" font-size="10" font-family="sans-serif" text-anchor="end">0.4848</text>
+<polyline points="50.0,330.0 80.0,310.7 110.0,287.8 140.0,263.0 170.0,244.0 200.0,224.2 230.0,207.5 260.0,187.9 290.0,172.5 320.0,156.2 350.0,145.5 380.0,133.4 410.0,123.3 440.0,119.2 470.0,116.1 500.0,101.4 530.0,89.8 560.0,79.4 590.0,68.1 620.0,57.5 650.0,50.0" fill="none" stroke="#b04a2f" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">sep_ratio</text>
+</svg>

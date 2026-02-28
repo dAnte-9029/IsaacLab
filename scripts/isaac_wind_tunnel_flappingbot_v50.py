@@ -18,7 +18,7 @@ Scenario:
 
 .. code-block:: bash
 
-    ./isaaclab.sh -p scripts/isaac_wind_tunnel_flappingbot_v50.py --headless --steps 2400 --run-root outputs_DeLaurier/runs
+    ./isaaclab.sh -p scripts/isaac_wind_tunnel_flappingbot_v50.py --headless --steps 600 --run-root outputs_DeLaurier/runs
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from isaaclab.app import AppLauncher
 
 
 parser = argparse.ArgumentParser(description="Wang2016 QSM wind-tunnel: FlappingBot v50 fixed-base + forward flight.")
-parser.add_argument("--steps", type=int, default=2400, help="Number of physics steps.")
+parser.add_argument("--steps", type=int, default=600, help="Number of physics steps.")
 parser.add_argument("--csv", type=Path, default=None, help="Output CSV path. If omitted, auto-create a run folder.")
 parser.add_argument(
     "--run-root",
@@ -132,7 +132,7 @@ parser.add_argument(
     help="Estimate wing planform area from the v50 URDF+STL and derive consistent (R,c) from area and --aspect_ratio.",
 )
 parser.add_argument("--mesh-scale", type=float, default=1.0, help="Mesh coordinate scale to meters for area estimation.")
-parser.add_argument("--print-every", type=int, default=60, help="Print a summary every N steps (0 disables).")
+parser.add_argument("--print-every", type=int, default=37, help="Print a summary every N steps (0 disables).")
 parser.add_argument("--draw-forces", action="store_true", help="Draw force/torque arrows in the viewport (if available).")
 parser.add_argument("--force-scale", type=float, default=0.02, help="Scale factor for drawing force vectors (m/N).")
 parser.add_argument("--torque-scale", type=float, default=0.05, help="Scale factor for drawing torque vectors (m/(N·m)).")
@@ -1175,9 +1175,10 @@ def main():
 
             # Prescribed wing motion (fixed amplitude, optional phase warp).
             if phase_warp is None and not phase_ff_enabled:
-                q_cmd = amp * math.sin(w * t)
-                qd_cmd = amp * w * math.cos(w * t)
-                qdd_cmd = -amp * (w**2) * math.sin(w * t)
+                # Use cosine for consistency with SCCPFM phase-warp baseline.
+                q_cmd = amp * math.cos(w * t)
+                qd_cmd = -amp * w * math.sin(w * t)
+                qdd_cmd = -(w**2) * q_cmd
                 qddd_cmd = -(w**2) * qd_cmd
                 psi_dot = w
             elif phase_ff_enabled:
@@ -1199,13 +1200,14 @@ def main():
                 psi_ff = psi_ff + psi_dot * sim_dt + 0.5 * psi_ddot * sim_dt * sim_dt
             else:
                 st = phase_warp.eval(t)
+                # Use a cosine waveform for SCCPFM so the split occurs at stroke reversal (smooth position/velocity).
                 s = math.sin(st.psi)
                 c = math.cos(st.psi)
-                q_cmd = amp * s
-                qd_cmd = amp * c * st.psi_dot
-                qdd_cmd = amp * (-s * (st.psi_dot**2) + c * st.psi_ddot)
+                q_cmd = amp * c
+                qd_cmd = -amp * s * st.psi_dot
+                qdd_cmd = -amp * (c * (st.psi_dot**2) + s * st.psi_ddot)
                 qddd_cmd = amp * (
-                    -c * (st.psi_dot**3) - 3.0 * s * st.psi_dot * st.psi_ddot + c * st.psi_dddot
+                    s * (st.psi_dot**3) - 3.0 * c * st.psi_dot * st.psi_ddot - s * st.psi_dddot
                 )
                 psi_dot = st.psi_dot
 

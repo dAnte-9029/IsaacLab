@@ -1,0 +1,16 @@
+delta,Fx,Fz,Pin,source_csv
+0.54,0.113603,9.161431,42.312585,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p5400000000000001/windtunnel_v50.csv
+0.56,0.135382,9.130975,42.48219,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p5600000000000002/windtunnel_v50.csv
+0.5,0.095287,9.208761,42.555387,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p5000000000000001/windtunnel_v50.csv
+0.48,0.089231,9.261281,42.830733,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p48000000000000015/windtunnel_v50.csv
+0.58,0.166488,9.090531,42.869044,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p5800000000000002/windtunnel_v50.csv
+0.46,0.127031,9.283772,43.138423,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p46000000000000013/windtunnel_v50.csv
+0.6,0.206841,9.045342,43.465103,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p6000000000000002/windtunnel_v50.csv
+0.44,0.159808,9.339447,43.743453,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p4400000000000001/windtunnel_v50.csv
+0.42,0.197554,9.411023,44.580155,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p4200000000000001/windtunnel_v50.csv
+0.4,0.244263,9.493928,45.648154,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p4000000000000001/windtunnel_v50.csv
+0.38,0.299766,9.590304,46.978678,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p38000000000000006/windtunnel_v50.csv
+0.36,0.365232,9.701068,48.593078,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p36000000000000004/windtunnel_v50.csv
+0.34,0.445137,9.824519,50.529524,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p34/windtunnel_v50.csv
+0.32,0.541159,9.964276,52.85334,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p32/windtunnel_v50.csv
+0.3,0.65468,10.125583,55.634019,outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/amp_0p0/delta_0p3/windtunnel_v50.csv

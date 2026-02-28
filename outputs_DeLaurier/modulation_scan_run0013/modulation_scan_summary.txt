@@ -1,0 +1,11 @@
+amp=0.20 (reference delta=0.5)
+  Tbar: best delta=0.700, rel_gain=+0.061
+  Lbar: best delta=0.700, rel_gain=+0.000
+  eta: best delta=0.700, rel_gain=+0.043
+  Pinbar (lower better): best delta=0.300, rel_gain=+0.017
+  peak_power (lower better): best delta=0.300, rel_gain=+0.063
+  peak_normal (lower better): best delta=0.300, rel_gain=+0.025
+  Shares (higher better):
+  Fx_suction share: best delta=0.700, rel_gain=+0.001
+  Na share: best delta=0.300, rel_gain=+0.075
+

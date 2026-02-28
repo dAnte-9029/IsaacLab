@@ -1,0 +1,35 @@
+% !TeX root = main.tex
+\section{Reproducibility}
+All simulation results in this paper are reproducible using the provided scripts and command-line interfaces.
+The primary workflow is: (i) run a baseline trim-like wind-tunnel simulation, (ii) sweep duty-cycle ratio $\delta$ at fixed baseline conditions, and (iii) extract Pareto-optimal points from the sweep results.
+
+\subsection{Baseline Run}
+\begin{verbatim}
+./isaaclab.sh -p scripts/isaac_wind_tunnel_flappingbot_v50.py \
+  --aero-model delaurier1993 \
+  --f_hz 3.8 --airspeed 7.0 --body_pitch_deg 13 \
+  --steps 1200 --print-every 0 --headless --livestream 0 --force-exit \
+  --no-delaurier-enable-separation \
+  --twist-mode prescribed --twist-prescribed qd_scaled \
+  --twist-f-ref-hz 4.0 --twist-eta-max-deg 10 --twist-eta-limit-deg 10
+\end{verbatim}
+
+\subsection{Duty-Cycle Sweep}
+\begin{verbatim}
+./isaaclab.sh -p scripts/flapping_modulation_scan.py \
+  --out-dir outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200 \
+  --f-hz 3.8 --U 7.0 --body-pitch-deg 13 \
+  --steps 1200 --delta 0.3:0.7:0.02 \
+  --extra-args "--no-delaurier-enable-separation \
+  --twist-mode prescribed --twist-prescribed qd_scaled \
+  --twist-f-ref-hz 4.0 --twist-eta-max-deg 10 --twist-eta-limit-deg 10"
+\end{verbatim}
+
+\subsection{Pareto Frontier}
+\begin{verbatim}
+./isaaclab.sh -p scripts/pareto_frontier.py \
+  --in-csv outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/modulation_scan.csv \
+  --min-fz 9.0 \
+  --out-csv outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/pareto.csv \
+  --out-svg outputs_DeLaurier/modulation_scan_trim_f3p8_U7_pitch13_steps1200/pareto_fx_pin.svg
+\end{verbatim}

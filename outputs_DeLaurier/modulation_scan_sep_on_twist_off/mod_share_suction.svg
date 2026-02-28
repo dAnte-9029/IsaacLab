@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Suction Share vs delta</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<polyline points="50.0,50.0 80.0,106.9 110.0,156.5 140.0,199.0 170.0,234.9 200.0,262.8 230.0,285.4 260.0,303.9 290.0,317.4 320.0,326.1 350.0,330.0 380.0,329.9 410.0,325.4 440.0,316.4 470.0,302.6 500.0,286.8 530.0,264.5 560.0,236.9 590.0,203.5 620.0,163.6 650.0,121.5" fill="none" stroke="#2d8f5f" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">|Fx_suction| share</text>
+</svg>

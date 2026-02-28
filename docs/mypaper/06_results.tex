@@ -1,0 +1,33 @@
+% !TeX root = main.tex
+\section{Results: Downstroke-Ratio Sweep Near Trim}
+\subsection{Sweep Setup}
+We sweep the downstroke ratio $\delta$ over $[0.30,0.70]$ in increments of $0.02$ while keeping the baseline operating condition fixed.
+For each $\delta$, we compute cycle-averaged thrust $\bar{F}_x$, lift $\bar{F}_z$, input power $\bar{P}_{in}$, and propulsive efficiency
+\begin{equation}
+\bar{\eta} = \frac{\bar{F}_x U}{\bar{P}_{in}}.
+\end{equation}
+
+\subsection{Representative Numerical Results}
+Table~\ref{tab:delta_points} reports representative values for three downstroke ratios.
+The symmetric baseline $\delta=0.5$ yields a trim-like near-zero mean thrust condition.
+Reducing $\delta$ increases both thrust and lift at the cost of increased power, while increasing $\delta$ can increase thrust but tends to reduce lift.
+
+\begin{table}[t]
+\centering
+\caption{Representative duty-cycle sweep results (baseline: $f=3.8~\mathrm{Hz}$, $U=7.0~\mathrm{m/s}$, body pitch $13^\circ$, separation off, prescribed twist on).}
+\label{tab:delta_points}
+\begin{tabular}{@{}cccccc@{}}
+\toprule
+$\delta$ & $\bar{F}_x$ (N) & $\bar{F}_z$ (N) & $\bar{P}_{in}$ (W) & $\bar{\eta}$ & Notes \\
+\midrule
+0.30 & 0.655 & 10.126 & 55.63 & 0.082 & higher thrust/lift, higher power \\
+0.50 & 0.095 & 9.209 & 42.56 & 0.016 & symmetric baseline \\
+0.70 & 0.588 & 8.736 & 50.50 & 0.081 & higher thrust, lower lift \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Control-Relevant Interpretation}
+Duty-cycle modulation induces a strong and nonlinear mapping from $\delta$ to cycle-averaged force and power.
+This provides a control-relevant degree of freedom: the vehicle can select $\delta$ to emphasize thrust, lift, or power depending on task requirements.
+In particular, for forward-speed control, $\delta$ can serve as a direct input to modulate the mean streamwise force while remaining within a constrained kinematic family.

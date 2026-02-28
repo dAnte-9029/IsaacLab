@@ -1,0 +1,22 @@
+% !TeX root = main.tex
+\section{Introduction}
+Flapping-wing micro air vehicles (FWMAVs) operate in a regime where aerodynamic load generation is tightly coupled to kinematics, body attitude, and structural compliance.
+In practice, control authority is often realized by adjusting flapping frequency, stroke amplitude, and/or phase relationships between multiple joints or wings.
+However, these inputs are not always independently adjustable due to actuator limits, joint constraints, and the need to maintain stable periodic wing motion.
+
+Duty-cycle modulation changes the fraction of the cycle spent on downstroke versus upstroke while keeping the stroke amplitude fixed.
+Mechanically, this can be implemented by time-reparameterizing a periodic stroke trajectory.
+Because aerodynamic loads depend nonlinearly on instantaneous velocity and on phase-dependent effective angle of attack, a time-reparameterization can significantly alter cycle-averaged thrust, lift, and power.
+This makes duty-cycle modulation an attractive candidate for a low-dimensional control input, especially for forward-speed regulation where the thrust component is directly relevant.
+
+This paper evaluates duty-cycle modulation in a controlled simulation environment and connects the observed trends to control-relevant tradeoffs near a trim-like operating condition.
+We focus on the downstroke ratio parameter $\delta \in (0,1)$, quantify the mapping $\delta \mapsto (\bar{F}_x, \bar{F}_z, \bar{P}_{in})$, and summarize non-dominated operating points via a Pareto analysis.
+We also discuss implementation on a physical platform and present a short closed-loop forward-speed regulation demonstration using duty-cycle modulation, together with practical insights about actuator bandwidth, compliance, and model mismatch.
+
+\subsection{Contributions}
+The contributions of this work are:
+\begin{itemize}
+\item A reproducible implementation of split-cycle duty-cycle modulation (SCCPFM) in an IsaacLab flapping-wing wind-tunnel setup.
+\item A trim-based sweep of downstroke ratio quantifying cycle-averaged thrust, lift, and power tradeoffs, including Pareto-front extraction under lift feasibility constraints.
+\item A practical discussion and short closed-loop validation of duty-cycle modulation as a forward-speed control input on a physical flapping platform.
+\end{itemize}

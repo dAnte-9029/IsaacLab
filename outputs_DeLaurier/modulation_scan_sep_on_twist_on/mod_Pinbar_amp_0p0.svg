@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Mean Input Power vs delta (amp=0.00)</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="330.0" x2="50.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="50.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.3000</text>
+<line x1="200.0" y1="330.0" x2="200.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="200.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.4000</text>
+<line x1="350.0" y1="330.0" x2="350.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="350.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.5000</text>
+<line x1="500.0" y1="330.0" x2="500.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="500.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.6000</text>
+<line x1="650.0" y1="330.0" x2="650.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="650.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.7000</text>
+<line x1="45.0" y1="330.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="333.0" font-size="10" font-family="sans-serif" text-anchor="end">34.70</text>
+<line x1="45.0" y1="260.0" x2="50.0" y2="260.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="263.0" font-size="10" font-family="sans-serif" text-anchor="end">39.79</text>
+<line x1="45.0" y1="190.0" x2="50.0" y2="190.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="193.0" font-size="10" font-family="sans-serif" text-anchor="end">44.88</text>
+<line x1="45.0" y1="120.0" x2="50.0" y2="120.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="123.0" font-size="10" font-family="sans-serif" text-anchor="end">49.97</text>
+<line x1="45.0" y1="50.0" x2="50.0" y2="50.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="53.0" font-size="10" font-family="sans-serif" text-anchor="end">55.07</text>
+<polyline points="50.0,50.0 80.0,102.3 110.0,151.0 140.0,199.6 170.0,228.6 200.0,253.3 230.0,275.8 260.0,295.8 290.0,308.4 320.0,317.9 350.0,322.3 380.0,328.9 410.0,330.0 440.0,327.5 470.0,326.5 500.0,316.5 530.0,303.4 560.0,284.7 590.0,268.7 620.0,237.8 650.0,196.4" fill="none" stroke="#2a5caa" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">P_in_bar (W)</text>
+</svg>

@@ -201,7 +201,10 @@ def compute_aero_wrench_delaurier1993(
 
     area = (c * dx)
     area_sum = torch.clamp(area.sum(dim=1), min=1e-12)
-    sep_ratio = (torch.where(attached, torch.zeros_like(area), area).sum(dim=1)) / area_sum
+    if enable_separation:
+        sep_ratio = (torch.where(attached, torch.zeros_like(area), area).sum(dim=1)) / area_sum
+    else:
+        sep_ratio = torch.zeros_like(area_sum)
     power_in = dP_in.sum(dim=1)
 
     if return_terms:

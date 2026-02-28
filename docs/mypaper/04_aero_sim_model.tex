@@ -1,0 +1,22 @@
+% !TeX root = main.tex
+\section{Aerodynamic and Simulation Model}
+\subsection{Quasi-Steady Strip Theory}
+We use a quasi-steady strip-theory aerodynamic model inspired by DeLaurier-style formulations, discretizing the wing span into strips and summing circulatory and added-mass contributions to obtain instantaneous force and moment.
+The model also includes chordwise contributions (leading-edge suction, camber-related drag, and skin-friction drag) to predict the streamwise force component.
+For computational efficiency and reproducibility, we emphasize cycle-averaged metrics computed from the simulated time series.
+
+\subsection{Separation Modeling and Scope}
+The DeLaurier-style model admits an optional separated-flow approximation triggered by a leading-edge dynamic-stall criterion.
+In practice, the stall thresholds and separation parameters are highly uncertain for membrane wings and for the present kinematics.
+As a result, enabling separation can qualitatively affect the existence of trim-like operating points.
+In the main experiments of this paper, we disable the separated-flow model to obtain a controlled baseline and a consistent trim-like condition; separation sensitivity is discussed as a limitation.
+
+\subsection{Wind-Tunnel Rig and Coordinate Convention}
+We evaluate the model in an IsaacLab wind-tunnel rig where the body is fixed and the wings are driven by prescribed kinematics.
+Aerodynamic forces are reported in the world frame, with the streamwise thrust direction defined as world $+X$ and lift defined as world $+Z$.
+The freestream wind is aligned with world $-X$.
+
+\subsection{Prescribed Twist}
+To capture a basic coupling between stroke rate and spanwise twist, we use a prescribed twist model that scales the wing-tip twist magnitude with the commanded stroke rate.
+The tip twist is clamped to a maximum magnitude and applied with a simple spanwise shape.
+This serves as a tractable proxy for passive twist effects without requiring a full aeroelastic simulation.

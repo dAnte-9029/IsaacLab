@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Propulsive Efficiency vs delta (amp=0.00)</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="330.0" x2="50.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="50.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.3000</text>
+<line x1="200.0" y1="330.0" x2="200.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="200.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.4000</text>
+<line x1="350.0" y1="330.0" x2="350.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="350.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.5000</text>
+<line x1="500.0" y1="330.0" x2="500.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="500.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.6000</text>
+<line x1="650.0" y1="330.0" x2="650.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="650.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.7000</text>
+<line x1="45.0" y1="330.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="333.0" font-size="10" font-family="sans-serif" text-anchor="end">0.0146</text>
+<line x1="45.0" y1="260.0" x2="50.0" y2="260.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="263.0" font-size="10" font-family="sans-serif" text-anchor="end">0.0315</text>
+<line x1="45.0" y1="190.0" x2="50.0" y2="190.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="193.0" font-size="10" font-family="sans-serif" text-anchor="end">0.0485</text>
+<line x1="45.0" y1="120.0" x2="50.0" y2="120.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="123.0" font-size="10" font-family="sans-serif" text-anchor="end">0.0654</text>
+<line x1="45.0" y1="50.0" x2="50.0" y2="50.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="53.0" font-size="10" font-family="sans-serif" text-anchor="end">0.0824</text>
+<polyline points="50.0,50.0 80.0,94.2 110.0,135.5 140.0,172.9 170.0,205.7 200.0,235.5 230.0,262.1 260.0,284.6 290.0,305.1 320.0,330.0 350.0,325.5 380.0,318.3 410.0,312.6 440.0,298.1 470.0,277.9 500.0,252.6 530.0,222.4 560.0,187.7 590.0,148.1 620.0,102.8 650.0,53.8" fill="none" stroke="#2a5caa" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">eta_bar</text>
+</svg>

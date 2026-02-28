@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="50" y="38" font-size="14" font-family="sans-serif">Mean Lift vs delta (amp=0.00)</text>
+<line x1="50.0" y1="330.0" x2="650.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="50.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<line x1="50.0" y1="330.0" x2="50.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="50.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.3000</text>
+<line x1="200.0" y1="330.0" x2="200.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="200.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.4000</text>
+<line x1="350.0" y1="330.0" x2="350.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="350.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.5000</text>
+<line x1="500.0" y1="330.0" x2="500.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="500.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.6000</text>
+<line x1="650.0" y1="330.0" x2="650.0" y2="335.0" stroke="#333" stroke-width="1"/>
+<text x="650.0" y="348.0" font-size="10" font-family="sans-serif" text-anchor="middle">0.7000</text>
+<line x1="45.0" y1="330.0" x2="50.0" y2="330.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="333.0" font-size="10" font-family="sans-serif" text-anchor="end">9.312</text>
+<line x1="45.0" y1="260.0" x2="50.0" y2="260.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="263.0" font-size="10" font-family="sans-serif" text-anchor="end">9.637</text>
+<line x1="45.0" y1="190.0" x2="50.0" y2="190.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="193.0" font-size="10" font-family="sans-serif" text-anchor="end">9.962</text>
+<line x1="45.0" y1="120.0" x2="50.0" y2="120.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="123.0" font-size="10" font-family="sans-serif" text-anchor="end">10.29</text>
+<line x1="45.0" y1="50.0" x2="50.0" y2="50.0" stroke="#333" stroke-width="1"/>
+<text x="43.0" y="53.0" font-size="10" font-family="sans-serif" text-anchor="end">10.61</text>
+<polyline points="50.0,50.0 80.0,85.1 110.0,117.0 140.0,140.7 170.0,165.5 200.0,183.7 230.0,196.6 260.0,209.8 290.0,219.1 320.0,221.3 350.0,230.1 380.0,238.5 410.0,237.2 440.0,242.3 470.0,251.5 500.0,258.6 530.0,267.4 560.0,285.3 590.0,295.4 620.0,310.3 650.0,330.0" fill="none" stroke="#2a5caa" stroke-width="1.5"/>
+<text x="350.0" y="372.0" font-size="11" font-family="sans-serif">downstroke ratio delta</text>
+<text x="8.0" y="190.0" font-size="11" font-family="sans-serif" transform="rotate(-90 8,190.0)">L_bar (N)</text>
+</svg>

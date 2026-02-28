@@ -1,0 +1,19 @@
+% !TeX root = main.tex
+\section{Hardware Considerations and Flight Demonstration}
+\subsection{Implementation Considerations}
+Duty-cycle modulation can be implemented in hardware by time-reparameterizing the stroke trajectory in the motor controller.
+Compared to changing stroke amplitude, duty-cycle modulation preserves peak stroke excursion while redistributing instantaneous velocity and acceleration between half-strokes.
+In practice, successful implementation requires sufficient actuator bandwidth to track the commanded waveform and sufficient sensing to verify tracking (e.g., joint encoders).
+
+\subsection{Closed-Loop Forward-Speed Regulation using $\delta$}
+To validate duty-cycle modulation as a control input, we consider forward-speed regulation in free flight.
+We use a feedback controller that maps forward-speed error to the commanded downstroke ratio:
+\begin{equation}
+\delta_{\mathrm{cmd}}(t) = \mathrm{sat}\left(\delta_0 + K_p e_v(t) + K_i \int_0^t e_v(\tau)\,d\tau\right),
+\end{equation}
+where $e_v(t)=v_{x,\mathrm{cmd}}(t)-v_x(t)$ and $\mathrm{sat}(\cdot)$ enforces $\delta_{\mathrm{cmd}}\in[\delta_{\min},\delta_{\max}]$.
+We compare against a baseline policy using a fixed $\delta=0.5$ under otherwise similar conditions.
+
+\subsection{Discussion of Failure Modes}
+If flight performance does not match simulation trends, we recommend diagnosing: (i) waveform tracking errors and saturation, (ii) compliance-induced phase lag between commanded kinematics and effective angle-of-attack history, and (iii) sensor delay and noise in forward-speed estimation.
+These effects can explain degraded closed-loop performance even when duty-cycle modulation exhibits clear trends in simulation.

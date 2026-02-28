@@ -1,0 +1,21 @@
+% !TeX root = main.tex
+\section{Trim-Like Operating Condition and Evaluation Protocol}
+\subsection{Trim Criteria}
+We define a trim-like operating condition as one where the cycle-averaged streamwise force is near zero and the cycle-averaged lift is near the vehicle weight:
+\begin{equation}
+\bar{F}_x \approx 0,\qquad \bar{F}_z \approx mg.
+\end{equation}
+In this paper, we treat trim identification as a model-internal procedure used to establish a reproducible baseline for comparing duty-cycle modulation.
+
+\subsection{Cycle Averaging}
+To avoid phase truncation bias, all reported means are computed over an integer number of cycles.
+With simulation timestep $\Delta t = 1/240~\mathrm{s}$ and $f=3.8~\mathrm{Hz}$, we use $N=1200$ steps ($5~\mathrm{s}$), corresponding to $19$ cycles.
+Cycle-averaged quantities are computed by time integration over the window.
+
+\subsection{Baseline Operating Point}
+We identify a baseline operating point by scanning frequency, body pitch, and airspeed while keeping other parameters fixed, and selecting a point that yields $\bar{F}_x$ near zero and lift on the order of $mg$ for the target mass scale.
+The baseline used for the duty-cycle sweep in this paper is:
+\begin{equation}
+f = 3.8~\mathrm{Hz},\quad U = 7.0~\mathrm{m/s},\quad \theta_{\mathrm{body}} = 13^\circ,
+\end{equation}
+with separation disabled and prescribed twist enabled.
