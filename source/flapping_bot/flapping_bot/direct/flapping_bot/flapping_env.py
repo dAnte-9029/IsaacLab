@@ -93,7 +93,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
 
     # QSM (optional; kept minimal and robust to missing joints)
     qsm: FlappingQSMCfg = FlappingQSMCfg(
-        wings=(
+        wings=[
             WingQSMCfg(
                 name="left_wing",
                 joint_name="left_wing",
@@ -142,7 +142,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
                 effective_radius_fraction=0.7,
                 hinge_damping=0.002,
             ),
-        ),
+        ],
         air_density=1.225,
     )
 

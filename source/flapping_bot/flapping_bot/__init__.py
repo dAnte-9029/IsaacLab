@@ -18,7 +18,17 @@ _EXT_DIR = Path(__file__).resolve().parent.parent
 _EXT_METADATA = toml.load(_EXT_DIR / "config" / "extension.toml")
 __version__ = _EXT_METADATA["package"]["version"]
 
-__all__ = ["__version__", "FlappingBotCfg", "FlappingRoomSceneCfg", "FlappingBotEnvCfg", "FlappingBotEnv"]
+__all__ = [
+    "__version__",
+    "FlappingBotCfg",
+    "FlappingRoomSceneCfg",
+    "FlappingBotEnvCfg",
+    "FlappingBotEnv",
+    "FlappingBotStraightFlightEnvCfg",
+    "FlappingBotStraightFlightSimpleEnvCfg",
+    "FlappingBotStraightFlightDeLaurierEnvCfg",
+    "FlappingBotStraightFlightEnv",
+]
 
 
 def __getattr__(name: str):
@@ -30,6 +40,25 @@ def __getattr__(name: str):
         from .direct.flapping_bot import FlappingBotEnv, FlappingBotEnvCfg
 
         return {"FlappingBotEnv": FlappingBotEnv, "FlappingBotEnvCfg": FlappingBotEnvCfg}[name]
+    if name in (
+        "FlappingBotStraightFlightEnv",
+        "FlappingBotStraightFlightEnvCfg",
+        "FlappingBotStraightFlightSimpleEnvCfg",
+        "FlappingBotStraightFlightDeLaurierEnvCfg",
+    ):
+        from .direct.flapping_bot import (
+            FlappingBotStraightFlightDeLaurierEnvCfg,
+            FlappingBotStraightFlightEnv,
+            FlappingBotStraightFlightEnvCfg,
+            FlappingBotStraightFlightSimpleEnvCfg,
+        )
+
+        return {
+            "FlappingBotStraightFlightEnv": FlappingBotStraightFlightEnv,
+            "FlappingBotStraightFlightEnvCfg": FlappingBotStraightFlightEnvCfg,
+            "FlappingBotStraightFlightSimpleEnvCfg": FlappingBotStraightFlightSimpleEnvCfg,
+            "FlappingBotStraightFlightDeLaurierEnvCfg": FlappingBotStraightFlightDeLaurierEnvCfg,
+        }[name]
     if name == "FlappingRoomSceneCfg":
         from .scenes import FlappingRoomSceneCfg
 

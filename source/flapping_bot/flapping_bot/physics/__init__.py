@@ -11,6 +11,8 @@ from .qsm_wang2016 import (
     transform_wrench_c_to_world,
 )
 from .qsm_delaurier1993 import DeLaurierParams, compute_aero_wrench_delaurier1993
+from .tail_aero import TailAeroCfg, TailAeroModel, TailSurfaceCfg
+from .wing_geom_csv import WingGeomCsvInfo, build_wing_geometry_from_csv, infer_span_from_x_mid, load_wing_geom_csv
 from .virtual_twist import VirtualTwistCfg, VirtualTwistState, solve_quasi_static_eta_tip, step_virtual_twist
 
 __all__ = [
@@ -26,6 +28,13 @@ __all__ = [
     "transform_wrench_c_to_world",
     "DeLaurierParams",
     "compute_aero_wrench_delaurier1993",
+    "TailSurfaceCfg",
+    "TailAeroCfg",
+    "TailAeroModel",
+    "WingGeomCsvInfo",
+    "load_wing_geom_csv",
+    "infer_span_from_x_mid",
+    "build_wing_geometry_from_csv",
     "VirtualTwistCfg",
     "VirtualTwistState",
     "solve_quasi_static_eta_tip",

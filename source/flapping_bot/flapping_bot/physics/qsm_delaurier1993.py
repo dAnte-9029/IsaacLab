@@ -13,7 +13,7 @@ from .qsm_wang2016 import WingGeometry
 Tensor = torch.Tensor
 
 
-@dataclass(frozen=True)
+@dataclass
 class DeLaurierParams:
     """Parameter set for the DeLaurier (1993) model."""
 

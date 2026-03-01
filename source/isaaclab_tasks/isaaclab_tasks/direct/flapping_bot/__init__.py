@@ -44,10 +44,17 @@ except Exception:  # pragma: no cover - best-effort path fix for local dev
                     break
 
 from .agents.rsl_rl_ppo_cfg import FlappingBotPPORunnerCfg  # noqa: E402
+from .agents.rsl_rl_ppo_straightflight_cfg import FlappingBotStraightFlightPPORunnerCfg  # noqa: E402
 
 # Import environment classes directly from the extension's top-level package.
 # The flapping_bot extension re-exports these symbols in its __init__.py.
-from flapping_bot import FlappingBotEnv, FlappingBotEnvCfg  # noqa: E402
+from flapping_bot import (  # noqa: E402
+    FlappingBotEnv,
+    FlappingBotEnvCfg,
+    FlappingBotStraightFlightDeLaurierEnvCfg,
+    FlappingBotStraightFlightEnv,
+    FlappingBotStraightFlightSimpleEnvCfg,
+)
 
 
 gym.register(
@@ -57,5 +64,27 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": FlappingBotEnvCfg,
         "rsl_rl_cfg_entry_point": FlappingBotPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-Simple-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotStraightFlightSimpleEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-DeLaurier-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
     },
 )
