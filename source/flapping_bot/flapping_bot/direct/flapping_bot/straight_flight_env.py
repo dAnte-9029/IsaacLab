@@ -51,7 +51,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # episode / control
     episode_length_s: float = 12.0
     decimation: int = 2
-    action_space: int = 3  # [freq, elevator, rudder]
+    action_space: int = 4  # [freq, elevator, rudder, roll]
     observation_space: int = 68  # keep same stacking layout as FlappingBotEnv
     state_space: int = 0
     action_scale: float = 1.0
@@ -85,6 +85,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # A small negative elevator helps counter the default wing pitching moment in open-loop rollouts.
     reset_elevator_deg: float = -10.0
     reset_rudder_deg: float = 0.0
+    reset_roll_deg: float = 0.0
 
     # attitude targets for straight flight
     # Note: pitch is defined positive nose-down. A positive "nose-up" target corresponds to a *negative* pitch angle.
@@ -152,6 +153,12 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # tail deflection action mapping (desired symmetric range, intersected with joint limits)
     elevator_max_deg: float = 25.0
     rudder_max_deg: float = 25.0
+    roll_max_deg: float = 20.0
+
+    # virtual roll control (decoupled from visual model)
+    # tau_x += gain * q_dyn * roll_deflection - damping * p
+    virtual_roll_moment_gain: float = 0.03
+    virtual_roll_moment_damping: float = 0.04
 
     # simple wing QSM (Stage A)
     qsm_wings: FlappingQSMCfg = FlappingQSMCfg(
@@ -251,6 +258,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # tail command buffers
         self._elevator_cmd: Tensor | None = None  # (N,)
         self._rudder_cmd: Tensor | None = None  # (N,)
+        self._roll_cmd: Tensor | None = None  # (N,)
 
         # command buffers
         self._vx_cmd: Tensor | None = None
@@ -353,6 +361,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # tail commands
         self._elevator_cmd = torch.zeros(self.num_envs, device=self.device)
         self._rudder_cmd = torch.zeros(self.num_envs, device=self.device)
+        self._roll_cmd = torch.zeros(self.num_envs, device=self.device)
 
         # wing amplitude (constant from joint limits)
         target_lower = torch.tensor(-math.radians(30.0), device=self.device)
@@ -446,6 +455,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         half = 0.5 * (r_upper - r_lower)
         self._rudder_cmd = (mid + half * a2).clamp(r_lower, r_upper)
 
+        # roll (action 3) -> virtual roll channel (decoupled from visual joints)
+        roll_lim = torch.deg2rad(torch.tensor(float(self.cfg.roll_max_deg), device=self.device))
+        self._roll_cmd = (roll_lim * self._act_cmd[:, 3]).clamp(-roll_lim, roll_lim)
+
     def _apply_action(self):
         # advance phase (per-physics step)
         two_pi = 6.283185307179586
@@ -488,6 +501,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         f_tail, tau_tail = self._tail_model.compute_wrench(
             root_lin_vel_b=v_b, root_ang_vel_b=w_b, elevator_rad=self._elevator_cmd, rudder_rad=self._rudder_cmd
         )
+        q_dyn = 0.5 * float(self.cfg.qsm_wings.air_density) * (v_b[:, 0] ** 2)
+        tau_roll_virtual = (
+            float(self.cfg.virtual_roll_moment_gain) * q_dyn * self._roll_cmd
+            - float(self.cfg.virtual_roll_moment_damping) * w_b[:, 0]
+        )
+        tau_tail = tau_tail.clone()
+        tau_tail[:, 0] += tau_roll_virtual
 
         if not bool(self.cfg.use_delaurier_wings):
             # simple wing QSM
@@ -662,6 +682,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # initialize tail commands
         self._elevator_cmd[env_ids] = math.radians(float(self.cfg.reset_elevator_deg))
         self._rudder_cmd[env_ids] = math.radians(float(self.cfg.reset_rudder_deg))
+        self._roll_cmd[env_ids] = math.radians(float(self.cfg.reset_roll_deg))
         self._hist_valid[env_ids] = False
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
