@@ -6,7 +6,10 @@ import math
 
 import torch
 
-from flapping_bot.px4_like.guidance import AirspeedDirectionController, DirectionalGuidance
+try:
+    from flapping_bot.px4_like.guidance import AirspeedDirectionController, DirectionalGuidance
+except ModuleNotFoundError:
+    from flapping_bot.flapping_bot.px4_like.guidance import AirspeedDirectionController, DirectionalGuidance
 
 
 def test_directional_guidance_on_track_points_forward():

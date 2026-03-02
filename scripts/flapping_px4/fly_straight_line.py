@@ -53,7 +53,10 @@ def main():
     from isaaclab.utils.math import euler_xyz_from_quat
     from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
 
-    from flapping_bot.px4_like import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
+    try:
+        from flapping_bot.px4_like import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
+    except ModuleNotFoundError:
+        from flapping_bot.flapping_bot.px4_like import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
 
     env_cfg = parse_env_cfg(args.task, device=args.device, num_envs=args.num_envs)
     env_cfg.randomize_commands = False
