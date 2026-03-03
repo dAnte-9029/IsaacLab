@@ -4,7 +4,7 @@ This environment is designed to work with IsaacLab's standard RSL-RL scripts:
   ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py --task <TASK_ID> --headless
 
 Key design choices for long-horizon iteration:
-- Low-dimensional actions: frequency + elevator + rudder.
+- Low-dimensional actions: throttle + rudder + elevon pitch/roll commands.
 - Tail aerodynamics depends on deflection angle (not only joint velocity).
 - Optional wing aerodynamic backend: simple QSM (fast) or DeLaurier (1993) strip theory (slower, more detailed).
 """
@@ -51,7 +51,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # episode / control
     episode_length_s: float = 12.0
     decimation: int = 2
-    action_space: int = 4  # [freq, elevator, rudder, roll]
+    action_space: int = 4  # [throttle, rudder, elevon_pitch, elevon_roll]
     observation_space: int = 68  # keep same stacking layout as FlappingBotEnv
     state_space: int = 0
     action_scale: float = 1.0
@@ -82,10 +82,10 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # Note: for x-forward, y-left, z-up, a negative rotation about +Y corresponds to a nose-up pitch.
     reset_pitch_deg: float = 13.0
     reset_flap_hz: float = 3.8
-    # A small negative elevator helps counter the default wing pitching moment in open-loop rollouts.
-    reset_elevator_deg: float = -10.0
+    # A small negative elevon pitch command helps counter the default wing pitching moment in open-loop rollouts.
+    reset_elevon_pitch_deg: float = -10.0
     reset_rudder_deg: float = 0.0
-    reset_roll_deg: float = 0.0
+    reset_elevon_roll_deg: float = 0.0
 
     # attitude targets for straight flight
     # Note: pitch is defined positive nose-down. A positive "nose-up" target corresponds to a *negative* pitch angle.
@@ -150,10 +150,12 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     min_flap_hz: float = 3.0
     max_flap_hz: float = 4.6
 
-    # tail deflection action mapping (desired symmetric range, intersected with joint limits)
-    elevator_max_deg: float = 25.0
+    # elevon/rudder command mapping (desired symmetric range, intersected with joint limits)
+    elevon_max_deg: float = 25.0
     rudder_max_deg: float = 25.0
-    roll_max_deg: float = 25.0
+    elevon_pitch_mix: float = 1.0
+    elevon_roll_mix: float = 1.0
+    elevon_trim_deg: float = 0.0
 
     # virtual roll control (decoupled from visual model)
     # tau_x += gain * q_dyn * roll_deflection - damping * p
@@ -256,9 +258,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._freq: Tensor | None = None  # (N,)
 
         # tail command buffers
-        self._elevator_cmd: Tensor | None = None  # (N,)
+        self._elevon_pitch_cmd: Tensor | None = None  # (N,)
+        self._elevon_roll_cmd: Tensor | None = None  # (N,)
+        self._left_elevon_cmd: Tensor | None = None  # (N,)
+        self._right_elevon_cmd: Tensor | None = None  # (N,)
+        self._elevator_cmd: Tensor | None = None  # (N,) equivalent symmetric elevon deflection for aero
         self._rudder_cmd: Tensor | None = None  # (N,)
-        self._roll_cmd: Tensor | None = None  # (N,)
+        self._roll_cmd: Tensor | None = None  # (N,) equivalent differential elevon deflection for virtual roll moment
 
         # command buffers
         self._vx_cmd: Tensor | None = None
@@ -359,6 +365,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._height_cmd = torch.full((self.num_envs,), float(self.cfg.height_cmd), device=self.device)
 
         # tail commands
+        self._elevon_pitch_cmd = torch.zeros(self.num_envs, device=self.device)
+        self._elevon_roll_cmd = torch.zeros(self.num_envs, device=self.device)
+        self._left_elevon_cmd = torch.zeros(self.num_envs, device=self.device)
+        self._right_elevon_cmd = torch.zeros(self.num_envs, device=self.device)
         self._elevator_cmd = torch.zeros(self.num_envs, device=self.device)
         self._rudder_cmd = torch.zeros(self.num_envs, device=self.device)
         self._roll_cmd = torch.zeros(self.num_envs, device=self.device)
@@ -437,27 +447,29 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         f = 0.5 * (a0 + 1.0) * (self.cfg.max_flap_hz - self.cfg.min_flap_hz) + self.cfg.min_flap_hz
         self._freq = torch.clamp(f, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
 
-        # elevator (action 1) -> left_tail joint
-        ele_lim = torch.deg2rad(torch.tensor(float(self.cfg.elevator_max_deg), device=self.device))
-        a1 = self._act_cmd[:, 1]
-        l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -ele_lim)
-        l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], ele_lim)
-        mid = 0.5 * (l_lower + l_upper)
-        half = 0.5 * (l_upper - l_lower)
-        self._elevator_cmd = (mid + half * a1).clamp(l_lower, l_upper)
-
-        # rudder (action 2) -> right_tail joint
+        # rudder (action 1) -> virtual rudder channel
         rud_lim = torch.deg2rad(torch.tensor(float(self.cfg.rudder_max_deg), device=self.device))
-        a2 = self._act_cmd[:, 2]
-        r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], -rud_lim)
-        r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], rud_lim)
-        mid = 0.5 * (r_lower + r_upper)
-        half = 0.5 * (r_upper - r_lower)
-        self._rudder_cmd = (mid + half * a2).clamp(r_lower, r_upper)
+        self._rudder_cmd = (rud_lim * self._act_cmd[:, 1]).clamp(-rud_lim, rud_lim)
 
-        # roll (action 3) -> virtual roll channel (decoupled from visual joints)
-        roll_lim = torch.deg2rad(torch.tensor(float(self.cfg.roll_max_deg), device=self.device))
-        self._roll_cmd = (roll_lim * self._act_cmd[:, 3]).clamp(-roll_lim, roll_lim)
+        elevon_lim = torch.deg2rad(torch.tensor(float(self.cfg.elevon_max_deg), device=self.device))
+        self._elevon_pitch_cmd = (elevon_lim * self._act_cmd[:, 2]).clamp(-elevon_lim, elevon_lim)
+        self._elevon_roll_cmd = (elevon_lim * self._act_cmd[:, 3]).clamp(-elevon_lim, elevon_lim)
+
+        trim = torch.deg2rad(torch.tensor(float(self.cfg.elevon_trim_deg), device=self.device))
+        mixed_pitch = float(self.cfg.elevon_pitch_mix) * self._elevon_pitch_cmd
+        mixed_roll = float(self.cfg.elevon_roll_mix) * self._elevon_roll_cmd
+        left_raw = trim + mixed_pitch + mixed_roll
+        right_raw = trim + mixed_pitch - mixed_roll
+
+        l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -elevon_lim)
+        l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], elevon_lim)
+        r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], -elevon_lim)
+        r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], elevon_lim)
+        self._left_elevon_cmd = left_raw.clamp(l_lower, l_upper)
+        self._right_elevon_cmd = right_raw.clamp(r_lower, r_upper)
+
+        self._elevator_cmd = 0.5 * (self._left_elevon_cmd + self._right_elevon_cmd)
+        self._roll_cmd = 0.5 * (self._left_elevon_cmd - self._right_elevon_cmd)
 
     def _apply_action(self):
         # advance phase (per-physics step)
@@ -475,9 +487,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         jt = self._joint_targets
         jt[:, self._IDX_LEFT_WING] = left_cmd
         jt[:, self._IDX_RIGHT_WING] = right_cmd
-        # visualization joints for tail
-        jt[:, self._IDX_LEFT_TAIL] = self._elevator_cmd
-        jt[:, self._IDX_RIGHT_TAIL] = self._rudder_cmd
+        # visualization joints for tail (treated as left/right elevons)
+        jt[:, self._IDX_LEFT_TAIL] = self._left_elevon_cmd
+        jt[:, self._IDX_RIGHT_TAIL] = self._right_elevon_cmd
         self._robot.set_joint_position_target(jt, joint_ids=self._joint_ids)
 
         # cache commanded wing kinematics (for DeLaurier backend)
@@ -659,9 +671,21 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         # joints to default and zero velocity
         jpos = self._default_joint_pos.expand(n, -1).clone()
-        # initialize tail joints close to commanded reset deflections
-        jpos[:, self._IDX_LEFT_TAIL] = math.radians(float(self.cfg.reset_elevator_deg))
-        jpos[:, self._IDX_RIGHT_TAIL] = math.radians(float(self.cfg.reset_rudder_deg))
+        # initialize tail joints from mixed reset elevon commands
+        elevon_lim = torch.deg2rad(torch.tensor(float(self.cfg.elevon_max_deg), device=self.device))
+        l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -elevon_lim)
+        l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], elevon_lim)
+        r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], -elevon_lim)
+        r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], elevon_lim)
+        trim0 = math.radians(float(self.cfg.elevon_trim_deg))
+        pit0 = math.radians(float(self.cfg.reset_elevon_pitch_deg))
+        rol0 = math.radians(float(self.cfg.reset_elevon_roll_deg))
+        left0 = trim0 + float(self.cfg.elevon_pitch_mix) * pit0 + float(self.cfg.elevon_roll_mix) * rol0
+        right0 = trim0 + float(self.cfg.elevon_pitch_mix) * pit0 - float(self.cfg.elevon_roll_mix) * rol0
+        left0 = torch.full((n,), left0, device=self.device).clamp(l_lower, l_upper)
+        right0 = torch.full((n,), right0, device=self.device).clamp(r_lower, r_upper)
+        jpos[:, self._IDX_LEFT_TAIL] = left0
+        jpos[:, self._IDX_RIGHT_TAIL] = right0
         jvel = torch.zeros_like(jpos)
         self._robot.write_joint_state_to_sim(jpos, jvel, joint_ids=self._joint_ids, env_ids=env_ids)
 
@@ -679,10 +703,28 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._actions[env_ids, 0] = a0
         self._act_lpf[env_ids, 0] = a0
         self._act_cmd[env_ids, 0] = a0
+        # initialize action history for tail channels to avoid large transients
+        rud_norm = float(self.cfg.reset_rudder_deg) / max(float(self.cfg.rudder_max_deg), 1.0e-6)
+        ele_norm = float(self.cfg.reset_elevon_pitch_deg) / max(float(self.cfg.elevon_max_deg), 1.0e-6)
+        rol_norm = float(self.cfg.reset_elevon_roll_deg) / max(float(self.cfg.elevon_max_deg), 1.0e-6)
+        self._actions[env_ids, 1] = max(-1.0, min(1.0, rud_norm))
+        self._act_lpf[env_ids, 1] = self._actions[env_ids, 1]
+        self._act_cmd[env_ids, 1] = self._actions[env_ids, 1]
+        self._actions[env_ids, 2] = max(-1.0, min(1.0, ele_norm))
+        self._act_lpf[env_ids, 2] = self._actions[env_ids, 2]
+        self._act_cmd[env_ids, 2] = self._actions[env_ids, 2]
+        self._actions[env_ids, 3] = max(-1.0, min(1.0, rol_norm))
+        self._act_lpf[env_ids, 3] = self._actions[env_ids, 3]
+        self._act_cmd[env_ids, 3] = self._actions[env_ids, 3]
+
         # initialize tail commands
-        self._elevator_cmd[env_ids] = math.radians(float(self.cfg.reset_elevator_deg))
+        self._left_elevon_cmd[env_ids] = left0
+        self._right_elevon_cmd[env_ids] = right0
+        self._elevon_pitch_cmd[env_ids] = torch.full((n,), pit0, device=self.device)
+        self._elevon_roll_cmd[env_ids] = torch.full((n,), rol0, device=self.device)
+        self._elevator_cmd[env_ids] = 0.5 * (left0 + right0)
         self._rudder_cmd[env_ids] = math.radians(float(self.cfg.reset_rudder_deg))
-        self._roll_cmd[env_ids] = math.radians(float(self.cfg.reset_roll_deg))
+        self._roll_cmd[env_ids] = 0.5 * (left0 - right0)
         self._hist_valid[env_ids] = False
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 

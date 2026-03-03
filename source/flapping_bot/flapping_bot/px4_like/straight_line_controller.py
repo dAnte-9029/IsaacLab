@@ -91,7 +91,7 @@ class PX4LikeStraightLineController:
         yaw: Tensor,
         ang_vel_body: Tensor,
     ) -> tuple[Tensor, dict[str, Tensor]]:
-        """Map current vehicle state to `[freq, elevator, rudder, roll]` actions."""
+        """Map current vehicle state to `[throttle, rudder, elevon_pitch, elevon_roll]` actions."""
         pos_xy = pos_local[:, 0:2]
         vel_xy = ground_vel_local[:, 0:2]
         wind_xy = self._wind_xy.expand(pos_xy.shape[0], 2).to(dtype=pos_xy.dtype)
@@ -131,7 +131,7 @@ class PX4LikeStraightLineController:
             max=math.radians(float(self.cfg.max_pitch_down_deg)),
         )
         pitch_err = _wrap_pi(pitch_sp - pitch)
-        action_elevator = torch.clamp(
+        action_elevon_pitch = torch.clamp(
             float(self.cfg.pitch_kp) * pitch_err - float(self.cfg.pitch_kd) * ang_vel_body[:, 1],
             min=-1.0,
             max=1.0,
@@ -157,7 +157,7 @@ class PX4LikeStraightLineController:
         action_freq = 2.0 * (freq_hz - float(self.cfg.min_flap_hz)) / denom - 1.0
         action_freq = torch.clamp(action_freq, -1.0, 1.0)
 
-        actions = torch.stack((action_freq, action_elevator, action_rudder, action_roll), dim=1)
+        actions = torch.stack((action_freq, action_rudder, action_elevon_pitch, action_roll), dim=1)
 
         diag = {
             "course_sp": guidance.course_setpoint,
