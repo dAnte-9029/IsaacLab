@@ -142,7 +142,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # termination
     terminate_ground_height: float = 0.05
     terminate_tilt_deg: float = 75.0
-    terminate_abs_y: float = 3.0
+    terminate_abs_y: float = 20.0
 
     # flapping frequency action mapping
     # Keep the initial action range fairly tight around typical trimmed conditions.
@@ -153,12 +153,12 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # tail deflection action mapping (desired symmetric range, intersected with joint limits)
     elevator_max_deg: float = 25.0
     rudder_max_deg: float = 25.0
-    roll_max_deg: float = 20.0
+    roll_max_deg: float = 25.0
 
     # virtual roll control (decoupled from visual model)
     # tau_x += gain * q_dyn * roll_deflection - damping * p
-    virtual_roll_moment_gain: float = 0.03
-    virtual_roll_moment_damping: float = 0.04
+    virtual_roll_moment_gain: float = 0.12
+    virtual_roll_moment_damping: float = 0.25
 
     # simple wing QSM (Stage A)
     qsm_wings: FlappingQSMCfg = FlappingQSMCfg(

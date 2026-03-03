@@ -31,6 +31,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--height_sp", type=float, default=10.0)
     parser.add_argument("--pitch_trim_deg", type=float, default=13.0)
     parser.add_argument("--freq_trim_hz", type=float, default=3.8)
+    parser.add_argument(
+        "--episode_length_s",
+        type=float,
+        default=None,
+        help="Override environment episode length. Default auto-expands to avoid timeout before --steps.",
+    )
     parser.add_argument("--enable_speed_hold", action="store_true")
     parser.add_argument("--speed_sp", type=float, default=7.0)
     parser.add_argument("--out_dir", type=Path, default=Path("logs/flapping_px4/straight_line"))
@@ -62,6 +68,11 @@ def main():
     env_cfg.randomize_commands = False
     env_cfg.height_cmd = float(args.height_sp)
     env_cfg.action_space = 4
+    if args.episode_length_s is not None:
+        env_cfg.episode_length_s = float(args.episode_length_s)
+    else:
+        env_step_dt = float(env_cfg.sim.dt) * float(env_cfg.decimation)
+        env_cfg.episode_length_s = max(float(env_cfg.episode_length_s), float(args.steps) * env_step_dt + 1.0)
     if args.enable_speed_hold:
         env_cfg.vx_cmd = float(args.speed_sp)
     env = gym.make(args.task, cfg=env_cfg)

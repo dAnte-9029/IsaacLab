@@ -16,7 +16,7 @@ class FlappingRoomSceneCfg(InteractiveSceneCfg):
 
     ground = AssetBaseCfg(
         prim_path="/World/GroundPlane",
-        spawn=sim_utils.GroundPlaneCfg(size=(50.0, 50.0)),
+        spawn=sim_utils.GroundPlaneCfg(size=(500.0, 500.0)),
     )
 
     robot = FlappingBotCfg.replace(prim_path="{ENV_REGEX_NS}/Robot")

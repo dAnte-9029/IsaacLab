@@ -32,16 +32,16 @@ class PX4LikeStraightLineControllerCfg:
 
     height_sp_m: float = 10.0
     pitch_trim_deg: float = 13.0
-    max_roll_deg: float = 35.0
+    max_roll_deg: float = 45.0
     max_pitch_up_deg: float = 25.0
     max_pitch_down_deg: float = 20.0
 
-    roll_kp: float = 3.2
-    roll_kd: float = 0.18
+    roll_kp: float = 2.5
+    roll_kd: float = 0.35
     pitch_kp: float = 2.5
     pitch_kd: float = 0.16
-    yaw_kp: float = 1.3
-    yaw_kd: float = 0.08
+    yaw_kp: float = 0.1
+    yaw_kd: float = 0.2
     height_kp: float = 0.06
     height_rate_kd: float = 0.02
 
@@ -52,9 +52,9 @@ class PX4LikeStraightLineControllerCfg:
     speed_sp_mps: float = 7.0
     speed_kp_hz_per_mps: float = 0.08
 
-    guidance_period_s: float = 10.0
+    guidance_period_s: float = 6.0
     guidance_damping: float = 0.7071
-    guidance_roll_time_const_s: float = 0.35
+    guidance_roll_time_const_s: float = 0.25
     heading_p_gain: float = 0.8885
 
 
@@ -111,7 +111,7 @@ class PX4LikeStraightLineController:
         heading = torch.atan2(air_vel_xy[:, 1], air_vel_xy[:, 0])
         lateral_accel_fb = self._heading_controller.control_heading(guidance.course_setpoint, heading, airspeed)
         lateral_accel_sp = lateral_accel_fb + guidance.lateral_acceleration_feedforward
-        roll_sp = torch.atan(lateral_accel_sp / 9.81)
+        roll_sp = -torch.atan(lateral_accel_sp / 9.81)
 
         max_roll = math.radians(float(self.cfg.max_roll_deg))
         roll_sp = torch.clamp(roll_sp, -max_roll, max_roll)
@@ -137,7 +137,7 @@ class PX4LikeStraightLineController:
             max=1.0,
         )
 
-        course_err = _wrap_pi(guidance.course_setpoint - yaw)
+        course_err = _wrap_pi(yaw - guidance.course_setpoint)
         action_rudder = torch.clamp(
             float(self.cfg.yaw_kp) * course_err - float(self.cfg.yaw_kd) * ang_vel_body[:, 2],
             min=-1.0,
