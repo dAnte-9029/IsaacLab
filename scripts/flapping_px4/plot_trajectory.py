@@ -88,6 +88,7 @@ def main() -> None:
     action_freq = [_get(r, "action_freq") for r in rows]
     action_rudder = [_get(r, "action_rudder") for r in rows]
     action_elevon_pitch = [_get(r, "action_elevon_pitch") for r in rows]
+    action_elevon_pitch_raw = [_get(r, "action_elevon_pitch_raw") for r in rows]
     action_elevon_roll = [_get(r, "action_elevon_roll") for r in rows]
 
     # Height setpoint: prefer explicit summary, else reconstruct from height_err_m + z.
@@ -105,6 +106,7 @@ def main() -> None:
 
     rudder_deg = [rudder_max_deg * u for u in action_rudder]
     elevon_pitch_deg = [elevon_max_deg * u for u in action_elevon_pitch]
+    elevon_pitch_raw_deg = [elevon_max_deg * u for u in action_elevon_pitch_raw]
     elevon_roll_deg = [elevon_max_deg * u for u in action_elevon_roll]
     left_elevon_deg = [elevon_trim_deg + elevon_pitch_mix * p + elevon_roll_mix * r for p, r in zip(elevon_pitch_deg, elevon_roll_deg)]
     right_elevon_deg = [elevon_trim_deg + elevon_pitch_mix * p - elevon_roll_mix * r for p, r in zip(elevon_pitch_deg, elevon_roll_deg)]
@@ -142,6 +144,8 @@ def main() -> None:
     ax_u.plot(t, rudder_deg, label="rudder (deg)")
     ax_u.plot(t, left_elevon_deg, label="left elevon (deg)")
     ax_u.plot(t, right_elevon_deg, label="right elevon (deg)")
+    if any(v == v for v in elevon_pitch_raw_deg):
+        ax_u.plot(t, elevon_pitch_raw_deg, linestyle=":", linewidth=1.1, label="elevon pitch raw (deg)")
     if any(v == v for v in tecs_pitch_sp_deg):
         ax_u.plot(t, tecs_pitch_sp_deg, linestyle="--", linewidth=1.2, label="TECS pitch_sp (deg)")
     ax_u2 = ax_u.twinx()

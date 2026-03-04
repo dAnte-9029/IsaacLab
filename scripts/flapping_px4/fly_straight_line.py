@@ -53,6 +53,15 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--tecs_ste_rate_time_const_s", type=float, default=0.4)
     parser.add_argument("--tecs_tas_min_mps", type=float, default=5.0)
     parser.add_argument("--tecs_tas_error_percentage", type=float, default=0.15)
+    parser.add_argument("--tecs_altitude_filter_tau_s", type=float, default=0.3)
+    parser.add_argument("--tecs_altitude_rate_filter_tau_s", type=float, default=0.2)
+    parser.add_argument("--tecs_pitch_sp_filter_tau_s", type=float, default=0.35)
+    parser.add_argument("--tecs_pitch_sp_rate_limit_deg_s", type=float, default=20.0)
+    parser.add_argument("--tecs_throttle_sp_filter_tau_s", type=float, default=0.25)
+    parser.add_argument("--inner_pitch_lpf_tau_s", type=float, default=0.12)
+    parser.add_argument("--inner_pitch_rate_lpf_tau_s", type=float, default=0.1)
+    parser.add_argument("--inner_elevon_pitch_rate_limit_per_s", type=float, default=2.0)
+    parser.add_argument("--inner_elevon_roll_rate_limit_per_s", type=float, default=6.0)
     parser.add_argument(
         "--tecs_detect_underspeed",
         action=argparse.BooleanOptionalAction,
@@ -192,6 +201,15 @@ def main():
         tecs_tas_min_mps=float(args.tecs_tas_min_mps),
         tecs_tas_error_percentage=float(args.tecs_tas_error_percentage),
         tecs_detect_underspeed=bool(args.tecs_detect_underspeed),
+        tecs_altitude_filter_tau_s=float(args.tecs_altitude_filter_tau_s),
+        tecs_altitude_rate_filter_tau_s=float(args.tecs_altitude_rate_filter_tau_s),
+        tecs_pitch_sp_filter_tau_s=float(args.tecs_pitch_sp_filter_tau_s),
+        tecs_pitch_sp_rate_limit_deg_s=float(args.tecs_pitch_sp_rate_limit_deg_s),
+        tecs_throttle_sp_filter_tau_s=float(args.tecs_throttle_sp_filter_tau_s),
+        inner_pitch_lpf_tau_s=float(args.inner_pitch_lpf_tau_s),
+        inner_pitch_rate_lpf_tau_s=float(args.inner_pitch_rate_lpf_tau_s),
+        inner_elevon_pitch_rate_limit_per_s=float(args.inner_elevon_pitch_rate_limit_per_s),
+        inner_elevon_roll_rate_limit_per_s=float(args.inner_elevon_roll_rate_limit_per_s),
         enable_speed_hold=bool(args.enable_speed_hold),
         speed_sp_mps=float(args.speed_sp),
         speed_kp_hz_per_mps=float(args.speed_kp_hz_per_mps),
@@ -286,6 +304,12 @@ def main():
                 "tecs_tas_sp": float(diag["tecs_tas_sp"][idx].item()) if "tecs_tas_sp" in diag else float("nan"),
                 "tecs_tas": float(diag["tecs_tas"][idx].item()) if "tecs_tas" in diag else float("nan"),
                 "tecs_tas_rate": float(diag["tecs_tas_rate"][idx].item()) if "tecs_tas_rate" in diag else float("nan"),
+                "tecs_altitude_filt": float(diag["tecs_altitude_filt"][idx].item())
+                if "tecs_altitude_filt" in diag
+                else float("nan"),
+                "tecs_altitude_rate_filt": float(diag["tecs_altitude_rate_filt"][idx].item())
+                if "tecs_altitude_rate_filt" in diag
+                else float("nan"),
                 "tecs_ste_rate_sp": float(diag["tecs_ste_rate_sp"][idx].item()) if "tecs_ste_rate_sp" in diag else float("nan"),
                 "tecs_ste_rate_est": float(diag["tecs_ste_rate_est"][idx].item()) if "tecs_ste_rate_est" in diag else float("nan"),
                 "tecs_seb_rate_sp": float(diag["tecs_seb_rate_sp"][idx].item()) if "tecs_seb_rate_sp" in diag else float("nan"),
@@ -302,6 +326,18 @@ def main():
                 "tecs_pitch_integ": float(diag["tecs_pitch_integ"][idx].item()) if "tecs_pitch_integ" in diag else float("nan"),
                 "tecs_throttle_integ": float(diag["tecs_throttle_integ"][idx].item())
                 if "tecs_throttle_integ" in diag
+                else float("nan"),
+                "pitch_meas_filt_deg": float(torch.rad2deg(diag["pitch_meas_filt"][idx]).item())
+                if "pitch_meas_filt" in diag
+                else float("nan"),
+                "pitch_rate_filt_dps": float(torch.rad2deg(diag["pitch_rate_filt"][idx]).item())
+                if "pitch_rate_filt" in diag
+                else float("nan"),
+                "action_elevon_pitch_raw": float(diag["action_elevon_pitch_raw"][idx].item())
+                if "action_elevon_pitch_raw" in diag
+                else float("nan"),
+                "action_elevon_roll_raw": float(diag["action_elevon_roll_raw"][idx].item())
+                if "action_elevon_roll_raw" in diag
                 else float("nan"),
                 "aero_wing_Fx_b": float(wing_f_b[0].item()),
                 "aero_wing_Fy_b": float(wing_f_b[1].item()),
@@ -371,6 +407,15 @@ def main():
             "tecs_tas_min_mps": float(args.tecs_tas_min_mps),
             "tecs_tas_error_percentage": float(args.tecs_tas_error_percentage),
             "tecs_detect_underspeed": bool(args.tecs_detect_underspeed),
+            "tecs_altitude_filter_tau_s": float(args.tecs_altitude_filter_tau_s),
+            "tecs_altitude_rate_filter_tau_s": float(args.tecs_altitude_rate_filter_tau_s),
+            "tecs_pitch_sp_filter_tau_s": float(args.tecs_pitch_sp_filter_tau_s),
+            "tecs_pitch_sp_rate_limit_deg_s": float(args.tecs_pitch_sp_rate_limit_deg_s),
+            "tecs_throttle_sp_filter_tau_s": float(args.tecs_throttle_sp_filter_tau_s),
+            "inner_pitch_lpf_tau_s": float(args.inner_pitch_lpf_tau_s),
+            "inner_pitch_rate_lpf_tau_s": float(args.inner_pitch_rate_lpf_tau_s),
+            "inner_elevon_pitch_rate_limit_per_s": float(args.inner_elevon_pitch_rate_limit_per_s),
+            "inner_elevon_roll_rate_limit_per_s": float(args.inner_elevon_roll_rate_limit_per_s),
             "rudder_max_deg": float(getattr(env_cfg, "rudder_max_deg", 25.0)),
             "elevon_max_deg": float(getattr(env_cfg, "elevon_max_deg", 25.0)),
             "elevon_trim_deg": float(getattr(env_cfg, "elevon_trim_deg", 0.0)),

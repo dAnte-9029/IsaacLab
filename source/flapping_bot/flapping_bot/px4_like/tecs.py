@@ -58,6 +58,12 @@ class PX4LikeTECSCfg:
 
     speed_filter_tau_s: float = 0.25
     speed_rate_filter_tau_s: float = 0.35
+    altitude_filter_tau_s: float = 0.3
+    altitude_rate_filter_tau_s: float = 0.2
+
+    pitch_sp_filter_tau_s: float = 0.35
+    pitch_sp_rate_limit_deg_s: float = 20.0
+    throttle_sp_filter_tau_s: float = 0.25
 
 
 class PX4LikeTECS:
@@ -76,6 +82,8 @@ class PX4LikeTECS:
         self._tas_filt: Tensor | None = None
         self._tas_rate_filt: Tensor | None = None
         self._tas_prev: Tensor | None = None
+        self._altitude_filt: Tensor | None = None
+        self._altitude_rate_filt: Tensor | None = None
         self._ratio_underspeed: Tensor | None = None
 
     def _ensure_state(self, batch_size: int, dtype: torch.dtype) -> None:
@@ -93,6 +101,8 @@ class PX4LikeTECS:
         self._tas_filt = torch.full((batch_size,), float(self.cfg.speed_sp_mps), device=self.device, dtype=dtype)
         self._tas_rate_filt = torch.zeros((batch_size,), device=self.device, dtype=dtype)
         self._tas_prev = self._tas_filt.clone()
+        self._altitude_filt = torch.full((batch_size,), float(self.cfg.height_sp_m), device=self.device, dtype=dtype)
+        self._altitude_rate_filt = torch.zeros((batch_size,), device=self.device, dtype=dtype)
         self._ratio_underspeed = torch.zeros((batch_size,), device=self.device, dtype=dtype)
         self._initialized = True
 
@@ -113,6 +123,8 @@ class PX4LikeTECS:
             self._tas_filt.fill_(float(self.cfg.speed_sp_mps))
             self._tas_rate_filt.zero_()
             self._tas_prev.copy_(self._tas_filt)
+            self._altitude_filt.fill_(float(self.cfg.height_sp_m))
+            self._altitude_rate_filt.zero_()
             self._ratio_underspeed.zero_()
             return
 
@@ -125,6 +137,8 @@ class PX4LikeTECS:
         self._tas_filt[ids] = float(self.cfg.speed_sp_mps)
         self._tas_rate_filt[ids] = 0.0
         self._tas_prev[ids] = self._tas_filt[ids]
+        self._altitude_filt[ids] = float(self.cfg.height_sp_m)
+        self._altitude_rate_filt[ids] = 0.0
         self._ratio_underspeed[ids] = 0.0
 
     def update(
@@ -150,6 +164,8 @@ class PX4LikeTECS:
         assert self._tas_filt is not None
         assert self._tas_rate_filt is not None
         assert self._tas_prev is not None
+        assert self._altitude_filt is not None
+        assert self._altitude_rate_filt is not None
         assert self._ratio_underspeed is not None
 
         height_sp = float(self.cfg.height_sp_m if height_sp_m is None else height_sp_m)
@@ -183,8 +199,16 @@ class PX4LikeTECS:
         self._tas_rate_filt = self._tas_rate_filt + alpha_vdot * (tas_rate_raw - self._tas_rate_filt)
         tas_ctrl = torch.clamp(self._tas_filt, min=1.0e-3)
 
+        # Altitude/vz filtering: avoid chasing flapping-period ripple in energy loops.
+        alpha_h = dt / (max(float(self.cfg.altitude_filter_tau_s), 0.0) + dt)
+        alpha_h = min(max(alpha_h, 0.0), 1.0)
+        self._altitude_filt = self._altitude_filt + alpha_h * (altitude - self._altitude_filt)
+        alpha_hdot = dt / (max(float(self.cfg.altitude_rate_filter_tau_s), 0.0) + dt)
+        alpha_hdot = min(max(alpha_hdot, 0.0), 1.0)
+        self._altitude_rate_filt = self._altitude_rate_filt + alpha_hdot * (altitude_rate - self._altitude_rate_filt)
+
         # Outer loops -> target height/speed rates.
-        altitude_rate_sp = (height_sp - altitude) * float(self.cfg.altitude_error_gain)
+        altitude_rate_sp = (height_sp - self._altitude_filt) * float(self.cfg.altitude_error_gain)
         altitude_rate_sp = torch.clamp(altitude_rate_sp, min=-min_sink_rate, max=max_climb_rate)
 
         if bool(self.cfg.airspeed_enabled):
@@ -198,7 +222,7 @@ class PX4LikeTECS:
         # Specific energy rates.
         spe_rate_sp = altitude_rate_sp * G
         ske_rate_sp = tas_ctrl * tas_rate_sp
-        spe_rate_est = altitude_rate * G
+        spe_rate_est = self._altitude_rate_filt * G
         ske_rate_est = tas_ctrl * self._tas_rate_filt
 
         # Underspeed ratio in [0,1].
@@ -239,8 +263,20 @@ class PX4LikeTECS:
 
         seb_rate_corr = seb_rate_err * float(self.cfg.pitch_damping_gain) + float(self.cfg.seb_rate_ff) * seb_rate_sp
         pitch_term = seb_rate_corr / torch.clamp(climb_to_seb, min=1.0e-3) + self._pitch_integ
-        pitch_sp_unc = pitch_trim - pitch_term
-        self._pitch_sp = torch.clamp(pitch_sp_unc, min=pitch_min, max=pitch_max)
+        pitch_sp_cmd = torch.clamp(pitch_trim - pitch_term, min=pitch_min, max=pitch_max)
+        prev_pitch_sp = self._pitch_sp.clone()
+        if float(self.cfg.pitch_sp_filter_tau_s) > 0.0:
+            alpha_pitch_sp = dt / (float(self.cfg.pitch_sp_filter_tau_s) + dt)
+            alpha_pitch_sp = min(max(alpha_pitch_sp, 0.0), 1.0)
+            pitch_sp_cmd = prev_pitch_sp + alpha_pitch_sp * (pitch_sp_cmd - prev_pitch_sp)
+        if float(self.cfg.pitch_sp_rate_limit_deg_s) > 0.0:
+            pitch_delta_max = math.radians(float(self.cfg.pitch_sp_rate_limit_deg_s)) * dt
+            pitch_sp_cmd = torch.clamp(
+                pitch_sp_cmd,
+                min=prev_pitch_sp - pitch_delta_max,
+                max=prev_pitch_sp + pitch_delta_max,
+            )
+        self._pitch_sp = torch.clamp(pitch_sp_cmd, min=pitch_min, max=pitch_max)
 
         # Throttle control via specific-total-energy rate.
         ste_rate_sp = torch.clamp(spe_rate_sp + ske_rate_sp, min=ste_rate_min, max=ste_rate_max)
@@ -286,19 +322,27 @@ class PX4LikeTECS:
         )
         throttle_unc = self._ratio_underspeed * throttle_max + (1.0 - self._ratio_underspeed) * throttle_unc
 
+        throttle_cmd = torch.clamp(throttle_unc, min=throttle_min, max=throttle_max)
+        prev_throttle = self._throttle_sp.clone()
+        if float(self.cfg.throttle_sp_filter_tau_s) > 0.0:
+            alpha_throttle_sp = dt / (float(self.cfg.throttle_sp_filter_tau_s) + dt)
+            alpha_throttle_sp = min(max(alpha_throttle_sp, 0.0), 1.0)
+            throttle_cmd = prev_throttle + alpha_throttle_sp * (throttle_cmd - prev_throttle)
         if float(self.cfg.throttle_slew_rate_per_s) > 0.0:
             throttle_inc_limit = dt * (throttle_max - throttle_min) * float(self.cfg.throttle_slew_rate_per_s)
-            throttle_unc = torch.clamp(
-                throttle_unc, min=self._throttle_sp - throttle_inc_limit, max=self._throttle_sp + throttle_inc_limit
+            throttle_cmd = torch.clamp(
+                throttle_cmd, min=prev_throttle - throttle_inc_limit, max=prev_throttle + throttle_inc_limit
             )
 
-        self._throttle_sp = torch.clamp(throttle_unc, min=throttle_min, max=throttle_max)
+        self._throttle_sp = torch.clamp(throttle_cmd, min=throttle_min, max=throttle_max)
 
         diag = {
             "tecs_altitude_rate_sp": altitude_rate_sp,
             "tecs_tas_sp": torch.full_like(tas_ctrl, speed_sp),
             "tecs_tas": tas_ctrl,
             "tecs_tas_rate": self._tas_rate_filt,
+            "tecs_altitude_filt": self._altitude_filt,
+            "tecs_altitude_rate_filt": self._altitude_rate_filt,
             "tecs_spe_rate_sp": spe_rate_sp,
             "tecs_ske_rate_sp": ske_rate_sp,
             "tecs_spe_rate_est": spe_rate_est,
