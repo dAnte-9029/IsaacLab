@@ -9,6 +9,7 @@ from .guidance import (
 )
 from .line_navigation import navigate_line
 from .straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
+from .tecs import PX4LikeTECS, PX4LikeTECSCfg
 
 __all__ = [
     "AirspeedDirectionController",
@@ -18,5 +19,7 @@ __all__ = [
     "DirectionalGuidanceSettings",
     "PX4LikeStraightLineController",
     "PX4LikeStraightLineControllerCfg",
+    "PX4LikeTECS",
+    "PX4LikeTECSCfg",
     "navigate_line",
 ]

@@ -82,6 +82,8 @@ def main() -> None:
     z = [_get(r, "z") for r in rows]
     speed = [_get(r, "speed") for r in rows]
     freq_hz = [_get(r, "freq_hz") for r in rows]
+    tecs_tas_sp = [_get(r, "tecs_tas_sp") for r in rows]
+    tecs_pitch_sp_deg = [_get(r, "tecs_pitch_sp_deg") for r in rows]
 
     action_freq = [_get(r, "action_freq") for r in rows]
     action_rudder = [_get(r, "action_rudder") for r in rows]
@@ -123,6 +125,8 @@ def main() -> None:
     ax_z.legend(loc="best")
 
     ax_v.plot(t, speed, label="speed (m/s)")
+    if any(v == v for v in tecs_tas_sp):
+        ax_v.plot(t, tecs_tas_sp, linestyle="--", linewidth=1.2, label="TECS speed_sp (m/s)")
     ax_v.set_title("Speed")
     ax_v.set_ylabel("m/s")
     ax_v.grid(True, alpha=0.3)
@@ -138,6 +142,8 @@ def main() -> None:
     ax_u.plot(t, rudder_deg, label="rudder (deg)")
     ax_u.plot(t, left_elevon_deg, label="left elevon (deg)")
     ax_u.plot(t, right_elevon_deg, label="right elevon (deg)")
+    if any(v == v for v in tecs_pitch_sp_deg):
+        ax_u.plot(t, tecs_pitch_sp_deg, linestyle="--", linewidth=1.2, label="TECS pitch_sp (deg)")
     ax_u2 = ax_u.twinx()
     ax_u2.plot(t, action_freq, color="k", alpha=0.25, label="throttle (normalized)")
     ax_u.set_title("Control Surfaces / Throttle")
@@ -177,4 +183,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

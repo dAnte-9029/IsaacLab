@@ -14,6 +14,7 @@ from .guidance import (
     DirectionalGuidanceSettings,
 )
 from .line_navigation import navigate_line
+from .tecs import PX4LikeTECS, PX4LikeTECSCfg
 
 Tensor = torch.Tensor
 
@@ -29,6 +30,7 @@ class PX4LikeStraightLineControllerCfg:
     line_start_xy: tuple[float, float] = (0.0, 0.0)
     line_end_xy: tuple[float, float] = (120.0, 0.0)
     wind_xy: tuple[float, float] = (0.0, 0.0)
+    control_dt_s: float = 1.0 / 120.0
 
     height_sp_m: float = 10.0
     pitch_trim_deg: float = 10.0
@@ -48,6 +50,22 @@ class PX4LikeStraightLineControllerCfg:
     freq_trim_hz: float = 2.5
     min_flap_hz: float = 3.0
     max_flap_hz: float = 4.6
+    enable_tecs: bool = True
+    tecs_max_climb_rate_mps: float = 3.0
+    tecs_min_sink_rate_mps: float = 2.0
+    tecs_altitude_error_gain: float = 0.55
+    tecs_airspeed_error_gain: float = 0.8
+    tecs_pitch_speed_weight: float = 0.8
+    tecs_pitch_damping_gain: float = 0.08
+    tecs_integrator_gain_pitch: float = 0.12
+    tecs_throttle_damping_gain: float = 0.35
+    tecs_integrator_gain_throttle: float = 0.22
+    tecs_ste_rate_time_const_s: float = 0.4
+    tecs_tas_min_mps: float = 5.0
+    tecs_tas_error_percentage: float = 0.15
+    tecs_detect_underspeed: bool = True
+    tecs_throttle_slew_rate_per_s: float = 0.0
+
     enable_speed_hold: bool = False
     speed_sp_mps: float = 7.0
     speed_kp_hz_per_mps: float = 0.08
@@ -84,6 +102,41 @@ class PX4LikeStraightLineController:
         self._heading_controller = AirspeedDirectionController(
             AirspeedDirectionControllerSettings(p_gain=float(cfg.heading_p_gain))
         )
+        denom = max(float(cfg.max_flap_hz) - float(cfg.min_flap_hz), 1.0e-6)
+        throttle_trim = (float(cfg.freq_trim_hz) - float(cfg.min_flap_hz)) / denom
+        throttle_trim = min(max(throttle_trim, 0.0), 1.0)
+        self._tecs = PX4LikeTECS(
+            PX4LikeTECSCfg(
+                height_sp_m=float(cfg.height_sp_m),
+                speed_sp_mps=float(cfg.speed_sp_mps),
+                pitch_trim_deg=float(cfg.pitch_trim_deg),
+                max_pitch_up_deg=float(cfg.max_pitch_up_deg),
+                max_pitch_down_deg=float(cfg.max_pitch_down_deg),
+                throttle_trim=throttle_trim,
+                throttle_min=0.0,
+                throttle_max=1.0,
+                max_climb_rate_mps=float(cfg.tecs_max_climb_rate_mps),
+                min_sink_rate_mps=float(cfg.tecs_min_sink_rate_mps),
+                altitude_error_gain=float(cfg.tecs_altitude_error_gain),
+                airspeed_error_gain=float(cfg.tecs_airspeed_error_gain),
+                pitch_speed_weight=float(cfg.tecs_pitch_speed_weight),
+                pitch_damping_gain=float(cfg.tecs_pitch_damping_gain),
+                integrator_gain_pitch=float(cfg.tecs_integrator_gain_pitch),
+                throttle_damping_gain=float(cfg.tecs_throttle_damping_gain),
+                integrator_gain_throttle=float(cfg.tecs_integrator_gain_throttle),
+                ste_rate_time_const_s=float(cfg.tecs_ste_rate_time_const_s),
+                throttle_slew_rate_per_s=float(cfg.tecs_throttle_slew_rate_per_s),
+                tas_min_mps=float(cfg.tecs_tas_min_mps),
+                tas_error_percentage=float(cfg.tecs_tas_error_percentage),
+                detect_underspeed=bool(cfg.tecs_detect_underspeed),
+                airspeed_enabled=True,
+            ),
+            device=device,
+        )
+
+    def reset(self, env_ids: Tensor | None = None) -> None:
+        """Reset controller states, mainly TECS integrators/filters."""
+        self._tecs.reset(env_ids)
 
     def compute_actions(
         self,
@@ -126,14 +179,48 @@ class PX4LikeStraightLineController:
             max=1.0,
         )
 
-        pitch_trim = -math.radians(float(self.cfg.pitch_trim_deg))
         height_err = float(self.cfg.height_sp_m) - pos_local[:, 2]
-        pitch_sp = pitch_trim - float(self.cfg.height_kp) * height_err + float(self.cfg.height_rate_kd) * ground_vel_local[:, 2]
-        pitch_sp = torch.clamp(
-            pitch_sp,
-            min=-math.radians(float(self.cfg.max_pitch_up_deg)),
-            max=math.radians(float(self.cfg.max_pitch_down_deg)),
-        )
+        if bool(self.cfg.enable_tecs):
+            ground_speed = torch.linalg.norm(vel_xy, dim=1)
+            pitch_sp, throttle_sp, tecs_diag = self._tecs.update(
+                dt=float(self.cfg.control_dt_s),
+                altitude=pos_local[:, 2],
+                altitude_rate=ground_vel_local[:, 2],
+                tas=ground_speed,
+                height_sp_m=float(self.cfg.height_sp_m),
+                speed_sp_mps=float(self.cfg.speed_sp_mps),
+            )
+            freq_hz = float(self.cfg.min_flap_hz) + throttle_sp * (
+                float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz)
+            )
+        else:
+            tecs_diag = {}
+            pitch_trim = -math.radians(float(self.cfg.pitch_trim_deg))
+            pitch_sp = (
+                pitch_trim
+                - float(self.cfg.height_kp) * height_err
+                + float(self.cfg.height_rate_kd) * ground_vel_local[:, 2]
+            )
+            pitch_sp = torch.clamp(
+                pitch_sp,
+                min=-math.radians(float(self.cfg.max_pitch_up_deg)),
+                max=math.radians(float(self.cfg.max_pitch_down_deg)),
+            )
+
+            if self.cfg.enable_speed_hold:
+                ground_speed = torch.linalg.norm(vel_xy, dim=1)
+                freq_hz = float(self.cfg.freq_trim_hz) + float(self.cfg.speed_kp_hz_per_mps) * (
+                    float(self.cfg.speed_sp_mps) - ground_speed
+                )
+            else:
+                freq_hz = torch.full_like(action_roll, float(self.cfg.freq_trim_hz))
+
+            if float(self.cfg.freq_height_kp_hz_per_m) != 0.0 or float(self.cfg.freq_height_rate_kd_hz_per_mps) != 0.0:
+                freq_hz = freq_hz + float(self.cfg.freq_height_kp_hz_per_m) * height_err + float(
+                    self.cfg.freq_height_rate_kd_hz_per_mps
+                ) * (-ground_vel_local[:, 2])
+            freq_hz = torch.clamp(freq_hz, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
+
         pitch_err = _wrap_pi(pitch_sp - pitch)
         action_elevon_pitch = torch.clamp(
             float(self.cfg.pitch_kp) * pitch_err - float(self.cfg.pitch_kd) * ang_vel_body[:, 1],
@@ -147,21 +234,6 @@ class PX4LikeStraightLineController:
             min=-1.0,
             max=1.0,
         )
-
-        if self.cfg.enable_speed_hold:
-            ground_speed = torch.linalg.norm(vel_xy, dim=1)
-            freq_hz = float(self.cfg.freq_trim_hz) + float(self.cfg.speed_kp_hz_per_mps) * (
-                float(self.cfg.speed_sp_mps) - ground_speed
-            )
-        else:
-            freq_hz = torch.full_like(action_roll, float(self.cfg.freq_trim_hz))
-
-        # Altitude/throttle coupling (helps avoid unrecoverable sinks when pitch saturates).
-        if float(self.cfg.freq_height_kp_hz_per_m) != 0.0 or float(self.cfg.freq_height_rate_kd_hz_per_mps) != 0.0:
-            freq_hz = freq_hz + float(self.cfg.freq_height_kp_hz_per_m) * height_err + float(
-                self.cfg.freq_height_rate_kd_hz_per_mps
-            ) * (-ground_vel_local[:, 2])
-        freq_hz = torch.clamp(freq_hz, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
 
         denom = max(float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz), 1.0e-6)
         action_freq = 2.0 * (freq_hz - float(self.cfg.min_flap_hz)) / denom - 1.0
@@ -180,4 +252,5 @@ class PX4LikeStraightLineController:
             "closest_x": closest_point[:, 0],
             "closest_y": closest_point[:, 1],
         }
+        diag.update(tecs_diag)
         return actions, diag

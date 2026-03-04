@@ -36,6 +36,30 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max_pitch_down_deg", type=float, default=20.0)
     parser.add_argument("--freq_trim_hz", type=float, default=2.5)
     parser.add_argument(
+        "--enable_tecs",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable PX4-like TECS for longitudinal control (pitch + flapping frequency).",
+    )
+    parser.add_argument("--tecs_max_climb_rate_mps", type=float, default=3.0)
+    parser.add_argument("--tecs_min_sink_rate_mps", type=float, default=2.0)
+    parser.add_argument("--tecs_altitude_error_gain", type=float, default=0.55)
+    parser.add_argument("--tecs_airspeed_error_gain", type=float, default=0.8)
+    parser.add_argument("--tecs_pitch_speed_weight", type=float, default=0.8)
+    parser.add_argument("--tecs_pitch_damping_gain", type=float, default=0.08)
+    parser.add_argument("--tecs_integrator_gain_pitch", type=float, default=0.12)
+    parser.add_argument("--tecs_throttle_damping_gain", type=float, default=0.35)
+    parser.add_argument("--tecs_integrator_gain_throttle", type=float, default=0.22)
+    parser.add_argument("--tecs_ste_rate_time_const_s", type=float, default=0.4)
+    parser.add_argument("--tecs_tas_min_mps", type=float, default=5.0)
+    parser.add_argument("--tecs_tas_error_percentage", type=float, default=0.15)
+    parser.add_argument(
+        "--tecs_detect_underspeed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable TECS underspeed detection/ramp to max throttle.",
+    )
+    parser.add_argument(
         "--freq_height_kp_hz_per_m",
         type=float,
         default=0.0,
@@ -144,6 +168,7 @@ def main():
     controller_cfg = PX4LikeStraightLineControllerCfg(
         line_start_xy=(0.0, 0.0),
         line_end_xy=(float(args.line_length), 0.0),
+        control_dt_s=float(env_step_dt),
         height_sp_m=float(args.height_sp),
         pitch_trim_deg=float(args.pitch_trim_deg),
         height_kp=float(args.height_kp),
@@ -153,6 +178,20 @@ def main():
         freq_trim_hz=float(args.freq_trim_hz),
         min_flap_hz=float(env.unwrapped.cfg.min_flap_hz),
         max_flap_hz=float(env.unwrapped.cfg.max_flap_hz),
+        enable_tecs=bool(args.enable_tecs),
+        tecs_max_climb_rate_mps=float(args.tecs_max_climb_rate_mps),
+        tecs_min_sink_rate_mps=float(args.tecs_min_sink_rate_mps),
+        tecs_altitude_error_gain=float(args.tecs_altitude_error_gain),
+        tecs_airspeed_error_gain=float(args.tecs_airspeed_error_gain),
+        tecs_pitch_speed_weight=float(args.tecs_pitch_speed_weight),
+        tecs_pitch_damping_gain=float(args.tecs_pitch_damping_gain),
+        tecs_integrator_gain_pitch=float(args.tecs_integrator_gain_pitch),
+        tecs_throttle_damping_gain=float(args.tecs_throttle_damping_gain),
+        tecs_integrator_gain_throttle=float(args.tecs_integrator_gain_throttle),
+        tecs_ste_rate_time_const_s=float(args.tecs_ste_rate_time_const_s),
+        tecs_tas_min_mps=float(args.tecs_tas_min_mps),
+        tecs_tas_error_percentage=float(args.tecs_tas_error_percentage),
+        tecs_detect_underspeed=bool(args.tecs_detect_underspeed),
         enable_speed_hold=bool(args.enable_speed_hold),
         speed_sp_mps=float(args.speed_sp),
         speed_kp_hz_per_mps=float(args.speed_kp_hz_per_mps),
@@ -160,6 +199,7 @@ def main():
         freq_height_rate_kd_hz_per_mps=float(args.freq_height_rate_kd_hz_per_mps),
     )
     controller = PX4LikeStraightLineController(controller_cfg, device=env.unwrapped.device)
+    controller.reset()
 
     resets = 0
     episode_id = 0
@@ -197,6 +237,7 @@ def main():
             resets += int(done.sum().item())
             episode_id += int(done.sum().item())
             env.reset()
+            controller.reset()
 
         # Log env-0 trajectory for quick diagnostics.
         idx = 0
@@ -242,6 +283,26 @@ def main():
                 "track_error_m": float(diag["signed_track_error"][idx].item()),
                 "course_error_deg": course_err_deg,
                 "freq_hz": float(diag["freq_hz"][idx].item()),
+                "tecs_tas_sp": float(diag["tecs_tas_sp"][idx].item()) if "tecs_tas_sp" in diag else float("nan"),
+                "tecs_tas": float(diag["tecs_tas"][idx].item()) if "tecs_tas" in diag else float("nan"),
+                "tecs_tas_rate": float(diag["tecs_tas_rate"][idx].item()) if "tecs_tas_rate" in diag else float("nan"),
+                "tecs_ste_rate_sp": float(diag["tecs_ste_rate_sp"][idx].item()) if "tecs_ste_rate_sp" in diag else float("nan"),
+                "tecs_ste_rate_est": float(diag["tecs_ste_rate_est"][idx].item()) if "tecs_ste_rate_est" in diag else float("nan"),
+                "tecs_seb_rate_sp": float(diag["tecs_seb_rate_sp"][idx].item()) if "tecs_seb_rate_sp" in diag else float("nan"),
+                "tecs_seb_rate_est": float(diag["tecs_seb_rate_est"][idx].item()) if "tecs_seb_rate_est" in diag else float("nan"),
+                "tecs_ratio_underspeed": float(diag["tecs_ratio_underspeed"][idx].item())
+                if "tecs_ratio_underspeed" in diag
+                else float("nan"),
+                "tecs_throttle_sp": float(diag["tecs_throttle_sp"][idx].item())
+                if "tecs_throttle_sp" in diag
+                else float("nan"),
+                "tecs_pitch_sp_deg": float(torch.rad2deg(diag["tecs_pitch_sp"][idx]).item())
+                if "tecs_pitch_sp" in diag
+                else float("nan"),
+                "tecs_pitch_integ": float(diag["tecs_pitch_integ"][idx].item()) if "tecs_pitch_integ" in diag else float("nan"),
+                "tecs_throttle_integ": float(diag["tecs_throttle_integ"][idx].item())
+                if "tecs_throttle_integ" in diag
+                else float("nan"),
                 "aero_wing_Fx_b": float(wing_f_b[0].item()),
                 "aero_wing_Fy_b": float(wing_f_b[1].item()),
                 "aero_wing_Fz_b": float(wing_f_b[2].item()),
@@ -291,11 +352,25 @@ def main():
             "env_dt_s": float(env_step_dt),
             "mass_total_kg": float(mass_total),
             "aero_mode": str(args.aero_mode),
+            "enable_tecs": bool(args.enable_tecs),
             "enable_speed_hold": bool(args.enable_speed_hold),
             "speed_sp_mps": float(args.speed_sp),
             "height_sp_m": float(args.height_sp),
             "pitch_trim_deg": float(args.pitch_trim_deg),
             "freq_trim_hz": float(args.freq_trim_hz),
+            "tecs_max_climb_rate_mps": float(args.tecs_max_climb_rate_mps),
+            "tecs_min_sink_rate_mps": float(args.tecs_min_sink_rate_mps),
+            "tecs_altitude_error_gain": float(args.tecs_altitude_error_gain),
+            "tecs_airspeed_error_gain": float(args.tecs_airspeed_error_gain),
+            "tecs_pitch_speed_weight": float(args.tecs_pitch_speed_weight),
+            "tecs_pitch_damping_gain": float(args.tecs_pitch_damping_gain),
+            "tecs_integrator_gain_pitch": float(args.tecs_integrator_gain_pitch),
+            "tecs_throttle_damping_gain": float(args.tecs_throttle_damping_gain),
+            "tecs_integrator_gain_throttle": float(args.tecs_integrator_gain_throttle),
+            "tecs_ste_rate_time_const_s": float(args.tecs_ste_rate_time_const_s),
+            "tecs_tas_min_mps": float(args.tecs_tas_min_mps),
+            "tecs_tas_error_percentage": float(args.tecs_tas_error_percentage),
+            "tecs_detect_underspeed": bool(args.tecs_detect_underspeed),
             "rudder_max_deg": float(getattr(env_cfg, "rudder_max_deg", 25.0)),
             "elevon_max_deg": float(getattr(env_cfg, "elevon_max_deg", 25.0)),
             "elevon_trim_deg": float(getattr(env_cfg, "elevon_trim_deg", 0.0)),
