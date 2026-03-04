@@ -31,7 +31,7 @@ class PX4LikeStraightLineControllerCfg:
     wind_xy: tuple[float, float] = (0.0, 0.0)
 
     height_sp_m: float = 10.0
-    pitch_trim_deg: float = 13.0
+    pitch_trim_deg: float = 10.0
     max_roll_deg: float = 45.0
     max_pitch_up_deg: float = 25.0
     max_pitch_down_deg: float = 20.0
@@ -45,12 +45,16 @@ class PX4LikeStraightLineControllerCfg:
     height_kp: float = 0.06
     height_rate_kd: float = 0.02
 
-    freq_trim_hz: float = 3.8
+    freq_trim_hz: float = 2.5
     min_flap_hz: float = 3.0
     max_flap_hz: float = 4.6
     enable_speed_hold: bool = False
     speed_sp_mps: float = 7.0
     speed_kp_hz_per_mps: float = 0.08
+    # Optional throttle assist for altitude hold (very simplified TECS-like behavior).
+    # freq_hz += kp * height_err + kd * (-vz)
+    freq_height_kp_hz_per_m: float = 0.0
+    freq_height_rate_kd_hz_per_mps: float = 0.0
 
     guidance_period_s: float = 6.0
     guidance_damping: float = 0.7071
@@ -124,7 +128,7 @@ class PX4LikeStraightLineController:
 
         pitch_trim = -math.radians(float(self.cfg.pitch_trim_deg))
         height_err = float(self.cfg.height_sp_m) - pos_local[:, 2]
-        pitch_sp = pitch_trim + float(self.cfg.height_kp) * height_err - float(self.cfg.height_rate_kd) * ground_vel_local[:, 2]
+        pitch_sp = pitch_trim - float(self.cfg.height_kp) * height_err + float(self.cfg.height_rate_kd) * ground_vel_local[:, 2]
         pitch_sp = torch.clamp(
             pitch_sp,
             min=-math.radians(float(self.cfg.max_pitch_up_deg)),
@@ -151,6 +155,12 @@ class PX4LikeStraightLineController:
             )
         else:
             freq_hz = torch.full_like(action_roll, float(self.cfg.freq_trim_hz))
+
+        # Altitude/throttle coupling (helps avoid unrecoverable sinks when pitch saturates).
+        if float(self.cfg.freq_height_kp_hz_per_m) != 0.0 or float(self.cfg.freq_height_rate_kd_hz_per_mps) != 0.0:
+            freq_hz = freq_hz + float(self.cfg.freq_height_kp_hz_per_m) * height_err + float(
+                self.cfg.freq_height_rate_kd_hz_per_mps
+            ) * (-ground_vel_local[:, 2])
         freq_hz = torch.clamp(freq_hz, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
 
         denom = max(float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz), 1.0e-6)

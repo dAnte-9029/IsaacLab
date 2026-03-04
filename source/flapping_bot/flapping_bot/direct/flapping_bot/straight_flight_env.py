@@ -80,8 +80,8 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
 
     # reset pose / initial conditions
     # Note: for x-forward, y-left, z-up, a negative rotation about +Y corresponds to a nose-up pitch.
-    reset_pitch_deg: float = 13.0
-    reset_flap_hz: float = 3.8
+    reset_pitch_deg: float = 10.0
+    reset_flap_hz: float = 2.5
     # A small negative elevon pitch command helps counter the default wing pitching moment in open-loop rollouts.
     reset_elevon_pitch_deg: float = -10.0
     reset_rudder_deg: float = 0.0
@@ -89,7 +89,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
 
     # attitude targets for straight flight
     # Note: pitch is defined positive nose-down. A positive "nose-up" target corresponds to a *negative* pitch angle.
-    pitch_cmd_deg: float = 13.0
+    pitch_cmd_deg: float = 10.0
     roll_cmd_deg: float = 0.0
 
     # reward weights (tuned for stable long-horizon flight learning)
@@ -128,7 +128,13 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
 
     # scene & robot
     scene: InteractiveSceneCfg = FlappingRoomSceneCfg(num_envs=256, env_spacing=5.0)
-    robot: ArticulationCfg = FlappingBotCfg.replace(prim_path="/World/envs/env_.*/Robot")
+    robot: ArticulationCfg = FlappingBotCfg.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        # Keep gravity enabled; we decouple flapping inertial coupling via mass scaling instead.
+        spawn=FlappingBotCfg.spawn.replace(
+            rigid_props=FlappingBotCfg.spawn.rigid_props.replace(disable_gravity=False),
+        ),
+    )
 
     # joints
     controlled_joints: Tuple[str, ...] = (
@@ -147,8 +153,22 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # flapping frequency action mapping
     # Keep the initial action range fairly tight around typical trimmed conditions.
     # A very wide range makes early exploration extremely unstable.
-    min_flap_hz: float = 3.0
-    max_flap_hz: float = 4.6
+    min_flap_hz: float = 2.0
+    max_flap_hz: float = 5.0
+
+    # joint actuation model
+    # If True, directly write joint positions/velocities each physics step (kinematic override).
+    # This decouples wing flapping kinematics from rigid-body reaction dynamics and improves stability for
+    # aero-driven flight experiments.
+    use_kinematic_joint_override: bool = True
+
+    # dynamics decoupling (mass/inertia)
+    # Reduce inertial coupling from moving wing/tail links by scaling their masses/inertias and (optionally)
+    # redistributing the removed mass onto the base link to keep total mass roughly constant.
+    override_appendage_masses: bool = True
+    appendage_mass_scale: float = 0.0  # 0 => clamp to appendage_min_mass_kg
+    appendage_min_mass_kg: float = 1.0e-4
+    redistribute_removed_mass_to_base: bool = True
 
     # elevon/rudder command mapping (desired symmetric range, intersected with joint limits)
     elevon_max_deg: float = 25.0
@@ -156,11 +176,18 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     elevon_pitch_mix: float = 1.0
     elevon_roll_mix: float = 1.0
     elevon_trim_deg: float = 0.0
+    # Elevator bias applied in the tail aerodynamic model (deg). This captures a fixed tail incidence / trim
+    # without consuming the action range.
+    tail_elevator_bias_deg: float = 0.0
 
     # virtual roll control (decoupled from visual model)
     # tau_x += gain * q_dyn * roll_deflection - damping * p
     virtual_roll_moment_gain: float = 0.12
     virtual_roll_moment_damping: float = 0.25
+    # virtual pitch control (decoupled from visual model)
+    # tau_y += gain * q_dyn * elevator_deflection - damping * q
+    virtual_pitch_moment_gain: float = 0.0
+    virtual_pitch_moment_damping: float = 0.0
 
     # simple wing QSM (Stage A)
     qsm_wings: FlappingQSMCfg = FlappingQSMCfg(
@@ -194,6 +221,10 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # tail aero (elevator + rudder)
     tail_aero: TailAeroCfg = TailAeroCfg()
 
+    # diagnostics: selectively apply aerodynamic components
+    enable_wing_aero: bool = True
+    enable_tail_aero: bool = True
+
     # DeLaurier wing model (Stage B)
     use_delaurier_wings: bool = False
     delaurier_wing_geom_csv: Path = Path("outputs_DeLaurier/right_wing_te_fit_poly5_gap50.csv")
@@ -212,6 +243,14 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
         cd_f=0.028,
     )
     delaurier_enable_separation: bool = False
+    # Induced drag correction (simple Oswald efficiency model).
+    # DeLaurier strip theory as used here does not include a finite-wing induced drag term, which can lead to
+    # unrealistic positive chordwise force and runaway acceleration in free-flight simulations.
+    # Set to 0 to disable.
+    delaurier_induced_drag_efficiency: float = 0.0
+    # Simple quadratic parasite drag applied at the base link (acts opposite body velocity).
+    # Use as a stabilizing term to prevent unbounded acceleration when combined aero models are missing body drag.
+    fuselage_drag_cda: float = 0.0  # m^2 effective Cd*A
 
     # Prescribed twist used with DeLaurier (qd_scaled proxy)
     twist_f_ref_hz: float = 4.0
@@ -252,6 +291,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._act_cmd: Tensor | None = None
         self._freeze_steps: Tensor | None = None
         self._spawn_root_state: Tensor | None = None
+        self._mass_total: Tensor | None = None
 
         # wing phase and frequency
         self._phase: Tensor | None = None  # (N,)
@@ -284,11 +324,18 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._qd_cmd: Tensor | None = None
         self._qdd_cmd: Tensor | None = None
 
+        # Debug caches (filled in _apply_action) for offline analysis and scripts.
+        self._debug_last_wing_force_b: Tensor | None = None
+        self._debug_last_tail_force_b: Tensor | None = None
+        self._debug_last_force_b: Tensor | None = None
+        self._debug_last_torque_b: Tensor | None = None
+
         # aero models
         self._qsm_wing_model: QuasiSteadyWingModel | None = None
         self._tail_model: TailAeroModel | None = None
         self._wing_geom: WingGeometry | None = None
         self._wing_geom_R: float | None = None
+        self._wing_area: float | None = None
         self._delaurier_params: DeLaurierParams | None = None
         self._wing_body_ids: list[int] = []
         self._base_body_ids: list[int] = []
@@ -334,6 +381,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._freeze_steps = torch.zeros(N, dtype=torch.int32, device=self.device)
         self._spawn_root_state = torch.zeros(N, 13, device=self.device)
 
+        # debug caches
+        self._debug_last_wing_force_b = torch.zeros(N, 3, device=self.device)
+        self._debug_last_tail_force_b = torch.zeros(N, 3, device=self.device)
+        self._debug_last_force_b = torch.zeros(N, 3, device=self.device)
+        self._debug_last_torque_b = torch.zeros(N, 3, device=self.device)
+        self._mass_total = self._robot.data.default_mass.sum(dim=1).to(device=self.device)
+
         # joint targets
         self._joint_targets = self._default_joint_pos.expand(self.num_envs, -1).clone()
         self._robot.set_joint_position_target(self._joint_targets, joint_ids=self._joint_ids)
@@ -355,6 +409,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # base body ids used for applying net aerodynamic wrench
         base_body_ids, _ = self._robot.find_bodies(["base_link"], preserve_order=True)
         self._base_body_ids = base_body_ids
+        self._override_appendage_mass_properties()
 
         # wing phase/frequency
         self._phase = torch.zeros(self.num_envs, device=self.device)
@@ -402,6 +457,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 aspect_ratio=None,
             )
             self._wing_geom_R = float(info.R)
+            # Planform area for induced-drag correction (one wing).
+            self._wing_area = float(torch.sum(self._wing_geom.c * self._wing_geom.dx).item())
             self._delaurier_params = self.cfg.delaurier_params
             # body ids for moment arms
             wing_body_ids, _ = self._robot.find_bodies(["left_wing", "right_wing"], preserve_order=True)
@@ -413,6 +470,58 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             # Mirror span axis for the right wing (link +y is opposite span direction on mirrored side).
             A_l2w_R = torch.tensor([[0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]], device=self.device)
             self._A_w2l_batch = torch.stack((A_l2w_L.T, A_l2w_R.T), dim=0)  # (2,3,3)
+
+    def _override_appendage_mass_properties(self) -> None:
+        """Optionally scale wing/tail masses to reduce rigid-body reaction torques from prescribed joint motion."""
+        if self._mass_total is None:
+            # Should be created in __init__, but guard to keep the method side-effect safe.
+            self._mass_total = self._robot.data.default_mass.sum(dim=1).to(device=self.device)
+
+        if not bool(self.cfg.override_appendage_masses):
+            return
+
+        # PhysX view APIs for masses/inertias expect CPU tensors.
+        env_ids = torch.arange(self.num_envs, device="cpu", dtype=torch.int64)
+        masses = self._robot.root_physx_view.get_masses().clone()  # (N,B) CPU
+        inertias = self._robot.root_physx_view.get_inertias().clone()  # (N,B,9) CPU
+
+        base_ids, _ = self._robot.find_bodies(["base_link"], preserve_order=True)
+        wing_ids, _ = self._robot.find_bodies(["left_wing", "right_wing"], preserve_order=True)
+        tail_ids, _ = self._robot.find_bodies(["left_tail", "right_tail"], preserve_order=True)
+        if len(base_ids) != 1:
+            raise RuntimeError("Expected exactly one base_link body for mass override.")
+
+        base_id = int(base_ids[0])
+        appendage_ids = [int(i) for i in (wing_ids + tail_ids)]
+        if len(appendage_ids) == 0:
+            self._mass_total = masses.sum(dim=1).to(device=self.device)
+            return
+
+        scale = float(self.cfg.appendage_mass_scale)
+        min_mass = float(self.cfg.appendage_min_mass_kg)
+
+        masses_new = masses.clone()
+        append_old = masses[:, appendage_ids]
+        append_new = torch.clamp(append_old * scale, min=min_mass)
+        masses_new[:, appendage_ids] = append_new
+
+        if bool(self.cfg.redistribute_removed_mass_to_base):
+            removed_sum = (append_old - append_new).sum(dim=1)
+            masses_new[:, base_id] = masses[:, base_id] + removed_sum
+
+        # Scale inertia tensors with the mass ratios (simple approximation).
+        ratios = torch.ones_like(masses)
+        ratios[:, appendage_ids] = append_new / torch.clamp(append_old, min=1.0e-9)
+        ratios[:, base_id] = masses_new[:, base_id] / torch.clamp(masses[:, base_id], min=1.0e-9)
+        inertias_new = inertias.clone()
+        ids_all = appendage_ids + [base_id]
+        inertias_new[:, ids_all] = inertias[:, ids_all] * ratios[:, ids_all].unsqueeze(-1)
+
+        self._robot.root_physx_view.set_masses(masses_new, env_ids)
+        self._robot.root_physx_view.set_inertias(inertias_new, env_ids)
+
+        # Cache total mass on the simulation device (used for gravity compensation).
+        self._mass_total = masses_new.sum(dim=1).to(device=self.device)
 
     # ------------------------------------------------------------------
     # Scene
@@ -480,9 +589,21 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # Use a cosine waveform so that phase=0 starts at max deflection with zero velocity.
         c = torch.cos(self._phase)
         s = torch.sin(self._phase)
+        flap_off = self._freq <= 1.0e-3
+        if flap_off.any():
+            c = c.clone()
+            s = s.clone()
+            c[flap_off] = 0.0
+            s[flap_off] = 0.0
         amp = float(self._wing_amp)
-        left_cmd = self._wing_mid_L + amp * c
-        right_cmd = self._wing_mid_R + amp * c
+        # cache commanded wing kinematics (for DeLaurier backend)
+        w = two_pi * self._freq
+        self._q_cmd = amp * c
+        self._qd_cmd = -amp * w * s
+        self._qdd_cmd = -amp * (w * w) * c
+
+        left_cmd = self._wing_mid_L + self._q_cmd
+        right_cmd = self._wing_mid_R + self._q_cmd
 
         jt = self._joint_targets
         jt[:, self._IDX_LEFT_WING] = left_cmd
@@ -490,13 +611,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # visualization joints for tail (treated as left/right elevons)
         jt[:, self._IDX_LEFT_TAIL] = self._left_elevon_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_elevon_cmd
-        self._robot.set_joint_position_target(jt, joint_ids=self._joint_ids)
-
-        # cache commanded wing kinematics (for DeLaurier backend)
-        w = two_pi * self._freq
-        self._q_cmd = amp * c
-        self._qd_cmd = -amp * w * s
-        self._qdd_cmd = -amp * (w * w) * c
+        if bool(self.cfg.use_kinematic_joint_override):
+            jvel = torch.zeros_like(jt)
+            self._robot.write_joint_state_to_sim(jt, jvel, joint_ids=self._joint_ids)
+        else:
+            self._robot.set_joint_position_target(jt, joint_ids=self._joint_ids)
 
         # hold root pose for a few steps after reset to avoid immediate drop
         if self.cfg.freeze_steps_after_reset > 0:
@@ -509,31 +628,63 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         v_b = self._robot.data.root_lin_vel_b
         w_b = self._robot.data.root_ang_vel_b
 
-        # tail (deflection-based)
-        f_tail, tau_tail = self._tail_model.compute_wrench(
-            root_lin_vel_b=v_b, root_ang_vel_b=w_b, elevator_rad=self._elevator_cmd, rudder_rad=self._rudder_cmd
-        )
-        q_dyn = 0.5 * float(self.cfg.qsm_wings.air_density) * (v_b[:, 0] ** 2)
-        tau_roll_virtual = (
-            float(self.cfg.virtual_roll_moment_gain) * q_dyn * self._roll_cmd
-            - float(self.cfg.virtual_roll_moment_damping) * w_b[:, 0]
-        )
-        tau_tail = tau_tail.clone()
-        tau_tail[:, 0] += tau_roll_virtual
-
-        if not bool(self.cfg.use_delaurier_wings):
-            # simple wing QSM
-            jpos_all = self._robot.data.joint_pos[:, self._joint_ids]
-            jvel_all = self._robot.data.joint_vel[:, self._joint_ids]
-            jpos = torch.stack((jpos_all[:, self._IDX_LEFT_WING], jpos_all[:, self._IDX_RIGHT_WING]), dim=1)
-            jvel = torch.stack((jvel_all[:, self._IDX_LEFT_WING], jvel_all[:, self._IDX_RIGHT_WING]), dim=1)
-            f_w, tau_w, _ = self._qsm_wing_model.compute_forces(jpos, jvel, v_b, w_b)
-            f_w_sum = torch.sum(f_w, dim=1)
-            tau_w_sum = torch.sum(tau_w, dim=1)
+        if bool(self.cfg.enable_tail_aero):
+            # tail (deflection-based)
+            ele_bias = math.radians(float(self.cfg.tail_elevator_bias_deg))
+            f_tail, tau_tail = self._tail_model.compute_wrench(
+                root_lin_vel_b=v_b,
+                root_ang_vel_b=w_b,
+                elevator_rad=self._elevator_cmd + ele_bias,
+                rudder_rad=self._rudder_cmd,
+            )
+            speed = torch.linalg.norm(v_b, dim=1)
+            q_dyn = 0.5 * float(self.cfg.qsm_wings.air_density) * (speed * speed)
+            tau_roll_virtual = (
+                float(self.cfg.virtual_roll_moment_gain) * q_dyn * self._roll_cmd
+                - float(self.cfg.virtual_roll_moment_damping) * w_b[:, 0]
+            )
+            tau_pitch_virtual = (
+                float(self.cfg.virtual_pitch_moment_gain) * q_dyn * self._elevator_cmd
+                - float(self.cfg.virtual_pitch_moment_damping) * w_b[:, 1]
+            )
+            tau_tail = tau_tail.clone()
+            tau_tail[:, 0] += tau_roll_virtual
+            tau_tail[:, 1] += tau_pitch_virtual
         else:
-            f_w_sum, tau_w_sum = self._compute_wing_delaurier_wrench()
+            f_tail = torch.zeros_like(v_b)
+            tau_tail = torch.zeros_like(v_b)
 
-        f_sum = (f_w_sum + f_tail).unsqueeze(1)  # (N,1,3)
+        if bool(self.cfg.enable_wing_aero):
+            if not bool(self.cfg.use_delaurier_wings):
+                # simple wing QSM
+                jpos_all = self._robot.data.joint_pos[:, self._joint_ids]
+                jvel_all = self._robot.data.joint_vel[:, self._joint_ids]
+                jpos = torch.stack((jpos_all[:, self._IDX_LEFT_WING], jpos_all[:, self._IDX_RIGHT_WING]), dim=1)
+                jvel = torch.stack((jvel_all[:, self._IDX_LEFT_WING], jvel_all[:, self._IDX_RIGHT_WING]), dim=1)
+                f_w, tau_w, _ = self._qsm_wing_model.compute_forces(jpos, jvel, v_b, w_b)
+                f_w_sum = torch.sum(f_w, dim=1)
+                tau_w_sum = torch.sum(tau_w, dim=1)
+            else:
+                f_w_sum, tau_w_sum = self._compute_wing_delaurier_wrench()
+        else:
+            f_w_sum = torch.zeros_like(v_b)
+            tau_w_sum = torch.zeros_like(v_b)
+
+        # Quadratic parasite drag at the base (opposes body velocity).
+        f_drag = torch.zeros_like(v_b)
+        cda = float(self.cfg.fuselage_drag_cda)
+        if cda > 0.0:
+            rho = float(self.cfg.qsm_wings.air_density)
+            speed = torch.linalg.norm(v_b, dim=1, keepdim=True)
+            f_drag = -0.5 * rho * cda * speed * v_b
+
+        # debug caches (body frame)
+        self._debug_last_wing_force_b.copy_(f_w_sum)
+        self._debug_last_tail_force_b.copy_(f_tail)
+        self._debug_last_force_b.copy_(f_w_sum + f_tail + f_drag)
+        self._debug_last_torque_b.copy_(tau_w_sum + tau_tail)
+
+        f_sum = (f_w_sum + f_tail + f_drag).unsqueeze(1)  # (N,1,3)
         t_sum = (tau_w_sum + tau_tail).unsqueeze(1)  # (N,1,3)
         self._robot.set_external_force_and_torque(
             forces=f_sum, torques=t_sum, body_ids=self._base_body_ids, is_global=False
@@ -542,6 +693,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     def _compute_wing_delaurier_wrench(self) -> tuple[Tensor, Tensor]:
         """Compute net wing wrench about the base in the body frame (DeLaurier backend)."""
         assert self._wing_geom is not None
+        assert self._wing_area is not None
         assert self._delaurier_params is not None
         assert self._A_w2l_batch is not None
         assert self._q_cmd is not None and self._qd_cmd is not None and self._qdd_cmd is not None
@@ -557,13 +709,18 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         qdd = torch.repeat_interleave(self._qdd_cmd, 2)
         w = torch.repeat_interleave(2.0 * torch.pi * self._freq, 2)  # (B,)
 
-        # body pitch (theta_a) per env -> per wing
+        # theta_a (flapping-axis angle relative to the freestream) per env -> per wing.
+        # In free-flight we approximate this as the body-frame angle-of-attack based on the velocity vector.
+        # This matches the wind-tunnel convention when the vehicle is trimmed (v_z small, pitch≈flight-path angle),
+        # and avoids large sign errors during dives/climbs where pitch!=AOA.
         quat_w = self._robot.data.root_quat_w  # (N,4)
-        pitch = euler_xyz_from_quat(quat_w)[1]
-        theta_a = torch.repeat_interleave(pitch, 2)  # (B,)
+        v_b = self._robot.data.root_lin_vel_b  # (N,3)
+        vx_b = torch.clamp(v_b[:, 0], min=1.0e-3)
+        theta_a_env = torch.atan2(-v_b[:, 2], vx_b)  # +theta_a => nose-up relative wind
+        theta_a = torch.repeat_interleave(theta_a_env, 2)  # (B,)
         theta_bar = theta_a + math.radians(float(self.cfg.delaurier_theta_w_deg))
 
-        # Airspeed approximation: body-forward velocity component clamped
+        # Airspeed approximation: body-forward velocity component clamped (matches wind-tunnel trim scans).
         vx = torch.clamp(self._robot.data.root_lin_vel_b[:, 0], min=float(self.cfg.delaurier_min_airspeed))
         U = torch.repeat_interleave(vx, 2)  # (B,)
 
@@ -631,6 +788,30 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # World->body
         F_b = quat_apply_inverse(quat_w, F_w_sum)
         tau_b = quat_apply_inverse(quat_w, tau_w_sum)
+
+        # Induced drag correction (finite wing): D_i = L^2 / (q S pi AR e), applied opposite body velocity.
+        e = float(self.cfg.delaurier_induced_drag_efficiency)
+        if e > 0.0:
+            AR = float(self._wing_geom.aspect_ratio)
+            S = float(self._wing_area)
+            if AR > 1.0e-6 and S > 1.0e-9:
+                v_b = self._robot.data.root_lin_vel_b
+                speed = torch.linalg.norm(v_b, dim=1)
+                speed_safe = torch.clamp(speed, min=1.0e-6)
+                v_dir = v_b / speed_safe.unsqueeze(1)
+                q_dyn = 0.5 * float(self.cfg.qsm_wings.air_density) * (speed_safe * speed_safe)
+
+                # Lift magnitude: component of the wing force perpendicular to velocity direction.
+                f_para_mag = torch.sum(F_b * v_dir, dim=1)
+                f_para = f_para_mag.unsqueeze(1) * v_dir
+                f_perp = F_b - f_para
+                lift_mag = torch.linalg.norm(f_perp, dim=1)
+
+                cd_k = 1.0 / (math.pi * AR * e)
+                denom = torch.clamp(q_dyn * S, min=1.0e-6)
+                D_i = cd_k * (lift_mag * lift_mag) / denom
+                F_b = F_b - D_i.unsqueeze(1) * v_dir
+
         return F_b, tau_b
 
     # ------------------------------------------------------------------
@@ -655,7 +836,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         env_origins = self.scene.env_origins[env_ids]
         pos = env_origins.clone()
         pos[:, 2] += self._height_cmd[env_ids]
-        # pitch about +Y: negative corresponds to nose-up in this coordinate convention
+        # Isaac uses a right-handed convention: positive rotation about +Y pitches the nose *down*.
+        # Users typically specify +pitch as "nose up", so we negate it here to match the wind-tunnel scripts.
         pitch = -torch.deg2rad(torch.full((n,), float(self.cfg.reset_pitch_deg), device=self.device))
         rot = quat_from_euler_xyz(
             roll=torch.zeros_like(pitch),
