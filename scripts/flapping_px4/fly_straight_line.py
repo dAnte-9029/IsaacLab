@@ -41,6 +41,21 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--wind_x_max_mps", type=float, default=0.0)
     parser.add_argument("--wind_y_min_mps", type=float, default=0.0)
     parser.add_argument("--wind_y_max_mps", type=float, default=0.0)
+    parser.add_argument(
+        "--wind_ou",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable time-varying gusts with an OU (first-order Gauss-Markov) wind model.",
+    )
+    parser.add_argument("--wind_ou_tau_s", type=float, default=2.0, help="OU wind time constant in seconds.")
+    parser.add_argument("--wind_ou_sigma_x_mps", type=float, default=0.0, help="OU stationary std-dev for wind_x (m/s).")
+    parser.add_argument("--wind_ou_sigma_y_mps", type=float, default=0.0, help="OU stationary std-dev for wind_y (m/s).")
+    parser.add_argument(
+        "--wind_ou_clip_to_range",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Clip OU wind to [wind_x_range, wind_y_range] each step.",
+    )
     parser.add_argument("--pitch_trim_deg", type=float, default=10.0)
     parser.add_argument("--height_kp", type=float, default=0.06)
     parser.add_argument("--height_rate_kd", type=float, default=0.02)
@@ -172,6 +187,7 @@ def main():
     env_cfg.randomize_commands = False
     env_cfg.height_cmd = float(args.height_sp)
     env_cfg.action_space = 4
+    env_step_dt = float(env_cfg.sim.dt) * float(env_cfg.decimation)
     # PX4-like control already produces smooth commands; disable RL-oriented action smoothing to avoid extra lag.
     if hasattr(env_cfg, "act_lpf_tau_s"):
         env_cfg.act_lpf_tau_s = 0.0
@@ -180,17 +196,28 @@ def main():
     if args.episode_length_s is not None:
         env_cfg.episode_length_s = float(args.episode_length_s)
     else:
-        env_step_dt = float(env_cfg.sim.dt) * float(env_cfg.decimation)
         env_cfg.episode_length_s = max(float(env_cfg.episode_length_s), float(args.steps) * env_step_dt + 1.0)
     if args.enable_speed_hold:
         env_cfg.vx_cmd = float(args.speed_sp)
     if hasattr(env_cfg, "wind_enabled"):
-        enable_wind = bool(args.random_wind) or (abs(float(args.wind_x_mps)) > 1.0e-6) or (abs(float(args.wind_y_mps)) > 1.0e-6)
+        has_static_wind = (abs(float(args.wind_x_mps)) > 1.0e-6) or (abs(float(args.wind_y_mps)) > 1.0e-6)
+        has_ou_gust = bool(args.wind_ou) and (
+            (float(args.wind_ou_sigma_x_mps) > 1.0e-6) or (float(args.wind_ou_sigma_y_mps) > 1.0e-6)
+        )
+        enable_wind = bool(args.random_wind) or has_static_wind or has_ou_gust
         env_cfg.wind_enabled = bool(enable_wind)
         env_cfg.wind_xy_mps = (float(args.wind_x_mps), float(args.wind_y_mps))
         env_cfg.randomize_wind = bool(args.random_wind)
         env_cfg.wind_x_range_mps = (float(args.wind_x_min_mps), float(args.wind_x_max_mps))
         env_cfg.wind_y_range_mps = (float(args.wind_y_min_mps), float(args.wind_y_max_mps))
+        if hasattr(env_cfg, "wind_ou_enabled"):
+            env_cfg.wind_ou_enabled = bool(args.wind_ou)
+        if hasattr(env_cfg, "wind_ou_tau_s"):
+            env_cfg.wind_ou_tau_s = float(args.wind_ou_tau_s)
+        if hasattr(env_cfg, "wind_ou_sigma_xy_mps"):
+            env_cfg.wind_ou_sigma_xy_mps = (float(args.wind_ou_sigma_x_mps), float(args.wind_ou_sigma_y_mps))
+        if hasattr(env_cfg, "wind_ou_clip_to_range"):
+            env_cfg.wind_ou_clip_to_range = bool(args.wind_ou_clip_to_range)
     if hasattr(env_cfg, "enable_wing_aero") and hasattr(env_cfg, "enable_tail_aero"):
         env_cfg.enable_wing_aero = bool(args.aero_mode in ("full", "wings_only"))
         env_cfg.enable_tail_aero = bool(args.aero_mode in ("full", "tail_only"))
@@ -264,7 +291,6 @@ def main():
     traj_rows: list[dict[str, float]] = []
     abs_track_err_hist: list[float] = []
     abs_course_err_deg_hist: list[float] = []
-    env_step_dt = float(env_cfg.sim.dt) * float(env_cfg.decimation)
     mass_total = float(env.unwrapped._robot.data.default_mass[0].sum().item())
 
     for step in range(int(args.steps)):
@@ -462,6 +488,8 @@ def main():
     if abs_track_err_hist:
         track_tensor = torch.tensor(abs_track_err_hist)
         course_tensor = torch.tensor(abs_course_err_deg_hist)
+        wind_x_tensor = torch.tensor([row["wind_x_mps"] for row in traj_rows])
+        wind_y_tensor = torch.tensor([row["wind_y_mps"] for row in traj_rows])
         summary = {
             "task": args.task,
             "num_envs": int(args.num_envs),
@@ -479,6 +507,19 @@ def main():
             "random_wind": bool(args.random_wind),
             "wind_x_range_mps": [float(args.wind_x_min_mps), float(args.wind_x_max_mps)],
             "wind_y_range_mps": [float(args.wind_y_min_mps), float(args.wind_y_max_mps)],
+            "wind_ou_enabled": bool(args.wind_ou),
+            "wind_ou_tau_s": float(args.wind_ou_tau_s),
+            "wind_ou_sigma_x_mps": float(args.wind_ou_sigma_x_mps),
+            "wind_ou_sigma_y_mps": float(args.wind_ou_sigma_y_mps),
+            "wind_ou_clip_to_range": bool(args.wind_ou_clip_to_range),
+            "wind_x_logged_mean_mps": float(torch.mean(wind_x_tensor).item()),
+            "wind_x_logged_std_mps": float(torch.std(wind_x_tensor, unbiased=False).item()),
+            "wind_x_logged_min_mps": float(torch.min(wind_x_tensor).item()),
+            "wind_x_logged_max_mps": float(torch.max(wind_x_tensor).item()),
+            "wind_y_logged_mean_mps": float(torch.mean(wind_y_tensor).item()),
+            "wind_y_logged_std_mps": float(torch.std(wind_y_tensor, unbiased=False).item()),
+            "wind_y_logged_min_mps": float(torch.min(wind_y_tensor).item()),
+            "wind_y_logged_max_mps": float(torch.max(wind_y_tensor).item()),
             "pitch_trim_deg": float(args.pitch_trim_deg),
             "freq_trim_hz": float(args.freq_trim_hz),
             "tecs_max_climb_rate_mps": float(args.tecs_max_climb_rate_mps),

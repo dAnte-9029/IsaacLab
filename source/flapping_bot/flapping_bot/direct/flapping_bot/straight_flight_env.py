@@ -67,6 +67,11 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     randomize_wind: bool = False
     wind_x_range_mps: tuple[float, float] = (0.0, 0.0)
     wind_y_range_mps: tuple[float, float] = (0.0, 0.0)
+    # Optional time-varying gust model (OU / first-order Gauss-Markov) around a mean wind.
+    wind_ou_enabled: bool = False
+    wind_ou_tau_s: float = 2.0
+    wind_ou_sigma_xy_mps: tuple[float, float] = (0.0, 0.0)
+    wind_ou_clip_to_range: bool = False
 
     # action filtering (normalized action space [-1, 1])
     act_lpf_tau_s: float = 0.1  # 0: off; first-order low-pass time constant (s)
@@ -315,6 +320,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._vx_cmd: Tensor | None = None
         self._height_cmd: Tensor | None = None
         self._wind_w: Tensor | None = None
+        self._wind_mean_w: Tensor | None = None
 
         # indices
         self._IDX_LEFT_WING = None
@@ -425,9 +431,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._vx_cmd = torch.full((self.num_envs,), float(self.cfg.vx_cmd), device=self.device)
         self._height_cmd = torch.full((self.num_envs,), float(self.cfg.height_cmd), device=self.device)
         self._wind_w = torch.zeros((self.num_envs, 3), device=self.device)
+        self._wind_mean_w = torch.zeros((self.num_envs, 3), device=self.device)
         if bool(self.cfg.wind_enabled) and not bool(self.cfg.randomize_wind):
-            self._wind_w[:, 0] = float(self.cfg.wind_xy_mps[0])
-            self._wind_w[:, 1] = float(self.cfg.wind_xy_mps[1])
+            self._wind_mean_w[:, 0] = float(self.cfg.wind_xy_mps[0])
+            self._wind_mean_w[:, 1] = float(self.cfg.wind_xy_mps[1])
+        self._wind_w.copy_(self._wind_mean_w)
 
         # tail commands
         self._elevon_pitch_cmd = torch.zeros(self.num_envs, device=self.device)
@@ -544,7 +552,43 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     # ------------------------------------------------------------------
     # Control
     # ------------------------------------------------------------------
+    def _update_wind_process(self) -> None:
+        """Update world-frame wind state, optionally with OU gust dynamics."""
+        assert self._wind_w is not None
+        assert self._wind_mean_w is not None
+
+        if not bool(self.cfg.wind_enabled):
+            self._wind_mean_w.zero_()
+            self._wind_w.zero_()
+            return
+
+        # Keep deterministic mean (constant or sampled at reset) when OU is disabled.
+        if not bool(self.cfg.wind_ou_enabled):
+            self._wind_w.copy_(self._wind_mean_w)
+            self._wind_w[:, 2] = 0.0
+            return
+
+        tau = max(float(self.cfg.wind_ou_tau_s), 1.0e-3)
+        alpha = math.exp(-float(self.step_dt) / tau)
+        noise_scale = math.sqrt(max(1.0 - alpha * alpha, 0.0))
+        sigma_x = max(float(self.cfg.wind_ou_sigma_xy_mps[0]), 0.0)
+        sigma_y = max(float(self.cfg.wind_ou_sigma_xy_mps[1]), 0.0)
+        sigma_xy = torch.tensor((sigma_x, sigma_y), device=self.device).view(1, 2)
+
+        self._wind_w[:, 0:2] = self._wind_mean_w[:, 0:2] + alpha * (self._wind_w[:, 0:2] - self._wind_mean_w[:, 0:2])
+        if noise_scale > 0.0 and (sigma_x > 0.0 or sigma_y > 0.0):
+            noise = torch.randn((self.num_envs, 2), device=self.device)
+            self._wind_w[:, 0:2] += noise * (noise_scale * sigma_xy)
+        self._wind_w[:, 2] = 0.0
+
+        if bool(self.cfg.wind_ou_clip_to_range):
+            x_low, x_high = sorted((float(self.cfg.wind_x_range_mps[0]), float(self.cfg.wind_x_range_mps[1])))
+            y_low, y_high = sorted((float(self.cfg.wind_y_range_mps[0]), float(self.cfg.wind_y_range_mps[1])))
+            self._wind_w[:, 0] = torch.clamp(self._wind_w[:, 0], min=x_low, max=x_high)
+            self._wind_w[:, 1] = torch.clamp(self._wind_w[:, 1], min=y_low, max=y_high)
+
     def _pre_physics_step(self, actions: Tensor):
+        self._update_wind_process()
         # raw actions in [-1, 1]
         self._actions = actions.clamp(-1.0, 1.0)
         # low-pass filter
@@ -842,20 +886,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         else:
             self._vx_cmd[env_ids] = float(self.cfg.vx_cmd)
             self._height_cmd[env_ids] = float(self.cfg.height_cmd)
-        # wind: world-frame constant over each episode
+        # wind mean: world-frame constant over each episode; optional OU gusts evolve around it.
         assert self._wind_w is not None
+        assert self._wind_mean_w is not None
         if not bool(self.cfg.wind_enabled):
-            self._wind_w[env_ids] = 0.0
+            self._wind_mean_w[env_ids] = 0.0
         elif bool(self.cfg.randomize_wind):
             xl, xh = self.cfg.wind_x_range_mps
             yl, yh = self.cfg.wind_y_range_mps
-            self._wind_w[env_ids, 0] = torch.rand_like(self._vx_cmd[env_ids]) * (xh - xl) + xl
-            self._wind_w[env_ids, 1] = torch.rand_like(self._vx_cmd[env_ids]) * (yh - yl) + yl
-            self._wind_w[env_ids, 2] = 0.0
+            self._wind_mean_w[env_ids, 0] = torch.rand_like(self._vx_cmd[env_ids]) * (xh - xl) + xl
+            self._wind_mean_w[env_ids, 1] = torch.rand_like(self._vx_cmd[env_ids]) * (yh - yl) + yl
+            self._wind_mean_w[env_ids, 2] = 0.0
         else:
-            self._wind_w[env_ids, 0] = float(self.cfg.wind_xy_mps[0])
-            self._wind_w[env_ids, 1] = float(self.cfg.wind_xy_mps[1])
-            self._wind_w[env_ids, 2] = 0.0
+            self._wind_mean_w[env_ids, 0] = float(self.cfg.wind_xy_mps[0])
+            self._wind_mean_w[env_ids, 1] = float(self.cfg.wind_xy_mps[1])
+            self._wind_mean_w[env_ids, 2] = 0.0
+        self._wind_w[env_ids] = self._wind_mean_w[env_ids]
 
         # root state: spawn at local (0,0,height_cmd) relative to env origin, with initial vx ~ vx_cmd
         n = env_ids.shape[0]
