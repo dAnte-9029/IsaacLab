@@ -70,11 +70,21 @@ class PX4LikeStraightLineControllerCfg:
     tecs_pitch_sp_filter_tau_s: float = 0.35
     tecs_pitch_sp_rate_limit_deg_s: float = 20.0
     tecs_throttle_sp_filter_tau_s: float = 0.25
+    tecs_altitude_hold_error_band_m: float = 0.25
+    tecs_altitude_capture_error_m: float = 0.8
+    tecs_altitude_capture_time_const_s: float = 1.0
+    tecs_airspeed_error_gain_capture_scale: float = 0.35
+    tecs_pitch_speed_weight_capture: float = 0.35
+    tecs_capture_extra_climb_rate_mps: float = 0.7
+    tecs_capture_extra_sink_rate_mps: float = 0.2
 
     inner_pitch_lpf_tau_s: float = 0.12
     inner_pitch_rate_lpf_tau_s: float = 0.1
     inner_elevon_pitch_rate_limit_per_s: float = 2.0
     inner_elevon_roll_rate_limit_per_s: float = 6.0
+    inner_pitch_ki: float = 0.8
+    inner_pitch_integrator_limit: float = 0.6
+    inner_pitch_integrator_leak_per_s: float = 0.04
 
     enable_speed_hold: bool = False
     speed_sp_mps: float = 7.0
@@ -145,6 +155,13 @@ class PX4LikeStraightLineController:
                 pitch_sp_filter_tau_s=float(cfg.tecs_pitch_sp_filter_tau_s),
                 pitch_sp_rate_limit_deg_s=float(cfg.tecs_pitch_sp_rate_limit_deg_s),
                 throttle_sp_filter_tau_s=float(cfg.tecs_throttle_sp_filter_tau_s),
+                altitude_hold_error_band_m=float(cfg.tecs_altitude_hold_error_band_m),
+                altitude_capture_error_m=float(cfg.tecs_altitude_capture_error_m),
+                altitude_capture_time_const_s=float(cfg.tecs_altitude_capture_time_const_s),
+                airspeed_error_gain_capture_scale=float(cfg.tecs_airspeed_error_gain_capture_scale),
+                pitch_speed_weight_capture=float(cfg.tecs_pitch_speed_weight_capture),
+                capture_extra_climb_rate_mps=float(cfg.tecs_capture_extra_climb_rate_mps),
+                capture_extra_sink_rate_mps=float(cfg.tecs_capture_extra_sink_rate_mps),
             ),
             device=device,
         )
@@ -152,6 +169,7 @@ class PX4LikeStraightLineController:
         self._pitch_rate_filt: Tensor | None = None
         self._action_elevon_pitch_prev: Tensor | None = None
         self._action_elevon_roll_prev: Tensor | None = None
+        self._action_elevon_pitch_integ: Tensor | None = None
 
     def _ensure_inner_states(self, pitch: Tensor, pitch_rate: Tensor) -> None:
         if self._pitch_meas_filt is not None and self._pitch_meas_filt.shape == pitch.shape:
@@ -160,6 +178,7 @@ class PX4LikeStraightLineController:
         self._pitch_rate_filt = pitch_rate.clone()
         self._action_elevon_pitch_prev = torch.zeros_like(pitch)
         self._action_elevon_roll_prev = torch.zeros_like(pitch)
+        self._action_elevon_pitch_integ = torch.zeros_like(pitch)
 
     def reset(self, env_ids: Tensor | None = None) -> None:
         """Reset controller states, mainly TECS integrators/filters."""
@@ -168,6 +187,7 @@ class PX4LikeStraightLineController:
         self._pitch_rate_filt = None
         self._action_elevon_pitch_prev = None
         self._action_elevon_roll_prev = None
+        self._action_elevon_pitch_integ = None
 
     def compute_actions(
         self,
@@ -207,6 +227,7 @@ class PX4LikeStraightLineController:
         assert self._pitch_rate_filt is not None
         assert self._action_elevon_pitch_prev is not None
         assert self._action_elevon_roll_prev is not None
+        assert self._action_elevon_pitch_integ is not None
 
         if float(self.cfg.inner_pitch_lpf_tau_s) > 0.0:
             alpha_pitch = dt / (float(self.cfg.inner_pitch_lpf_tau_s) + dt)
@@ -286,8 +307,29 @@ class PX4LikeStraightLineController:
             freq_hz = torch.clamp(freq_hz, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
 
         pitch_err = _wrap_pi(pitch_sp - pitch_meas_for_ctrl)
+        pitch_pd = float(self.cfg.pitch_kp) * pitch_err - float(self.cfg.pitch_kd) * pitch_rate_for_ctrl
+        ki = float(self.cfg.inner_pitch_ki)
+        if ki > 0.0:
+            leak = max(float(self.cfg.inner_pitch_integrator_leak_per_s), 0.0)
+            if leak > 0.0:
+                self._action_elevon_pitch_integ = self._action_elevon_pitch_integ * max(0.0, 1.0 - leak * dt)
+
+            integ_input = ki * pitch_err
+            raw_with_integ = pitch_pd + self._action_elevon_pitch_integ
+            at_upper = raw_with_integ >= (1.0 - 1.0e-4)
+            at_lower = raw_with_integ <= (-1.0 + 1.0e-4)
+            integ_input = torch.where(at_upper, torch.minimum(integ_input, torch.zeros_like(integ_input)), integ_input)
+            integ_input = torch.where(at_lower, torch.maximum(integ_input, torch.zeros_like(integ_input)), integ_input)
+
+            self._action_elevon_pitch_integ = self._action_elevon_pitch_integ + integ_input * dt
+            integ_limit = max(float(self.cfg.inner_pitch_integrator_limit), 0.0)
+            if integ_limit > 0.0:
+                self._action_elevon_pitch_integ = torch.clamp(
+                    self._action_elevon_pitch_integ, min=-integ_limit, max=integ_limit
+                )
+
         action_elevon_pitch_raw = torch.clamp(
-            float(self.cfg.pitch_kp) * pitch_err - float(self.cfg.pitch_kd) * pitch_rate_for_ctrl,
+            pitch_pd + self._action_elevon_pitch_integ,
             min=-1.0,
             max=1.0,
         )
@@ -327,7 +369,9 @@ class PX4LikeStraightLineController:
             "closest_y": closest_point[:, 1],
             "pitch_meas_filt": pitch_meas_for_ctrl,
             "pitch_rate_filt": pitch_rate_for_ctrl,
+            "pitch_err_filt": pitch_err,
             "action_elevon_pitch_raw": action_elevon_pitch_raw,
+            "action_elevon_pitch_integ": self._action_elevon_pitch_integ,
             "action_elevon_roll_raw": action_roll_raw,
         }
         diag.update(tecs_diag)

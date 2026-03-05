@@ -64,6 +64,13 @@ class PX4LikeTECSCfg:
     pitch_sp_filter_tau_s: float = 0.35
     pitch_sp_rate_limit_deg_s: float = 20.0
     throttle_sp_filter_tau_s: float = 0.25
+    altitude_hold_error_band_m: float = 0.25
+    altitude_capture_error_m: float = 0.8
+    altitude_capture_time_const_s: float = 1.0
+    airspeed_error_gain_capture_scale: float = 0.35
+    pitch_speed_weight_capture: float = 0.35
+    capture_extra_climb_rate_mps: float = 0.7
+    capture_extra_sink_rate_mps: float = 0.2
 
 
 class PX4LikeTECS:
@@ -208,13 +215,29 @@ class PX4LikeTECS:
         self._altitude_rate_filt = self._altitude_rate_filt + alpha_hdot * (altitude_rate - self._altitude_rate_filt)
 
         # Outer loops -> target height/speed rates.
-        altitude_rate_sp = (height_sp - self._altitude_filt) * float(self.cfg.altitude_error_gain)
-        altitude_rate_sp = torch.clamp(altitude_rate_sp, min=-min_sink_rate, max=max_climb_rate)
+        height_err_raw = height_sp - altitude
+        altitude_rate_sp_hold = (height_sp - self._altitude_filt) * float(self.cfg.altitude_error_gain)
+        altitude_rate_sp_hold = torch.clamp(altitude_rate_sp_hold, min=-min_sink_rate, max=max_climb_rate)
+
+        capture_band = max(float(self.cfg.altitude_hold_error_band_m), 1.0e-4)
+        capture_full = max(float(self.cfg.altitude_capture_error_m), capture_band + 1.0e-4)
+        capture_blend = torch.clamp(
+            (torch.abs(height_err_raw) - capture_band) / (capture_full - capture_band), min=0.0, max=1.0
+        )
+        capture_tc = max(float(self.cfg.altitude_capture_time_const_s), 1.0e-3)
+        altitude_rate_sp_capture = torch.clamp(height_err_raw / capture_tc, min=-min_sink_rate, max=max_climb_rate)
+        altitude_rate_sp = altitude_rate_sp_hold + capture_blend * (altitude_rate_sp_capture - altitude_rate_sp_hold)
 
         if bool(self.cfg.airspeed_enabled):
             max_tas_rate_sp = 0.5 * ste_rate_max / torch.clamp(tas_ctrl, min=1.0e-3)
             min_tas_rate_sp = 0.5 * ste_rate_min / torch.clamp(tas_ctrl, min=1.0e-3)
-            tas_rate_sp = (speed_sp - tas_ctrl) * float(self.cfg.airspeed_error_gain)
+            airspeed_gain_capture = float(self.cfg.airspeed_error_gain) * min(
+                max(float(self.cfg.airspeed_error_gain_capture_scale), 0.0), 1.0
+            )
+            airspeed_gain = float(self.cfg.airspeed_error_gain) + capture_blend * (
+                airspeed_gain_capture - float(self.cfg.airspeed_error_gain)
+            )
+            tas_rate_sp = (speed_sp - tas_ctrl) * airspeed_gain
             tas_rate_sp = torch.maximum(torch.minimum(tas_rate_sp, max_tas_rate_sp), min_tas_rate_sp)
         else:
             tas_rate_sp = torch.zeros_like(tas_ctrl)
@@ -240,8 +263,10 @@ class PX4LikeTECS:
 
         # Pitch control via specific-energy-balance rate.
         pitch_speed_weight = float(min(max(self.cfg.pitch_speed_weight, 0.0), 2.0))
+        pitch_speed_weight_capture = float(min(max(self.cfg.pitch_speed_weight_capture, 0.0), 2.0))
+        pitch_speed_weight_eff = pitch_speed_weight + capture_blend * (pitch_speed_weight_capture - pitch_speed_weight)
         if bool(self.cfg.airspeed_enabled):
-            psw = 2.0 * self._ratio_underspeed + (1.0 - self._ratio_underspeed) * pitch_speed_weight
+            psw = 2.0 * self._ratio_underspeed + (1.0 - self._ratio_underspeed) * pitch_speed_weight_eff
         else:
             psw = torch.zeros_like(self._ratio_underspeed)
 
@@ -279,7 +304,12 @@ class PX4LikeTECS:
         self._pitch_sp = torch.clamp(pitch_sp_cmd, min=pitch_min, max=pitch_max)
 
         # Throttle control via specific-total-energy rate.
-        ste_rate_sp = torch.clamp(spe_rate_sp + ske_rate_sp, min=ste_rate_min, max=ste_rate_max)
+        ste_rate_capture_bias = torch.where(
+            height_err_raw >= 0.0,
+            capture_blend * float(self.cfg.capture_extra_climb_rate_mps) * G,
+            -capture_blend * float(self.cfg.capture_extra_sink_rate_mps) * G,
+        )
+        ste_rate_sp = torch.clamp(spe_rate_sp + ske_rate_sp + ste_rate_capture_bias, min=ste_rate_min, max=ste_rate_max)
         ste_rate_est_raw = spe_rate_est + ske_rate_est
         alpha_ste = dt / (max(float(self.cfg.ste_rate_time_const_s), 0.0) + dt)
         alpha_ste = min(max(alpha_ste, 0.0), 1.0)
@@ -338,6 +368,10 @@ class PX4LikeTECS:
 
         diag = {
             "tecs_altitude_rate_sp": altitude_rate_sp,
+            "tecs_altitude_rate_sp_hold": altitude_rate_sp_hold,
+            "tecs_altitude_rate_sp_capture": altitude_rate_sp_capture,
+            "tecs_capture_blend": capture_blend,
+            "tecs_height_err_raw": height_err_raw,
             "tecs_tas_sp": torch.full_like(tas_ctrl, speed_sp),
             "tecs_tas": tas_ctrl,
             "tecs_tas_rate": self._tas_rate_filt,
@@ -348,6 +382,7 @@ class PX4LikeTECS:
             "tecs_spe_rate_est": spe_rate_est,
             "tecs_ske_rate_est": ske_rate_est,
             "tecs_ste_rate_sp": ste_rate_sp,
+            "tecs_ste_rate_capture_bias": ste_rate_capture_bias,
             "tecs_ste_rate_est": self._ste_rate_est,
             "tecs_seb_rate_sp": seb_rate_sp,
             "tecs_seb_rate_est": seb_rate_est,
