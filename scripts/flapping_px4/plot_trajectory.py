@@ -57,6 +57,17 @@ def _const_from_series(values: list[float], *, default: float) -> float:
     return float(finite_sorted[len(finite_sorted) // 2])
 
 
+def _has_finite(values: list[float]) -> bool:
+    return any(v == v for v in values)
+
+
+def _mean_abs(values: list[float]) -> float:
+    finite = [abs(v) for v in values if v == v]
+    if not finite:
+        return float("nan")
+    return float(sum(finite) / len(finite))
+
+
 def main() -> None:
     args = _parse_args()
     if (args.run_dir is None) == (args.traj_csv is None):
@@ -80,7 +91,14 @@ def main() -> None:
 
     t = [_get(r, "t", _get(r, "step", i) * dt) for i, r in enumerate(rows)]
     z = [_get(r, "z") for r in rows]
+    x = [_get(r, "x") for r in rows]
+    y = [_get(r, "y") for r in rows]
     speed = [_get(r, "speed") for r in rows]
+    airspeed = [_get(r, "airspeed") for r in rows]
+    beta_deg = [_get(r, "beta_deg") for r in rows]
+    wind_x = [_get(r, "wind_x_mps") for r in rows]
+    wind_y = [_get(r, "wind_y_mps") for r in rows]
+    track_error_m = [_get(r, "track_error_m", _get(r, "y")) for r in rows]
     freq_hz = [_get(r, "freq_hz") for r in rows]
     tecs_tas_sp = [_get(r, "tecs_tas_sp") for r in rows]
     tecs_pitch_sp_deg = [_get(r, "tecs_pitch_sp_deg") for r in rows]
@@ -113,11 +131,13 @@ def main() -> None:
 
     out_path = args.out if args.out is not None else (run_dir / "plots.png")
 
-    fig, axs = plt.subplots(2, 2, figsize=(12, 7), sharex="col")
+    fig, axs = plt.subplots(3, 2, figsize=(13, 10), sharex=False)
     ax_z = axs[0, 0]
     ax_v = axs[0, 1]
     ax_f = axs[1, 0]
     ax_u = axs[1, 1]
+    ax_path = axs[2, 0]
+    ax_wind = axs[2, 1]
 
     ax_z.plot(t, z, label="z (m)")
     ax_z.axhline(height_sp, color="k", linestyle="--", linewidth=1.0, alpha=0.6, label="height_sp")
@@ -127,6 +147,8 @@ def main() -> None:
     ax_z.legend(loc="best")
 
     ax_v.plot(t, speed, label="speed (m/s)")
+    if _has_finite(airspeed):
+        ax_v.plot(t, airspeed, linewidth=1.1, alpha=0.9, label="airspeed (m/s)")
     if any(v == v for v in tecs_tas_sp):
         ax_v.plot(t, tecs_tas_sp, linestyle="--", linewidth=1.2, label="TECS speed_sp (m/s)")
     ax_v.set_title("Speed")
@@ -159,6 +181,41 @@ def main() -> None:
     lines2, labels2 = ax_u2.get_legend_handles_labels()
     ax_u.legend(lines + lines2, labels + labels2, loc="best")
 
+    ax_path.plot(x, y, label="trajectory y(x)")
+    ax_path.axhline(0.0, color="k", linestyle="--", linewidth=1.0, alpha=0.6, label="line y=0")
+    ax_path.set_title("Ground Track")
+    ax_path.set_xlabel("x (m)")
+    ax_path.set_ylabel("y (m)")
+    ax_path.grid(True, alpha=0.3)
+    track_mean = float(summary.get("mean_abs_track_error_m", float("nan")))
+    if not (track_mean == track_mean):
+        track_mean = _mean_abs(track_error_m)
+    ax_path.text(
+        0.02,
+        0.96,
+        f"mean |track| = {track_mean:.3f} m" if track_mean == track_mean else "mean |track| = n/a",
+        transform=ax_path.transAxes,
+        va="top",
+    )
+    ax_path.legend(loc="best")
+
+    if _has_finite(wind_x):
+        ax_wind.plot(t, wind_x, label="wind_x (m/s)")
+    if _has_finite(wind_y):
+        ax_wind.plot(t, wind_y, label="wind_y (m/s)")
+    ax_wind.set_title("Wind / Sideslip")
+    ax_wind.set_xlabel("t (s)")
+    ax_wind.set_ylabel("m/s")
+    ax_wind.grid(True, alpha=0.3)
+    ax_wind2 = ax_wind.twinx()
+    if _has_finite(beta_deg):
+        ax_wind2.plot(t, beta_deg, color="tab:purple", alpha=0.8, label="beta (deg)")
+    ax_wind2.set_ylabel("deg")
+    lines, labels = ax_wind.get_legend_handles_labels()
+    lines2, labels2 = ax_wind2.get_legend_handles_labels()
+    if lines or lines2:
+        ax_wind.legend(lines + lines2, labels + labels2, loc="best")
+
     fig.suptitle(str(run_dir))
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -167,6 +224,11 @@ def main() -> None:
 
     z_min, z_max = min(z), max(z)
     v_min, v_max = min(speed), max(speed)
+    abs_track = [abs(v) for v in track_error_m if v == v]
+    mean_abs_track = float(summary.get("mean_abs_track_error_m", float("nan")))
+    if not (mean_abs_track == mean_abs_track) and abs_track:
+        mean_abs_track = float(sum(abs_track) / len(abs_track))
+    max_abs_track = float(max(abs_track)) if abs_track else float("nan")
     print(
         json.dumps(
             {
@@ -179,6 +241,10 @@ def main() -> None:
                 "z_max_m": float(z_max),
                 "speed_min_mps": float(v_min),
                 "speed_max_mps": float(v_max),
+                "mean_abs_track_error_m": mean_abs_track,
+                "max_abs_track_error_m": max_abs_track,
+                "wind_x_mps": _const_from_series(wind_x, default=0.0),
+                "wind_y_mps": _const_from_series(wind_y, default=0.0),
             },
             indent=2,
         )
