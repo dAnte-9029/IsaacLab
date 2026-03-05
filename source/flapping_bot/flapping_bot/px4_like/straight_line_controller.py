@@ -223,7 +223,24 @@ class PX4LikeStraightLineController:
         air_vel_xy = vel_xy - wind_xy
         airspeed = torch.linalg.norm(air_vel_xy, dim=1)
         heading = torch.atan2(air_vel_xy[:, 1], air_vel_xy[:, 0])
-        lateral_accel_fb = self._heading_controller.control_heading(guidance.course_setpoint, heading, airspeed)
+        # Wind correction: DirectionalGuidance outputs a *ground* bearing (course) to converge to the path.
+        # The heading controller operates on the airspeed vector direction. Compute the desired air-velocity
+        # direction such that (air + wind) points along the desired bearing, i.e. "crab" into the wind.
+        bearing_unit = torch.stack((torch.cos(guidance.course_setpoint), torch.sin(guidance.course_setpoint)), dim=1)
+        # Solve for the (positive) ground speed along the bearing `k` such that:
+        #   v_g = k * bearing_unit
+        #   v_a = v_g - wind
+        #   ||v_a|| = airspeed
+        wind_dot_bearing = (wind_xy * bearing_unit).sum(dim=1)
+        wind_sq = (wind_xy * wind_xy).sum(dim=1)
+        wind_cross_sq = torch.clamp(wind_sq - wind_dot_bearing * wind_dot_bearing, min=0.0)
+        airspeed_safe = torch.clamp(airspeed, min=1.0e-3)
+        sqrt_term = torch.sqrt(torch.clamp(airspeed_safe * airspeed_safe - wind_cross_sq, min=0.0))
+        ground_speed_along_bearing = torch.clamp(wind_dot_bearing + sqrt_term, min=0.0)
+        v_a_sp = bearing_unit * ground_speed_along_bearing.unsqueeze(1) - wind_xy
+        heading_sp = torch.atan2(v_a_sp[:, 1], v_a_sp[:, 0])
+
+        lateral_accel_fb = self._heading_controller.control_heading(heading_sp, heading, airspeed)
         lateral_accel_sp = lateral_accel_fb + guidance.lateral_acceleration_feedforward
         roll_sp = -torch.atan(lateral_accel_sp / 9.81)
 
@@ -348,7 +365,9 @@ class PX4LikeStraightLineController:
             action_elevon_pitch = torch.clamp(action_elevon_pitch, min=-1.0, max=1.0)
         self._action_elevon_pitch_prev = action_elevon_pitch
 
-        course_err = _wrap_pi(yaw - guidance.course_setpoint)
+        # Fixed-wing convention: roll controls ground-track; yaw/rudder should not fight wind-crab.
+        # Drive yaw to align with the airspeed direction (beta≈0), with yaw-rate damping.
+        course_err = _wrap_pi(yaw - heading)
         action_rudder = torch.clamp(
             float(self.cfg.yaw_kp) * course_err - float(self.cfg.yaw_kd) * ang_vel_body[:, 2],
             min=-1.0,
@@ -363,6 +382,8 @@ class PX4LikeStraightLineController:
 
         diag = {
             "course_sp": guidance.course_setpoint,
+            "heading_sp": heading_sp,
+            "heading": heading,
             "course_err": course_err,
             "signed_track_error": guidance.signed_track_error,
             "track_error_bound": guidance.track_error_bound,
