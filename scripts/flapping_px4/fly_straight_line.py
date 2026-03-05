@@ -29,6 +29,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument("--line_length", type=float, default=120.0)
     parser.add_argument("--height_sp", type=float, default=10.0)
+    parser.add_argument("--wind_x_mps", type=float, default=0.0)
+    parser.add_argument("--wind_y_mps", type=float, default=0.0)
+    parser.add_argument(
+        "--random_wind",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="If enabled, sample per-episode constant wind from the configured ranges.",
+    )
+    parser.add_argument("--wind_x_min_mps", type=float, default=0.0)
+    parser.add_argument("--wind_x_max_mps", type=float, default=0.0)
+    parser.add_argument("--wind_y_min_mps", type=float, default=0.0)
+    parser.add_argument("--wind_y_max_mps", type=float, default=0.0)
     parser.add_argument("--pitch_trim_deg", type=float, default=10.0)
     parser.add_argument("--height_kp", type=float, default=0.06)
     parser.add_argument("--height_rate_kd", type=float, default=0.02)
@@ -172,6 +184,13 @@ def main():
         env_cfg.episode_length_s = max(float(env_cfg.episode_length_s), float(args.steps) * env_step_dt + 1.0)
     if args.enable_speed_hold:
         env_cfg.vx_cmd = float(args.speed_sp)
+    if hasattr(env_cfg, "wind_enabled"):
+        enable_wind = bool(args.random_wind) or (abs(float(args.wind_x_mps)) > 1.0e-6) or (abs(float(args.wind_y_mps)) > 1.0e-6)
+        env_cfg.wind_enabled = bool(enable_wind)
+        env_cfg.wind_xy_mps = (float(args.wind_x_mps), float(args.wind_y_mps))
+        env_cfg.randomize_wind = bool(args.random_wind)
+        env_cfg.wind_x_range_mps = (float(args.wind_x_min_mps), float(args.wind_x_max_mps))
+        env_cfg.wind_y_range_mps = (float(args.wind_y_min_mps), float(args.wind_y_max_mps))
     if hasattr(env_cfg, "enable_wing_aero") and hasattr(env_cfg, "enable_tail_aero"):
         env_cfg.enable_wing_aero = bool(args.aero_mode in ("full", "wings_only"))
         env_cfg.enable_tail_aero = bool(args.aero_mode in ("full", "tail_only"))
@@ -187,6 +206,7 @@ def main():
     controller_cfg = PX4LikeStraightLineControllerCfg(
         line_start_xy=(0.0, 0.0),
         line_end_xy=(float(args.line_length), 0.0),
+        wind_xy=(float(args.wind_x_mps), float(args.wind_y_mps)),
         control_dt_s=float(env_step_dt),
         height_sp_m=float(args.height_sp),
         pitch_trim_deg=float(args.pitch_trim_deg),
@@ -259,10 +279,18 @@ def main():
         ang_vel_b = robot.data.root_ang_vel_b.clone()
         vel_body_from_w = quat_apply_inverse(quat_w, vel_w)
         vel_b_mismatch = torch.linalg.norm(vel_body - vel_body_from_w, dim=1)
+        if hasattr(env.unwrapped, "_wind_w") and (env.unwrapped._wind_w is not None):
+            wind_w = env.unwrapped._wind_w.clone()
+        else:
+            wind_w = torch.zeros_like(vel_w)
+        wind_b = quat_apply_inverse(quat_w, wind_w)
+        vel_air_w = vel_w - wind_w
+        vel_air_b = vel_body_from_w - wind_b
 
         actions, diag = controller.compute_actions(
             pos_local=pos_local,
             ground_vel_local=vel_w,
+            wind_vel_local=wind_w[:, 0:2],
             roll=roll,
             pitch=pitch,
             yaw=yaw,
@@ -287,6 +315,11 @@ def main():
         vy = float(vel_w[idx, 1].item())
         vz = float(vel_w[idx, 2].item())
         speed = float(torch.linalg.norm(vel_w[idx]).item())
+        airspeed = float(torch.linalg.norm(vel_air_w[idx]).item())
+        beta_rad = torch.atan2(
+            vel_air_b[idx, 1],
+            torch.clamp(torch.sqrt(vel_air_b[idx, 0] ** 2 + vel_air_b[idx, 2] ** 2), min=1.0e-6),
+        )
         wing_f_b = env.unwrapped._debug_last_wing_force_b[idx].clone()
         tail_f_b = env.unwrapped._debug_last_tail_force_b[idx].clone()
         total_f_b = env.unwrapped._debug_last_force_b[idx].clone()
@@ -304,9 +337,17 @@ def main():
                 "vy": vy,
                 "vz": vz,
                 "speed": speed,
+                "airspeed": airspeed,
                 "vx_b": float(vel_body[idx, 0].item()),
                 "vy_b": float(vel_body[idx, 1].item()),
                 "vz_b": float(vel_body[idx, 2].item()),
+                "air_vx_b": float(vel_air_b[idx, 0].item()),
+                "air_vy_b": float(vel_air_b[idx, 1].item()),
+                "air_vz_b": float(vel_air_b[idx, 2].item()),
+                "beta_deg": float(torch.rad2deg(beta_rad).item()),
+                "wind_x_mps": float(wind_w[idx, 0].item()),
+                "wind_y_mps": float(wind_w[idx, 1].item()),
+                "wind_z_mps": float(wind_w[idx, 2].item()),
                 "vx_b_from_w": float(vel_body_from_w[idx, 0].item()),
                 "vy_b_from_w": float(vel_body_from_w[idx, 1].item()),
                 "vz_b_from_w": float(vel_body_from_w[idx, 2].item()),
@@ -433,6 +474,11 @@ def main():
             "enable_speed_hold": bool(args.enable_speed_hold),
             "speed_sp_mps": float(args.speed_sp),
             "height_sp_m": float(args.height_sp),
+            "wind_x_mps": float(args.wind_x_mps),
+            "wind_y_mps": float(args.wind_y_mps),
+            "random_wind": bool(args.random_wind),
+            "wind_x_range_mps": [float(args.wind_x_min_mps), float(args.wind_x_max_mps)],
+            "wind_y_range_mps": [float(args.wind_y_min_mps), float(args.wind_y_max_mps)],
             "pitch_trim_deg": float(args.pitch_trim_deg),
             "freq_trim_hz": float(args.freq_trim_hz),
             "tecs_max_climb_rate_mps": float(args.tecs_max_climb_rate_mps),

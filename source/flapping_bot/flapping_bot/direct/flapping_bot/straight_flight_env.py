@@ -62,6 +62,11 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     randomize_commands: bool = False
     vx_cmd_range: tuple[float, float] = (2.0, 8.0)
     height_cmd_range: tuple[float, float] = (8.0, 12.0)
+    wind_enabled: bool = False
+    wind_xy_mps: tuple[float, float] = (0.0, 0.0)
+    randomize_wind: bool = False
+    wind_x_range_mps: tuple[float, float] = (0.0, 0.0)
+    wind_y_range_mps: tuple[float, float] = (0.0, 0.0)
 
     # action filtering (normalized action space [-1, 1])
     act_lpf_tau_s: float = 0.1  # 0: off; first-order low-pass time constant (s)
@@ -309,6 +314,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # command buffers
         self._vx_cmd: Tensor | None = None
         self._height_cmd: Tensor | None = None
+        self._wind_w: Tensor | None = None
 
         # indices
         self._IDX_LEFT_WING = None
@@ -418,6 +424,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # initialize commands
         self._vx_cmd = torch.full((self.num_envs,), float(self.cfg.vx_cmd), device=self.device)
         self._height_cmd = torch.full((self.num_envs,), float(self.cfg.height_cmd), device=self.device)
+        self._wind_w = torch.zeros((self.num_envs, 3), device=self.device)
+        if bool(self.cfg.wind_enabled) and not bool(self.cfg.randomize_wind):
+            self._wind_w[:, 0] = float(self.cfg.wind_xy_mps[0])
+            self._wind_w[:, 1] = float(self.cfg.wind_xy_mps[1])
 
         # tail commands
         self._elevon_pitch_cmd = torch.zeros(self.num_envs, device=self.device)
@@ -625,19 +635,23 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 self._freeze_steps[hold_ids] = torch.clamp_min(self._freeze_steps[hold_ids] - 1, 0)
 
         # aerodynamic wrench: wings + tail -> base body
+        assert self._wind_w is not None
+        quat_w = self._robot.data.root_quat_w
         v_b = self._robot.data.root_lin_vel_b
         w_b = self._robot.data.root_ang_vel_b
+        wind_b = quat_apply_inverse(quat_w, self._wind_w)
+        v_air_b = v_b - wind_b
 
         if bool(self.cfg.enable_tail_aero):
             # tail (deflection-based)
             ele_bias = math.radians(float(self.cfg.tail_elevator_bias_deg))
             f_tail, tau_tail = self._tail_model.compute_wrench(
-                root_lin_vel_b=v_b,
+                root_lin_vel_b=v_air_b,
                 root_ang_vel_b=w_b,
                 elevator_rad=self._elevator_cmd + ele_bias,
                 rudder_rad=self._rudder_cmd,
             )
-            speed = torch.linalg.norm(v_b, dim=1)
+            speed = torch.linalg.norm(v_air_b, dim=1)
             q_dyn = 0.5 * float(self.cfg.qsm_wings.air_density) * (speed * speed)
             tau_roll_virtual = (
                 float(self.cfg.virtual_roll_moment_gain) * q_dyn * self._roll_cmd
@@ -661,22 +675,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 jvel_all = self._robot.data.joint_vel[:, self._joint_ids]
                 jpos = torch.stack((jpos_all[:, self._IDX_LEFT_WING], jpos_all[:, self._IDX_RIGHT_WING]), dim=1)
                 jvel = torch.stack((jvel_all[:, self._IDX_LEFT_WING], jvel_all[:, self._IDX_RIGHT_WING]), dim=1)
-                f_w, tau_w, _ = self._qsm_wing_model.compute_forces(jpos, jvel, v_b, w_b)
+                f_w, tau_w, _ = self._qsm_wing_model.compute_forces(jpos, jvel, v_air_b, w_b)
                 f_w_sum = torch.sum(f_w, dim=1)
                 tau_w_sum = torch.sum(tau_w, dim=1)
             else:
-                f_w_sum, tau_w_sum = self._compute_wing_delaurier_wrench()
+                f_w_sum, tau_w_sum = self._compute_wing_delaurier_wrench(v_air_b)
         else:
             f_w_sum = torch.zeros_like(v_b)
             tau_w_sum = torch.zeros_like(v_b)
 
-        # Quadratic parasite drag at the base (opposes body velocity).
+        # Quadratic parasite drag at the base (opposes air-relative body velocity).
         f_drag = torch.zeros_like(v_b)
         cda = float(self.cfg.fuselage_drag_cda)
         if cda > 0.0:
             rho = float(self.cfg.qsm_wings.air_density)
-            speed = torch.linalg.norm(v_b, dim=1, keepdim=True)
-            f_drag = -0.5 * rho * cda * speed * v_b
+            speed = torch.linalg.norm(v_air_b, dim=1, keepdim=True)
+            f_drag = -0.5 * rho * cda * speed * v_air_b
 
         # debug caches (body frame)
         self._debug_last_wing_force_b.copy_(f_w_sum)
@@ -690,7 +704,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             forces=f_sum, torques=t_sum, body_ids=self._base_body_ids, is_global=False
         )
 
-    def _compute_wing_delaurier_wrench(self) -> tuple[Tensor, Tensor]:
+    def _compute_wing_delaurier_wrench(self, v_air_b: Tensor) -> tuple[Tensor, Tensor]:
         """Compute net wing wrench about the base in the body frame (DeLaurier backend)."""
         assert self._wing_geom is not None
         assert self._wing_area is not None
@@ -714,14 +728,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # This matches the wind-tunnel convention when the vehicle is trimmed (v_z small, pitch≈flight-path angle),
         # and avoids large sign errors during dives/climbs where pitch!=AOA.
         quat_w = self._robot.data.root_quat_w  # (N,4)
-        v_b = self._robot.data.root_lin_vel_b  # (N,3)
-        vx_b = torch.clamp(v_b[:, 0], min=1.0e-3)
-        theta_a_env = torch.atan2(-v_b[:, 2], vx_b)  # +theta_a => nose-up relative wind
+        vx_b = torch.clamp(v_air_b[:, 0], min=1.0e-3)
+        theta_a_env = torch.atan2(-v_air_b[:, 2], vx_b)  # +theta_a => nose-up relative wind
         theta_a = torch.repeat_interleave(theta_a_env, 2)  # (B,)
         theta_bar = theta_a + math.radians(float(self.cfg.delaurier_theta_w_deg))
 
         # Airspeed approximation: body-forward velocity component clamped (matches wind-tunnel trim scans).
-        vx = torch.clamp(self._robot.data.root_lin_vel_b[:, 0], min=float(self.cfg.delaurier_min_airspeed))
+        vx = torch.clamp(v_air_b[:, 0], min=float(self.cfg.delaurier_min_airspeed))
         U = torch.repeat_interleave(vx, 2)  # (B,)
 
         h = -q.view(B, 1) * y
@@ -789,16 +802,15 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         F_b = quat_apply_inverse(quat_w, F_w_sum)
         tau_b = quat_apply_inverse(quat_w, tau_w_sum)
 
-        # Induced drag correction (finite wing): D_i = L^2 / (q S pi AR e), applied opposite body velocity.
+        # Induced drag correction (finite wing): D_i = L^2 / (q S pi AR e), applied opposite air-relative velocity.
         e = float(self.cfg.delaurier_induced_drag_efficiency)
         if e > 0.0:
             AR = float(self._wing_geom.aspect_ratio)
             S = float(self._wing_area)
             if AR > 1.0e-6 and S > 1.0e-9:
-                v_b = self._robot.data.root_lin_vel_b
-                speed = torch.linalg.norm(v_b, dim=1)
+                speed = torch.linalg.norm(v_air_b, dim=1)
                 speed_safe = torch.clamp(speed, min=1.0e-6)
-                v_dir = v_b / speed_safe.unsqueeze(1)
+                v_dir = v_air_b / speed_safe.unsqueeze(1)
                 q_dyn = 0.5 * float(self.cfg.qsm_wings.air_density) * (speed_safe * speed_safe)
 
                 # Lift magnitude: component of the wing force perpendicular to velocity direction.
@@ -830,6 +842,20 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         else:
             self._vx_cmd[env_ids] = float(self.cfg.vx_cmd)
             self._height_cmd[env_ids] = float(self.cfg.height_cmd)
+        # wind: world-frame constant over each episode
+        assert self._wind_w is not None
+        if not bool(self.cfg.wind_enabled):
+            self._wind_w[env_ids] = 0.0
+        elif bool(self.cfg.randomize_wind):
+            xl, xh = self.cfg.wind_x_range_mps
+            yl, yh = self.cfg.wind_y_range_mps
+            self._wind_w[env_ids, 0] = torch.rand_like(self._vx_cmd[env_ids]) * (xh - xl) + xl
+            self._wind_w[env_ids, 1] = torch.rand_like(self._vx_cmd[env_ids]) * (yh - yl) + yl
+            self._wind_w[env_ids, 2] = 0.0
+        else:
+            self._wind_w[env_ids, 0] = float(self.cfg.wind_xy_mps[0])
+            self._wind_w[env_ids, 1] = float(self.cfg.wind_xy_mps[1])
+            self._wind_w[env_ids, 2] = 0.0
 
         # root state: spawn at local (0,0,height_cmd) relative to env origin, with initial vx ~ vx_cmd
         n = env_ids.shape[0]

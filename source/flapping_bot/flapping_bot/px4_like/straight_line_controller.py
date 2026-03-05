@@ -194,6 +194,7 @@ class PX4LikeStraightLineController:
         *,
         pos_local: Tensor,
         ground_vel_local: Tensor,
+        wind_vel_local: Tensor | None = None,
         roll: Tensor,
         pitch: Tensor,
         yaw: Tensor,
@@ -202,7 +203,12 @@ class PX4LikeStraightLineController:
         """Map current vehicle state to `[throttle, rudder, elevon_pitch, elevon_roll]` actions."""
         pos_xy = pos_local[:, 0:2]
         vel_xy = ground_vel_local[:, 0:2]
-        wind_xy = self._wind_xy.expand(pos_xy.shape[0], 2).to(dtype=pos_xy.dtype)
+        if wind_vel_local is None:
+            wind_xy = self._wind_xy.expand(pos_xy.shape[0], 2).to(dtype=pos_xy.dtype)
+        else:
+            if wind_vel_local.ndim != 2 or wind_vel_local.shape[1] != 2:
+                raise ValueError("wind_vel_local must have shape [N, 2].")
+            wind_xy = wind_vel_local.to(device=pos_xy.device, dtype=pos_xy.dtype)
 
         unit_tangent, closest_point = navigate_line(self._line_start.to(pos_xy.dtype), self._line_end.to(pos_xy.dtype), pos_xy)
         guidance = self._directional_guidance.guide_to_path(
@@ -266,12 +272,11 @@ class PX4LikeStraightLineController:
 
         height_err = float(self.cfg.height_sp_m) - pos_local[:, 2]
         if bool(self.cfg.enable_tecs):
-            ground_speed = torch.linalg.norm(vel_xy, dim=1)
             pitch_sp, throttle_sp, tecs_diag = self._tecs.update(
                 dt=float(self.cfg.control_dt_s),
                 altitude=pos_local[:, 2],
                 altitude_rate=ground_vel_local[:, 2],
-                tas=ground_speed,
+                tas=airspeed,
                 height_sp_m=float(self.cfg.height_sp_m),
                 speed_sp_mps=float(self.cfg.speed_sp_mps),
             )
@@ -293,9 +298,8 @@ class PX4LikeStraightLineController:
             )
 
             if self.cfg.enable_speed_hold:
-                ground_speed = torch.linalg.norm(vel_xy, dim=1)
                 freq_hz = float(self.cfg.freq_trim_hz) + float(self.cfg.speed_kp_hz_per_mps) * (
-                    float(self.cfg.speed_sp_mps) - ground_speed
+                    float(self.cfg.speed_sp_mps) - airspeed
                 )
             else:
                 freq_hz = torch.full_like(action_roll, float(self.cfg.freq_trim_hz))
@@ -370,6 +374,9 @@ class PX4LikeStraightLineController:
             "pitch_meas_filt": pitch_meas_for_ctrl,
             "pitch_rate_filt": pitch_rate_for_ctrl,
             "pitch_err_filt": pitch_err,
+            "wind_x": wind_xy[:, 0],
+            "wind_y": wind_xy[:, 1],
+            "airspeed_xy": airspeed,
             "action_elevon_pitch_raw": action_elevon_pitch_raw,
             "action_elevon_pitch_integ": self._action_elevon_pitch_integ,
             "action_elevon_roll_raw": action_roll_raw,
