@@ -7,6 +7,8 @@ from .guidance import (
     DirectionalGuidanceOutput,
     DirectionalGuidanceSettings,
 )
+from .circle_navigation import navigate_circle
+from .loiter_controller import PX4LikeLoiterController, PX4LikeLoiterControllerCfg
 from .line_navigation import navigate_line
 from .straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
 from .tecs import PX4LikeTECS, PX4LikeTECSCfg
@@ -17,9 +19,12 @@ __all__ = [
     "DirectionalGuidance",
     "DirectionalGuidanceOutput",
     "DirectionalGuidanceSettings",
+    "PX4LikeLoiterController",
+    "PX4LikeLoiterControllerCfg",
     "PX4LikeStraightLineController",
     "PX4LikeStraightLineControllerCfg",
     "PX4LikeTECS",
     "PX4LikeTECSCfg",
+    "navigate_circle",
     "navigate_line",
 ]
