@@ -62,6 +62,10 @@ def _mean_abs(values: list[float]) -> float:
     return float(sum(finite) / len(finite))
 
 
+def _has_finite(values: list[float]) -> bool:
+    return any(v == v for v in values)
+
+
 def main() -> None:
     args = _parse_args()
     if (args.run_dir is None) == (args.traj_csv is None):
@@ -82,18 +86,29 @@ def main() -> None:
 
     summary = _load_summary(summary_path)
     dt = float(summary.get("env_dt_s", 0.008333333333333333))
+    warmup_s = float(summary.get("metrics_warmup_s", float("nan")))
 
     t = [_get(r, "t", _get(r, "step", i) * dt) for i, r in enumerate(rows)]
     x = [_get(r, "x") for r in rows]
     y = [_get(r, "y") for r in rows]
+    x_est = [_get(r, "x_est") for r in rows]
+    y_est = [_get(r, "y_est") for r in rows]
     z = [_get(r, "z") for r in rows]
+    z_est = [_get(r, "z_est") for r in rows]
     speed = [_get(r, "speed") for r in rows]
     airspeed = [_get(r, "airspeed") for r in rows]
+    speed_est = [_get(r, "speed_est") for r in rows]
+    airspeed_est = [_get(r, "airspeed_est") for r in rows]
     freq_hz = [_get(r, "freq_hz") for r in rows]
     radial_error = [_get(r, "radial_error_m") for r in rows]
+    radial_error_ctrl = [_get(r, "radial_error_ctrl_m") for r in rows]
     height_error = [_get(r, "height_err_m") for r in rows]
+    est_pos_xy_err = [_get(r, "est_pos_xy_err_m") for r in rows]
+    est_yaw_err_deg = [_get(r, "est_yaw_err_deg") for r in rows]
     wind_x = [_get(r, "wind_x_mps") for r in rows]
     wind_y = [_get(r, "wind_y_mps") for r in rows]
+    wind_x_est = [_get(r, "wind_x_est_mps") for r in rows]
+    wind_y_est = [_get(r, "wind_y_est_mps") for r in rows]
     action_freq = [_get(r, "action_freq") for r in rows]
     action_rudder = [_get(r, "action_rudder") for r in rows]
     action_elevon_pitch = [_get(r, "action_elevon_pitch") for r in rows]
@@ -118,6 +133,8 @@ def main() -> None:
     ax_wind = axs[2, 1]
 
     ax_z.plot(t, z, label="z (m)")
+    if _has_finite(z_est):
+        ax_z.plot(t, z_est, linewidth=1.0, alpha=0.8, label="z_est (m)")
     ax_z.axhline(height_sp, color="k", linestyle="--", linewidth=1.0, alpha=0.6, label="height_sp")
     ax_z.set_title("Altitude")
     ax_z.set_ylabel("m")
@@ -126,6 +143,10 @@ def main() -> None:
 
     ax_v.plot(t, speed, label="speed (m/s)")
     ax_v.plot(t, airspeed, linewidth=1.1, alpha=0.9, label="airspeed (m/s)")
+    if _has_finite(speed_est):
+        ax_v.plot(t, speed_est, linewidth=1.0, alpha=0.8, label="speed_est (m/s)")
+    if _has_finite(airspeed_est):
+        ax_v.plot(t, airspeed_est, linewidth=1.0, alpha=0.8, label="airspeed_est (m/s)")
     ax_v.set_title("Speed")
     ax_v.set_ylabel("m/s")
     ax_v.grid(True, alpha=0.3)
@@ -134,6 +155,8 @@ def main() -> None:
     ax_f.plot(t, freq_hz, label="flap freq (Hz)")
     ax_f2 = ax_f.twinx()
     ax_f2.plot(t, radial_error, color="tab:red", alpha=0.75, label="radial error (m)")
+    if _has_finite(radial_error_ctrl):
+        ax_f2.plot(t, radial_error_ctrl, color="tab:orange", alpha=0.6, label="radial error ctrl (m)")
     ax_f.set_title("Flapping and Radial Error")
     ax_f.set_xlabel("t (s)")
     ax_f.set_ylabel("Hz")
@@ -158,6 +181,8 @@ def main() -> None:
     ax_u.legend(lines + lines2, labels + labels2, loc="best")
 
     ax_path.plot(x, y, label="trajectory")
+    if _has_finite(x_est) and _has_finite(y_est):
+        ax_path.plot(x_est, y_est, linewidth=1.0, alpha=0.8, label="trajectory_est")
     if radius > 0.0:
         import numpy as np
 
@@ -185,8 +210,16 @@ def main() -> None:
 
     ax_wind.plot(t, wind_x, label="wind_x (m/s)")
     ax_wind.plot(t, wind_y, label="wind_y (m/s)")
+    if _has_finite(wind_x_est):
+        ax_wind.plot(t, wind_x_est, linestyle="--", linewidth=1.0, alpha=0.9, label="wind_x_est (m/s)")
+    if _has_finite(wind_y_est):
+        ax_wind.plot(t, wind_y_est, linestyle="--", linewidth=1.0, alpha=0.9, label="wind_y_est (m/s)")
     ax_wind2 = ax_wind.twinx()
     ax_wind2.plot(t, height_error, color="tab:purple", alpha=0.8, label="height_err (m)")
+    if _has_finite(est_pos_xy_err):
+        ax_wind2.plot(t, est_pos_xy_err, color="tab:brown", alpha=0.8, label="est_pos_xy_err (m)")
+    if _has_finite(est_yaw_err_deg):
+        ax_wind2.plot(t, est_yaw_err_deg, color="tab:pink", alpha=0.8, label="est_yaw_err (deg)")
     ax_wind.set_title("Wind and Height Error")
     ax_wind.set_xlabel("t (s)")
     ax_wind.set_ylabel("m/s")
@@ -195,6 +228,10 @@ def main() -> None:
     lines, labels = ax_wind.get_legend_handles_labels()
     lines2, labels2 = ax_wind2.get_legend_handles_labels()
     ax_wind.legend(lines + lines2, labels + labels2, loc="best")
+
+    if (warmup_s == warmup_s) and (warmup_s > 0.0):
+        for axis in (ax_z, ax_v, ax_f, ax_u, ax_wind):
+            axis.axvline(warmup_s, color="tab:gray", linestyle="--", linewidth=1.0, alpha=0.8)
 
     fig.suptitle(str(run_dir))
     fig.tight_layout()
@@ -212,7 +249,14 @@ def main() -> None:
                 "height_sp_m": float(height_sp),
                 "mean_abs_radial_error_m": mean_abs_radial,
                 "mean_abs_height_error_m": _mean_abs(height_error),
+                "mean_est_pos_xy_err_m": _mean_abs(est_pos_xy_err),
+                "mean_est_yaw_err_deg": _mean_abs(est_yaw_err_deg),
                 "mean_speed_mps": _const_from_series(speed, default=float("nan")),
+                "metrics_warmup_s": warmup_s if warmup_s == warmup_s else None,
+                "mean_abs_radial_error_post_warmup_m": summary.get("mean_abs_radial_error_post_warmup_m"),
+                "mean_abs_height_error_post_warmup_m": summary.get("mean_abs_height_error_post_warmup_m"),
+                "mean_est_pos_xy_err_post_warmup_m": summary.get("mean_est_pos_xy_err_post_warmup_m"),
+                "mean_est_yaw_err_post_warmup_deg": summary.get("mean_est_yaw_err_post_warmup_deg"),
             },
             indent=2,
         )
