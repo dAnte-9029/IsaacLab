@@ -51,6 +51,7 @@ from .agents.rsl_rl_ppo_straightflight_cfg import FlappingBotStraightFlightPPORu
 from flapping_bot import (  # noqa: E402
     FlappingBotEnv,
     FlappingBotEnvCfg,
+    FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
     FlappingBotStraightFlightDeLaurierEnvCfg,
     FlappingBotStraightFlightEnv,
     FlappingBotStraightFlightSimpleEnvCfg,
@@ -85,6 +86,17 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-DeLaurier-TeacherRL-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
         "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
     },
 )

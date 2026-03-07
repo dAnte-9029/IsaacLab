@@ -7,7 +7,7 @@ keeps running.
 Typical usage:
   # Train on GPU0, evaluate on GPU1
   ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
-    --task Isaac-FlappingBot-StraightFlight-Simple-Direct-v0 \
+    --task Isaac-FlappingBot-StraightFlight-DeLaurier-TeacherRL-Direct-v0 \
     --run-name sf_long \
     --train-device cuda:0 \
     --eval-device cuda:1 \
@@ -21,6 +21,7 @@ Typical usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import re
 import signal
@@ -42,23 +43,92 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-device", type=str, default="cuda:1")
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument("--poll-s", type=float, default=120.0)
-    # pass-through to AppLauncher (headless / livestream / etc.)
+    parser.add_argument(
+        "--eval-suite",
+        type=str,
+        default="straight_standard",
+        choices=("straight_standard", "single"),
+    )
     parser.add_argument("--headless", action="store_true")
     return parser.parse_args()
+
+
+def _extract_ckpt_index(path: Path) -> int:
+    match = re.search(r"model_(\d+)\.pt$", path.name)
+    return int(match.group(1)) if match else -1
+
+
+def _load_completed_checkpoints(summary_csv: Path) -> set[str]:
+    completed: set[str] = set()
+    if not summary_csv.is_file():
+        return completed
+
+    with summary_csv.open("r", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            checkpoint = row.get("checkpoint")
+            case_name = row.get("case")
+            if checkpoint and case_name == "suite":
+                completed.add(str(Path(checkpoint).expanduser().resolve()))
+    return completed
+
+
+def _latest_checkpoint(run_dir: Path) -> Path | None:
+    ckpts = sorted(run_dir.glob("model_*.pt"), key=_extract_ckpt_index)
+    if not ckpts:
+        return None
+    return ckpts[-1].resolve()
+
+
+def _needs_final_eval(run_dir: Path) -> bool:
+    latest_ckpt = _latest_checkpoint(run_dir)
+    if latest_ckpt is None:
+        return False
+    completed = _load_completed_checkpoints(run_dir / "eval" / "summary.csv")
+    return str(latest_ckpt) not in completed
 
 
 def _safe_terminate(p: subprocess.Popen, timeout_s: float = 10.0):
     if p.poll() is not None:
         return
+
     try:
-        p.send_signal(signal.SIGINT)
+        if os.name == "posix":
+            os.killpg(os.getpgid(p.pid), signal.SIGINT)
+        else:
+            p.send_signal(signal.SIGINT)
+        p.wait(timeout=timeout_s)
+        return
+    except Exception:
+        pass
+
+    try:
+        if os.name == "posix":
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+        else:
+            p.terminate()
+        p.wait(timeout=timeout_s)
+        return
+    except Exception:
+        pass
+
+    try:
+        if os.name == "posix":
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        else:
+            p.kill()
         p.wait(timeout=timeout_s)
     except Exception:
-        try:
-            p.terminate()
-            p.wait(timeout=timeout_s)
-        except Exception:
-            p.kill()
+        p.kill()
+
+
+def _run_final_eval_once(watch_cmd: list[str]) -> int:
+    final_cmd = list(watch_cmd)
+    if "--once" not in final_cmd:
+        final_cmd.append("--once")
+    print("[INFO] Running final one-shot evaluation:", flush=True)
+    print(" ", " ".join(final_cmd), flush=True)
+    return subprocess.call(final_cmd)
 
 
 def main():
@@ -66,7 +136,6 @@ def main():
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)
 
-    # Training command (single process on train-device).
     train_cmd = [
         "./isaaclab.sh",
         "-p",
@@ -87,7 +156,6 @@ def main():
     if args.headless:
         train_cmd.append("--headless")
 
-    # Start training and parse the run directory from stdout.
     print("[INFO] Launching training:")
     print(" ", " ".join(train_cmd), flush=True)
 
@@ -97,10 +165,15 @@ def main():
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        start_new_session=True,
     )
 
     log_root: Path | None = None
     timestamp: str | None = None
+    run_dir: Path | None = None
+    watch_cmd: list[str] | None = None
+    final_eval_needed = False
+    rc = 1
     try:
         assert train.stdout is not None
         for line in train.stdout:
@@ -108,13 +181,13 @@ def main():
             sys.stdout.flush()
 
             if log_root is None:
-                m = re.search(r"Logging experiment in directory: (.+)$", line.strip())
-                if m:
-                    log_root = Path(m.group(1)).expanduser().resolve()
+                match = re.search(r"Logging experiment in directory: (.+)$", line.strip())
+                if match:
+                    log_root = Path(match.group(1)).expanduser().resolve()
             if timestamp is None:
-                m = re.search("Exact experiment name requested from command line: (\\S+)$", line.strip())
-                if m:
-                    timestamp = m.group(1)
+                match = re.search(r"Exact experiment name requested from command line: (\S+)$", line.strip())
+                if match:
+                    timestamp = match.group(1)
             if log_root is not None and timestamp is not None:
                 break
 
@@ -122,7 +195,6 @@ def main():
             raise RuntimeError("Failed to parse log directory from training output.")
 
         run_dir = (log_root / f"{timestamp}_{args.run_name}").resolve()
-        # Wait for the directory to appear on disk.
         t0 = time.time()
         while not run_dir.is_dir():
             if train.poll() is not None:
@@ -131,7 +203,6 @@ def main():
                 raise TimeoutError(f"Timed out waiting for run dir: {run_dir}")
             time.sleep(0.5)
 
-        # Start watcher on eval-device.
         watch_cmd = [
             "./isaaclab.sh",
             "-p",
@@ -148,15 +219,16 @@ def main():
             "1",
             "--poll_s",
             str(args.poll_s),
+            "--eval_suite",
+            str(args.eval_suite),
         ]
         if args.headless:
             watch_cmd.append("--headless")
 
         print("[INFO] Launching watcher:")
         print(" ", " ".join(watch_cmd), flush=True)
-        watcher = subprocess.Popen(watch_cmd)
+        watcher = subprocess.Popen(watch_cmd, start_new_session=True)
 
-        # Stream remaining training output.
         assert train.stdout is not None
         for line in train.stdout:
             sys.stdout.write(line)
@@ -164,6 +236,7 @@ def main():
 
         rc = train.wait()
         print(f"[INFO] Training finished with return code: {rc}", flush=True)
+        final_eval_needed = rc == 0 and run_dir is not None and watch_cmd is not None
     except KeyboardInterrupt:
         print("[WARN] KeyboardInterrupt: stopping processes...", flush=True)
         rc = 130
@@ -173,6 +246,16 @@ def main():
                 _safe_terminate(watcher)
         except Exception:
             pass
+
+        if final_eval_needed and watch_cmd is not None and run_dir is not None:
+            if _needs_final_eval(run_dir):
+                final_eval_rc = _run_final_eval_once(watch_cmd)
+                if final_eval_rc != 0:
+                    print(f"[WARN] Final one-shot evaluation exited with code: {final_eval_rc}", flush=True)
+                    rc = final_eval_rc if rc == 0 else rc
+            else:
+                print("[INFO] Latest checkpoint already has a suite row; skipping final one-shot evaluation.", flush=True)
+
         _safe_terminate(train)
 
     raise SystemExit(rc)

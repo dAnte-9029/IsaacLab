@@ -244,8 +244,8 @@ def main():
     while ep_done < int(args.episodes):
         with torch.inference_mode():
             actions = policy(obs)
-            obs, _rew, dones, _info = env.step(actions)
-            policy_nn.reset(dones)
+        obs, _rew, dones, _info = env.step(actions)
+        policy_nn.reset(dones)
 
         # metrics from env state
         pos_local = env.unwrapped._robot.data.root_pos_w - env.unwrapped.scene.env_origins  # (N,3)

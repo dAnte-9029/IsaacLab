@@ -41,6 +41,13 @@ def _parse_args() -> argparse.Namespace:
     # fixed-command evaluation
     parser.add_argument("--vx_cmd", type=float, default=None)
     parser.add_argument("--height_cmd", type=float, default=None)
+    parser.add_argument(
+        "--eval_suite",
+        type=str,
+        default="straight_standard",
+        choices=("straight_standard", "single"),
+        help="Evaluation suite. `straight_standard` runs calm / steady-crosswind / OU-crosswind cases.",
+    )
     AppLauncher.add_app_launcher_args(parser)
     args, _ = parser.parse_known_args()
     return args
@@ -49,6 +56,58 @@ def _parse_args() -> argparse.Namespace:
 def _extract_ckpt_index(p: Path) -> int:
     m = re.match(r"model_(\d+)\.pt$", p.name)
     return int(m.group(1)) if m else -1
+
+
+def _default_eval_cases(eval_suite: str) -> list[dict]:
+    if eval_suite == "single":
+        return [
+            {
+                "name": "single",
+                "wind_enabled": False,
+                "wind_xy_mps": (0.0, 0.0),
+                "wind_ou_enabled": False,
+                "wind_ou_tau_s": 2.0,
+                "wind_ou_sigma_xy_mps": (0.0, 0.0),
+            }
+        ]
+
+    return [
+        {
+            "name": "calm",
+            "wind_enabled": False,
+            "wind_xy_mps": (0.0, 0.0),
+            "wind_ou_enabled": False,
+            "wind_ou_tau_s": 2.0,
+            "wind_ou_sigma_xy_mps": (0.0, 0.0),
+        },
+        {
+            "name": "crosswind_steady",
+            "wind_enabled": True,
+            "wind_xy_mps": (0.0, 2.0),
+            "wind_ou_enabled": False,
+            "wind_ou_tau_s": 2.0,
+            "wind_ou_sigma_xy_mps": (0.0, 0.0),
+        },
+        {
+            "name": "crosswind_ou",
+            "wind_enabled": True,
+            "wind_xy_mps": (0.0, 1.5),
+            "wind_ou_enabled": True,
+            "wind_ou_tau_s": 2.0,
+            "wind_ou_sigma_xy_mps": (0.0, 0.8),
+        },
+    ]
+
+
+def _score_row(row: dict) -> float:
+    cost = (
+        float(row["mean_abs_vx_err"])
+        + float(row["mean_abs_z_err"])
+        + 0.5 * float(row["mean_max_abs_y"])
+        + 0.05 * float(row["mean_max_tilt_deg"])
+        + 5.0 * float(row["termination_rate"])
+    )
+    return 100.0 / (1.0 + cost)
 
 
 def main():
@@ -177,6 +236,28 @@ def main():
     if args.height_cmd is not None:
         env_cfg.height_cmd = float(args.height_cmd)
 
+    def _apply_eval_case(case: dict, cfg) -> None:
+        cfg.randomize_commands = False
+        if args.vx_cmd is not None:
+            cfg.vx_cmd = float(args.vx_cmd)
+        if args.height_cmd is not None:
+            cfg.height_cmd = float(args.height_cmd)
+
+        if hasattr(cfg, "teacher_guidance_enabled"):
+            cfg.teacher_guidance_enabled = False
+        if hasattr(cfg, "wind_curriculum_enabled"):
+            cfg.wind_curriculum_enabled = False
+
+        cfg.wind_enabled = bool(case["wind_enabled"])
+        cfg.randomize_wind = False
+        cfg.wind_xy_mps = tuple(float(v) for v in case["wind_xy_mps"])
+        cfg.wind_x_range_mps = (float(case["wind_xy_mps"][0]), float(case["wind_xy_mps"][0]))
+        cfg.wind_y_range_mps = (float(case["wind_xy_mps"][1]), float(case["wind_xy_mps"][1]))
+        cfg.wind_ou_enabled = bool(case["wind_ou_enabled"])
+        cfg.wind_ou_tau_s = float(case["wind_ou_tau_s"])
+        cfg.wind_ou_sigma_xy_mps = tuple(float(v) for v in case["wind_ou_sigma_xy_mps"])
+        cfg.wind_ou_clip_to_range = False
+
     agent_cfg_dict = None
     if use_saved_cfg:
         saved_agent = log_dir / "params" / "agent.yaml"
@@ -187,6 +268,9 @@ def main():
         agent_cfg.device = args.device if args.device is not None else agent_cfg.device
         agent_cfg_dict = agent_cfg.to_dict()
     agent_cfg_dict["device"] = args.device if args.device is not None else agent_cfg_dict.get("device", "cuda:0")
+
+    eval_cases = _default_eval_cases(args.eval_suite)
+    _apply_eval_case(eval_cases[0], env_cfg)
 
     env = gym.make(args.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg_dict.get("clip_actions", None))
@@ -203,7 +287,8 @@ def main():
         with summary_csv.open("r", newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                if "checkpoint" in row:
+                case_name = row.get("case")
+                if "checkpoint" in row and (case_name in (None, "suite")):
                     evaluated.add(row["checkpoint"])
 
     def _append_row(row: dict):
@@ -214,15 +299,17 @@ def main():
                 writer.writeheader()
             writer.writerow(row)
 
-    def _eval_checkpoint(ckpt: Path) -> dict:
+    def _eval_case(ckpt: Path, case: dict) -> dict:
         # load weights
         runner.load(str(ckpt))
         policy = runner.get_inference_policy(device=env.unwrapped.device)
+        _apply_eval_case(case, env.unwrapped.cfg)
+        obs, _ = env.reset()
+        policy_nn.reset(torch.ones(env.unwrapped.num_envs, dtype=torch.long, device=env.unwrapped.device))
 
         # per-episode aggregation (similar to eval_straight_flight_checkpoint.py but kept minimal)
         n_env = int(env.unwrapped.num_envs)
         target_episodes = int(args.episodes)
-        obs = env.get_observations()
 
         sum_abs_vx = torch.zeros(n_env, device=env.unwrapped.device)
         sum_abs_z = torch.zeros(n_env, device=env.unwrapped.device)
@@ -235,8 +322,8 @@ def main():
         while ep_done < target_episodes:
             with torch.inference_mode():
                 actions = policy(obs)
-                obs, _rew, dones, _info = env.step(actions)
-                policy_nn.reset(dones)
+            obs, _rew, dones, _info = env.step(actions)
+            policy_nn.reset(dones)
 
             pos_local = env.unwrapped._robot.data.root_pos_w - env.unwrapped.scene.env_origins
             vx = env.unwrapped._robot.data.root_lin_vel_b[:, 0]
@@ -285,8 +372,9 @@ def main():
         term_rate = sum(r["terminated"] for r in ep_rows) / len(ep_rows)
         timeout_rate = sum(r["time_out"] for r in ep_rows) / len(ep_rows)
 
-        return {
+        row = {
             "checkpoint": str(ckpt),
+            "case": str(case["name"]),
             "ckpt_index": _extract_ckpt_index(ckpt),
             "episodes": target_episodes,
             "mean_abs_vx_err": mean_abs_vx,
@@ -295,7 +383,38 @@ def main():
             "mean_max_tilt_deg": mean_max_tilt,
             "termination_rate": term_rate,
             "timeout_rate": timeout_rate,
+            "wind_enabled": int(bool(case["wind_enabled"])),
+            "wind_x_mps": float(case["wind_xy_mps"][0]),
+            "wind_y_mps": float(case["wind_xy_mps"][1]),
+            "wind_ou_enabled": int(bool(case["wind_ou_enabled"])),
+            "wind_ou_sigma_x_mps": float(case["wind_ou_sigma_xy_mps"][0]),
+            "wind_ou_sigma_y_mps": float(case["wind_ou_sigma_xy_mps"][1]),
         }
+        row["score"] = _score_row(row)
+        return row
+
+    def _eval_checkpoint(ckpt: Path) -> list[dict]:
+        case_rows = [_eval_case(ckpt, case) for case in eval_cases]
+        suite_row = {
+            "checkpoint": str(ckpt),
+            "case": "suite",
+            "ckpt_index": _extract_ckpt_index(ckpt),
+            "episodes": sum(int(r["episodes"]) for r in case_rows),
+            "mean_abs_vx_err": sum(float(r["mean_abs_vx_err"]) for r in case_rows) / len(case_rows),
+            "mean_abs_z_err": sum(float(r["mean_abs_z_err"]) for r in case_rows) / len(case_rows),
+            "mean_max_abs_y": sum(float(r["mean_max_abs_y"]) for r in case_rows) / len(case_rows),
+            "mean_max_tilt_deg": sum(float(r["mean_max_tilt_deg"]) for r in case_rows) / len(case_rows),
+            "termination_rate": sum(float(r["termination_rate"]) for r in case_rows) / len(case_rows),
+            "timeout_rate": sum(float(r["timeout_rate"]) for r in case_rows) / len(case_rows),
+            "wind_enabled": int(any(bool(r["wind_enabled"]) for r in case_rows)),
+            "wind_x_mps": float("nan"),
+            "wind_y_mps": float("nan"),
+            "wind_ou_enabled": int(any(bool(r["wind_ou_enabled"]) for r in case_rows)),
+            "wind_ou_sigma_x_mps": float("nan"),
+            "wind_ou_sigma_y_mps": float("nan"),
+        }
+        suite_row["score"] = sum(float(r["score"]) for r in case_rows) / len(case_rows)
+        return case_rows + [suite_row]
 
     # main watch loop
     try:
@@ -304,11 +423,13 @@ def main():
             new_ckpts = [p for p in ckpts if str(p) not in evaluated]
 
             for ckpt in new_ckpts:
-                row = _eval_checkpoint(ckpt)
-                _append_row(row)
-                (eval_dir / f"{Path(ckpt).stem}.json").write_text(json.dumps(row, indent=2))
+                rows = _eval_checkpoint(ckpt)
+                for row in rows:
+                    _append_row(row)
+                (eval_dir / f"{Path(ckpt).stem}.json").write_text(json.dumps(rows, indent=2))
                 evaluated.add(str(ckpt))
-                print("[OK] Evaluated:", ckpt.name, row)
+                suite_row = next(row for row in rows if row["case"] == "suite")
+                print("[OK] Evaluated:", ckpt.name, {"suite_score": suite_row["score"], "rows": rows})
 
             if args.once:
                 break

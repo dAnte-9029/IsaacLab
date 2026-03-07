@@ -39,6 +39,8 @@ from ...physics import (
     WingGeometry,
     build_wing_geometry_from_csv,
 )
+from ...px4_like.rl_training_utils import apply_teacher_action_envelope, linear_anneal
+from ...px4_like.straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
 from ...scenes import FlappingRoomSceneCfg
 
 Tensor = torch.Tensor
@@ -72,6 +74,21 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     wind_ou_tau_s: float = 2.0
     wind_ou_sigma_xy_mps: tuple[float, float] = (0.0, 0.0)
     wind_ou_clip_to_range: bool = False
+    wind_curriculum_enabled: bool = False
+    wind_curriculum_steps: int = 120_000
+    wind_curriculum_min_scale: float = 0.0
+    wind_curriculum_max_scale: float = 1.0
+    wind_curriculum_zero_prob_start: float = 1.0
+    wind_curriculum_zero_prob_end: float = 0.1
+
+    # teacher-guided RL in the normalized action space [-1, 1]
+    teacher_guidance_enabled: bool = False
+    teacher_guidance_delta_init: float = 0.20
+    teacher_guidance_delta_final: float = 2.0
+    teacher_guidance_anneal_steps: int = 120_000
+    teacher_guidance_use_wind_truth: bool = True
+    teacher_line_start_xy: tuple[float, float] = (0.0, 0.0)
+    teacher_line_end_xy: tuple[float, float] = (120.0, 0.0)
 
     # action filtering (normalized action space [-1, 1])
     act_lpf_tau_s: float = 0.1  # 0: off; first-order low-pass time constant (s)
@@ -284,6 +301,28 @@ class FlappingBotStraightFlightDeLaurierEnvCfg(FlappingBotStraightFlightEnvCfg):
     use_delaurier_wings: bool = True
 
 
+@configclass
+class FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg(FlappingBotStraightFlightDeLaurierEnvCfg):
+    """Teacher-guided RL defaults for DeLaurier straight-flight training."""
+
+    teacher_guidance_enabled: bool = True
+    teacher_guidance_delta_init: float = 0.15
+    teacher_guidance_delta_final: float = 2.0
+    teacher_guidance_anneal_steps: int = 160_000
+
+    wind_enabled: bool = True
+    randomize_wind: bool = True
+    wind_x_range_mps: tuple[float, float] = (-0.5, 0.5)
+    wind_y_range_mps: tuple[float, float] = (-2.5, 2.5)
+    wind_ou_enabled: bool = True
+    wind_ou_tau_s: float = 2.0
+    wind_ou_sigma_xy_mps: tuple[float, float] = (0.2, 0.8)
+    wind_curriculum_enabled: bool = True
+    wind_curriculum_steps: int = 160_000
+    wind_curriculum_zero_prob_start: float = 1.0
+    wind_curriculum_zero_prob_end: float = 0.15
+
+
 class FlappingBotStraightFlightEnv(DirectRLEnv):
     cfg: FlappingBotStraightFlightEnvCfg
 
@@ -321,6 +360,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._height_cmd: Tensor | None = None
         self._wind_w: Tensor | None = None
         self._wind_mean_w: Tensor | None = None
+        self._teacher_controller: PX4LikeStraightLineController | None = None
+        self._teacher_actions: Tensor | None = None
+        self._teacher_action_gap_abs: Tensor | None = None
+        self._teacher_delta: float = 0.0
+        self._wind_curriculum_scale: float = 0.0
 
         # indices
         self._IDX_LEFT_WING = None
@@ -379,6 +423,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._actions = torch.zeros(self.num_envs, action_dim, device=self.device)
         self._act_lpf = torch.zeros_like(self._actions)
         self._act_cmd = torch.zeros_like(self._actions)
+        self._teacher_actions = torch.zeros_like(self._actions)
+        self._teacher_action_gap_abs = torch.zeros_like(self._actions)
 
         # grouped frame history buffers (N, K, D)
         N = self.num_envs
@@ -489,6 +535,26 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             A_l2w_R = torch.tensor([[0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]], device=self.device)
             self._A_w2l_batch = torch.stack((A_l2w_L.T, A_l2w_R.T), dim=0)  # (2,3,3)
 
+        self._teacher_delta = float(self.cfg.teacher_guidance_delta_final)
+        self._wind_curriculum_scale = 1.0 if bool(self.cfg.wind_enabled) else 0.0
+        if bool(self.cfg.teacher_guidance_enabled):
+            self._teacher_controller = PX4LikeStraightLineController(
+                PX4LikeStraightLineControllerCfg(
+                    line_start_xy=tuple(float(v) for v in self.cfg.teacher_line_start_xy),
+                    line_end_xy=tuple(float(v) for v in self.cfg.teacher_line_end_xy),
+                    wind_xy=(0.0, 0.0),
+                    control_dt_s=float(self.step_dt),
+                    height_sp_m=float(self.cfg.height_cmd),
+                    pitch_trim_deg=float(self.cfg.pitch_cmd_deg),
+                    freq_trim_hz=float(self.cfg.reset_flap_hz),
+                    min_flap_hz=float(self.cfg.min_flap_hz),
+                    max_flap_hz=float(self.cfg.max_flap_hz),
+                    enable_tecs=True,
+                    speed_sp_mps=float(self.cfg.vx_cmd),
+                ),
+                device=self.device,
+            )
+
     def _override_appendage_mass_properties(self) -> None:
         """Optionally scale wing/tail masses to reduce rigid-body reaction torques from prescribed joint motion."""
         if self._mass_total is None:
@@ -552,10 +618,67 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     # ------------------------------------------------------------------
     # Control
     # ------------------------------------------------------------------
+    def _get_wind_curriculum_scale(self) -> float:
+        if not bool(self.cfg.wind_enabled):
+            return 0.0
+        if not bool(self.cfg.wind_curriculum_enabled):
+            return 1.0
+        return linear_anneal(
+            int(self.common_step_counter),
+            start=float(self.cfg.wind_curriculum_min_scale),
+            end=float(self.cfg.wind_curriculum_max_scale),
+            duration_steps=int(self.cfg.wind_curriculum_steps),
+        )
+
+    def _get_wind_zero_prob(self) -> float:
+        if not bool(self.cfg.wind_curriculum_enabled):
+            return 0.0
+        return linear_anneal(
+            int(self.common_step_counter),
+            start=float(self.cfg.wind_curriculum_zero_prob_start),
+            end=float(self.cfg.wind_curriculum_zero_prob_end),
+            duration_steps=int(self.cfg.wind_curriculum_steps),
+        )
+
+    def _get_teacher_delta(self) -> float:
+        if not bool(self.cfg.teacher_guidance_enabled):
+            return float(self.cfg.teacher_guidance_delta_final)
+        return linear_anneal(
+            int(self.common_step_counter),
+            start=float(self.cfg.teacher_guidance_delta_init),
+            end=float(self.cfg.teacher_guidance_delta_final),
+            duration_steps=int(self.cfg.teacher_guidance_anneal_steps),
+        )
+
+    def _compute_teacher_actions(self) -> tuple[Tensor, dict[str, Tensor]]:
+        if self._teacher_controller is None:
+            raise RuntimeError("Teacher controller is not initialized.")
+
+        pos_local = self._robot.data.root_pos_w - self.scene.env_origins
+        ground_vel_local = self._robot.data.root_lin_vel_w
+        roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
+        ang_vel_body = self._robot.data.root_ang_vel_b
+        if bool(self.cfg.teacher_guidance_use_wind_truth):
+            wind_xy = self._wind_w[:, 0:2]
+        else:
+            wind_xy = torch.zeros((self.num_envs, 2), device=self.device)
+
+        return self._teacher_controller.compute_actions(
+            pos_local=pos_local,
+            ground_vel_local=ground_vel_local,
+            wind_vel_local=wind_xy,
+            roll=roll,
+            pitch=pitch,
+            yaw=yaw,
+            ang_vel_body=ang_vel_body,
+        )
+
     def _update_wind_process(self) -> None:
         """Update world-frame wind state, optionally with OU gust dynamics."""
         assert self._wind_w is not None
         assert self._wind_mean_w is not None
+
+        self._wind_curriculum_scale = self._get_wind_curriculum_scale()
 
         if not bool(self.cfg.wind_enabled):
             self._wind_mean_w.zero_()
@@ -571,8 +694,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         tau = max(float(self.cfg.wind_ou_tau_s), 1.0e-3)
         alpha = math.exp(-float(self.step_dt) / tau)
         noise_scale = math.sqrt(max(1.0 - alpha * alpha, 0.0))
-        sigma_x = max(float(self.cfg.wind_ou_sigma_xy_mps[0]), 0.0)
-        sigma_y = max(float(self.cfg.wind_ou_sigma_xy_mps[1]), 0.0)
+        sigma_x = self._wind_curriculum_scale * max(float(self.cfg.wind_ou_sigma_xy_mps[0]), 0.0)
+        sigma_y = self._wind_curriculum_scale * max(float(self.cfg.wind_ou_sigma_xy_mps[1]), 0.0)
         sigma_xy = torch.tensor((sigma_x, sigma_y), device=self.device).view(1, 2)
 
         self._wind_w[:, 0:2] = self._wind_mean_w[:, 0:2] + alpha * (self._wind_w[:, 0:2] - self._wind_mean_w[:, 0:2])
@@ -582,8 +705,18 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._wind_w[:, 2] = 0.0
 
         if bool(self.cfg.wind_ou_clip_to_range):
-            x_low, x_high = sorted((float(self.cfg.wind_x_range_mps[0]), float(self.cfg.wind_x_range_mps[1])))
-            y_low, y_high = sorted((float(self.cfg.wind_y_range_mps[0]), float(self.cfg.wind_y_range_mps[1])))
+            x_low, x_high = sorted(
+                (
+                    self._wind_curriculum_scale * float(self.cfg.wind_x_range_mps[0]),
+                    self._wind_curriculum_scale * float(self.cfg.wind_x_range_mps[1]),
+                )
+            )
+            y_low, y_high = sorted(
+                (
+                    self._wind_curriculum_scale * float(self.cfg.wind_y_range_mps[0]),
+                    self._wind_curriculum_scale * float(self.cfg.wind_y_range_mps[1]),
+                )
+            )
             self._wind_w[:, 0] = torch.clamp(self._wind_w[:, 0], min=x_low, max=x_high)
             self._wind_w[:, 1] = torch.clamp(self._wind_w[:, 1], min=y_low, max=y_high)
 
@@ -591,12 +724,25 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._update_wind_process()
         # raw actions in [-1, 1]
         self._actions = actions.clamp(-1.0, 1.0)
+        act_exec = self._actions
+        if bool(self.cfg.teacher_guidance_enabled):
+            self._teacher_delta = self._get_teacher_delta()
+            teacher_actions, teacher_diag = self._compute_teacher_actions()
+            self._teacher_actions.copy_(teacher_actions)
+            self._teacher_action_gap_abs.copy_(torch.abs(self._actions - self._teacher_actions))
+            act_exec = apply_teacher_action_envelope(self._teacher_actions, self._actions, delta=self._teacher_delta)
+            teacher_freq_hz = float(teacher_diag["freq_hz"].mean().item()) if "freq_hz" in teacher_diag else float("nan")
+        else:
+            self._teacher_delta = float(self.cfg.teacher_guidance_delta_final)
+            self._teacher_actions.zero_()
+            self._teacher_action_gap_abs.zero_()
+            teacher_freq_hz = float("nan")
         # low-pass filter
         if self.cfg.act_lpf_tau_s > 0.0:
             alpha = float(self.step_dt) / (self.cfg.act_lpf_tau_s + float(self.step_dt))
-            self._act_lpf = self._act_lpf + alpha * (self._actions - self._act_lpf)
+            self._act_lpf = self._act_lpf + alpha * (act_exec - self._act_lpf)
         else:
-            self._act_lpf = self._actions
+            self._act_lpf = act_exec
         # slew-rate limit
         if self.cfg.act_rate_limit_per_s > 0.0:
             max_delta = self.cfg.act_rate_limit_per_s * float(self.step_dt)
@@ -623,6 +769,16 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         mixed_roll = float(self.cfg.elevon_roll_mix) * self._elevon_roll_cmd
         left_raw = trim + mixed_pitch + mixed_roll
         right_raw = trim + mixed_pitch - mixed_roll
+
+        self.extras["log"] = {
+            "Teacher/delta": float(self._teacher_delta),
+            "Teacher/mean_abs_gap": float(self._teacher_action_gap_abs.mean().item()),
+            "Teacher/enabled": float(bool(self.cfg.teacher_guidance_enabled)),
+            "Teacher/freq_hz": teacher_freq_hz,
+            "Wind/curriculum_scale": float(self._wind_curriculum_scale),
+            "Wind/mean_x_mps": float(self._wind_mean_w[:, 0].mean().item()),
+            "Wind/mean_y_mps": float(self._wind_mean_w[:, 1].mean().item()),
+        }
 
         l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -elevon_lim)
         l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], elevon_lim)
@@ -892,14 +1048,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if not bool(self.cfg.wind_enabled):
             self._wind_mean_w[env_ids] = 0.0
         elif bool(self.cfg.randomize_wind):
-            xl, xh = self.cfg.wind_x_range_mps
-            yl, yh = self.cfg.wind_y_range_mps
+            scale = self._get_wind_curriculum_scale()
+            zero_prob = self._get_wind_zero_prob()
+            xl = scale * float(self.cfg.wind_x_range_mps[0])
+            xh = scale * float(self.cfg.wind_x_range_mps[1])
+            yl = scale * float(self.cfg.wind_y_range_mps[0])
+            yh = scale * float(self.cfg.wind_y_range_mps[1])
             self._wind_mean_w[env_ids, 0] = torch.rand_like(self._vx_cmd[env_ids]) * (xh - xl) + xl
             self._wind_mean_w[env_ids, 1] = torch.rand_like(self._vx_cmd[env_ids]) * (yh - yl) + yl
             self._wind_mean_w[env_ids, 2] = 0.0
+            if zero_prob > 0.0:
+                zero_mask = torch.rand((env_ids.shape[0],), device=self.device) < zero_prob
+                self._wind_mean_w[env_ids[zero_mask], 0:2] = 0.0
         else:
-            self._wind_mean_w[env_ids, 0] = float(self.cfg.wind_xy_mps[0])
-            self._wind_mean_w[env_ids, 1] = float(self.cfg.wind_xy_mps[1])
+            scale = self._get_wind_curriculum_scale()
+            self._wind_mean_w[env_ids, 0] = scale * float(self.cfg.wind_xy_mps[0])
+            self._wind_mean_w[env_ids, 1] = scale * float(self.cfg.wind_xy_mps[1])
             self._wind_mean_w[env_ids, 2] = 0.0
         self._wind_w[env_ids] = self._wind_mean_w[env_ids]
 
@@ -979,6 +1143,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._elevator_cmd[env_ids] = 0.5 * (left0 + right0)
         self._rudder_cmd[env_ids] = math.radians(float(self.cfg.reset_rudder_deg))
         self._roll_cmd[env_ids] = 0.5 * (left0 - right0)
+        if self._teacher_controller is not None:
+            self._teacher_controller.reset(env_ids)
         self._hist_valid[env_ids] = False
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
