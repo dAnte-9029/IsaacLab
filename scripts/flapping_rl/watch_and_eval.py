@@ -18,11 +18,18 @@ import csv
 import json
 import os
 import re
+import sys
 import time
 from pathlib import Path
 from collections.abc import Iterable, Mapping, Sized
 
 from isaaclab.app import AppLauncher
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from checkpoint_selection import refresh_best_checkpoint_artifacts
 
 
 def _parse_args() -> argparse.Namespace:
@@ -427,9 +434,18 @@ def main():
                 for row in rows:
                     _append_row(row)
                 (eval_dir / f"{Path(ckpt).stem}.json").write_text(json.dumps(rows, indent=2))
+                best_row = refresh_best_checkpoint_artifacts(log_dir, summary_csv=summary_csv)
                 evaluated.add(str(ckpt))
                 suite_row = next(row for row in rows if row["case"] == "suite")
-                print("[OK] Evaluated:", ckpt.name, {"suite_score": suite_row["score"], "rows": rows})
+                print(
+                    "[OK] Evaluated:",
+                    ckpt.name,
+                    {
+                        "suite_score": suite_row["score"],
+                        "best_checkpoint": None if best_row is None else best_row["checkpoint"],
+                        "best_score": None if best_row is None else best_row["score"],
+                    },
+                )
 
             if args.once:
                 break

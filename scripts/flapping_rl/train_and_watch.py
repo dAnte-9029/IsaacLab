@@ -30,6 +30,12 @@ import sys
 import time
 from pathlib import Path
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from checkpoint_selection import refresh_best_checkpoint_artifacts, select_best_checkpoint_row
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train + watch/eval new checkpoints.")
@@ -260,6 +266,20 @@ def main():
                     rc = final_eval_rc if rc == 0 else rc
             else:
                 print("[INFO] Latest checkpoint already has a suite row; skipping final one-shot evaluation.", flush=True)
+
+            best_row = refresh_best_checkpoint_artifacts(run_dir)
+            if best_row is None:
+                best_row = select_best_checkpoint_row(run_dir / "eval" / "summary.csv")
+            if best_row is not None:
+                print(
+                    "[INFO] Current best checkpoint:",
+                    {
+                        "checkpoint": best_row["checkpoint"],
+                        "score": best_row["score"],
+                        "ckpt_index": best_row.get("ckpt_index"),
+                    },
+                    flush=True,
+                )
 
         _safe_terminate(train)
 
