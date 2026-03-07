@@ -36,7 +36,7 @@ FLAPPING_BOT_CFG = ArticulationCfg(
             gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=None, damping=None)
         ),
         make_instanceable=False,
-        force_usd_conversion=True,
+        force_usd_conversion=False,
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False,
             solver_position_iteration_count=8,

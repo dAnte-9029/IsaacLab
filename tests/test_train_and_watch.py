@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import threading
+import time
 from pathlib import Path
 
 
@@ -10,6 +12,14 @@ SPEC = importlib.util.spec_from_file_location("train_and_watch", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 train_and_watch = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(train_and_watch)
+
+
+class _FakeProcess:
+    def __init__(self, return_code: int | None = None):
+        self._return_code = return_code
+
+    def poll(self):
+        return self._return_code
 
 
 def _write_summary(path: Path, rows: list[dict[str, str]]) -> None:
@@ -35,8 +45,8 @@ def test_needs_final_eval_when_latest_suite_row_missing(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     eval_dir = run_dir / "eval"
     eval_dir.mkdir(parents=True)
-    model_0 = (run_dir / "model_0.pt")
-    model_1 = (run_dir / "model_1.pt")
+    model_0 = run_dir / "model_0.pt"
+    model_1 = run_dir / "model_1.pt"
     model_0.write_text("")
     model_1.write_text("")
     _write_summary(
@@ -54,8 +64,8 @@ def test_needs_final_eval_false_when_latest_suite_row_exists(tmp_path: Path) -> 
     run_dir = tmp_path / "run"
     eval_dir = run_dir / "eval"
     eval_dir.mkdir(parents=True)
-    model_0 = (run_dir / "model_0.pt")
-    model_1 = (run_dir / "model_1.pt")
+    model_0 = run_dir / "model_0.pt"
+    model_1 = run_dir / "model_1.pt"
     model_0.write_text("")
     model_1.write_text("")
     _write_summary(
@@ -67,3 +77,30 @@ def test_needs_final_eval_false_when_latest_suite_row_exists(tmp_path: Path) -> 
     )
 
     assert train_and_watch._needs_final_eval(run_dir) is False
+
+
+def test_wait_for_run_dir_succeeds_when_directory_appears(tmp_path: Path) -> None:
+    run_dir = tmp_path / "delayed_run"
+
+    def _create_dir() -> None:
+        time.sleep(0.1)
+        run_dir.mkdir()
+
+    thread = threading.Thread(target=_create_dir, daemon=True)
+    thread.start()
+
+    train_and_watch._wait_for_run_dir(run_dir, _FakeProcess(return_code=None), timeout_s=1.0, poll_s=0.01)
+    thread.join(timeout=1.0)
+
+    assert run_dir.is_dir()
+
+
+def test_wait_for_run_dir_raises_if_process_exits_first(tmp_path: Path) -> None:
+    run_dir = tmp_path / "never_created"
+
+    try:
+        train_and_watch._wait_for_run_dir(run_dir, _FakeProcess(return_code=1), timeout_s=0.1, poll_s=0.01)
+    except RuntimeError as exc:
+        assert "Training exited before creating a run directory" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when process exits before run dir appears.")

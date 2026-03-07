@@ -43,6 +43,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-device", type=str, default="cuda:1")
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument("--poll-s", type=float, default=120.0)
+    parser.add_argument("--run-dir-timeout-s", type=float, default=180.0)
     parser.add_argument(
         "--eval-suite",
         type=str,
@@ -78,6 +79,16 @@ def _latest_checkpoint(run_dir: Path) -> Path | None:
     if not ckpts:
         return None
     return ckpts[-1].resolve()
+
+
+def _wait_for_run_dir(run_dir: Path, train: subprocess.Popen, *, timeout_s: float, poll_s: float = 0.5) -> None:
+    t0 = time.time()
+    while not run_dir.is_dir():
+        if train.poll() is not None:
+            raise RuntimeError("Training exited before creating a run directory.")
+        if time.time() - t0 > timeout_s:
+            raise TimeoutError(f"Timed out waiting for run dir: {run_dir}")
+        time.sleep(poll_s)
 
 
 def _needs_final_eval(run_dir: Path) -> bool:
@@ -195,13 +206,7 @@ def main():
             raise RuntimeError("Failed to parse log directory from training output.")
 
         run_dir = (log_root / f"{timestamp}_{args.run_name}").resolve()
-        t0 = time.time()
-        while not run_dir.is_dir():
-            if train.poll() is not None:
-                raise RuntimeError("Training exited before creating a run directory.")
-            if time.time() - t0 > 60.0:
-                raise TimeoutError(f"Timed out waiting for run dir: {run_dir}")
-            time.sleep(0.5)
+        _wait_for_run_dir(run_dir, train, timeout_s=float(args.run_dir_timeout_s))
 
         watch_cmd = [
             "./isaaclab.sh",
