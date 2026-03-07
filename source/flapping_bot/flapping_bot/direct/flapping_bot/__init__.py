@@ -2,7 +2,9 @@
 
 from .flapping_env import FlappingBotEnv, FlappingBotEnvCfg
 from .straight_flight_env import (
+    FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
     FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
+    FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
     FlappingBotStraightFlightDeLaurierEnvCfg,
     FlappingBotStraightFlightEnv,
     FlappingBotStraightFlightEnvCfg,
@@ -17,4 +19,6 @@ __all__ = [
     "FlappingBotStraightFlightSimpleEnvCfg",
     "FlappingBotStraightFlightDeLaurierEnvCfg",
     "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
+    "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
+    "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
 ]

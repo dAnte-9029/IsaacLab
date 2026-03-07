@@ -39,7 +39,12 @@ from ...physics import (
     WingGeometry,
     build_wing_geometry_from_csv,
 )
-from ...px4_like.rl_training_utils import apply_teacher_action_envelope, linear_anneal
+from ...px4_like.rl_training_utils import (
+    apply_teacher_action_envelope,
+    linear_anneal,
+    piecewise_linear_anneal,
+    teacher_guidance_is_active,
+)
 from ...px4_like.straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
 from ...scenes import FlappingRoomSceneCfg
 
@@ -86,6 +91,9 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     teacher_guidance_delta_init: float = 0.20
     teacher_guidance_delta_final: float = 2.0
     teacher_guidance_anneal_steps: int = 120_000
+    teacher_guidance_schedule_steps: tuple[int, ...] = ()
+    teacher_guidance_schedule_deltas: tuple[float, ...] = ()
+    teacher_guidance_disable_after_steps: int = -1
     teacher_guidance_use_wind_truth: bool = True
     teacher_line_start_xy: tuple[float, float] = (0.0, 0.0)
     teacher_line_end_xy: tuple[float, float] = (120.0, 0.0)
@@ -309,6 +317,9 @@ class FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg(FlappingBotStraightFligh
     teacher_guidance_delta_init: float = 0.15
     teacher_guidance_delta_final: float = 2.0
     teacher_guidance_anneal_steps: int = 160_000
+    teacher_guidance_schedule_steps: tuple[int, ...] = (0, 20_000, 80_000, 160_000)
+    teacher_guidance_schedule_deltas: tuple[float, ...] = (0.15, 0.25, 0.75, 2.0)
+    teacher_guidance_disable_after_steps: int = -1
 
     wind_enabled: bool = True
     randomize_wind: bool = True
@@ -321,6 +332,22 @@ class FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg(FlappingBotStraightFligh
     wind_curriculum_steps: int = 160_000
     wind_curriculum_zero_prob_start: float = 1.0
     wind_curriculum_zero_prob_end: float = 0.15
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg(FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg):
+    """Weaker teacher schedule: policy gets a wider action envelope sooner."""
+
+    teacher_guidance_schedule_steps: tuple[int, ...] = (0, 10_000, 30_000, 60_000)
+    teacher_guidance_schedule_deltas: tuple[float, ...] = (0.35, 0.75, 1.5, 2.0)
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierPureRLEnvCfg(FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg):
+    """Pure-RL continuation config with the same wind curriculum but no teacher envelope."""
+
+    teacher_guidance_enabled: bool = False
+    teacher_guidance_disable_after_steps: int = 0
 
 
 class FlappingBotStraightFlightEnv(DirectRLEnv):
@@ -640,9 +667,26 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             duration_steps=int(self.cfg.wind_curriculum_steps),
         )
 
+    def _teacher_guidance_active(self) -> bool:
+        return teacher_guidance_is_active(
+            int(self.common_step_counter),
+            enabled=bool(self.cfg.teacher_guidance_enabled),
+            disable_after_steps=int(self.cfg.teacher_guidance_disable_after_steps),
+        )
+
     def _get_teacher_delta(self) -> float:
-        if not bool(self.cfg.teacher_guidance_enabled):
+        if not self._teacher_guidance_active():
             return float(self.cfg.teacher_guidance_delta_final)
+
+        if len(self.cfg.teacher_guidance_schedule_steps) > 0 or len(self.cfg.teacher_guidance_schedule_deltas) > 0:
+            if len(self.cfg.teacher_guidance_schedule_steps) != len(self.cfg.teacher_guidance_schedule_deltas):
+                raise ValueError("teacher_guidance_schedule_steps and teacher_guidance_schedule_deltas must have the same length.")
+            return piecewise_linear_anneal(
+                int(self.common_step_counter),
+                steps=tuple(int(v) for v in self.cfg.teacher_guidance_schedule_steps),
+                values=tuple(float(v) for v in self.cfg.teacher_guidance_schedule_deltas),
+            )
+
         return linear_anneal(
             int(self.common_step_counter),
             start=float(self.cfg.teacher_guidance_delta_init),
@@ -725,17 +769,20 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # raw actions in [-1, 1]
         self._actions = actions.clamp(-1.0, 1.0)
         act_exec = self._actions
-        if bool(self.cfg.teacher_guidance_enabled):
+        teacher_active = self._teacher_guidance_active()
+        if teacher_active:
             self._teacher_delta = self._get_teacher_delta()
             teacher_actions, teacher_diag = self._compute_teacher_actions()
             self._teacher_actions.copy_(teacher_actions)
             self._teacher_action_gap_abs.copy_(torch.abs(self._actions - self._teacher_actions))
             act_exec = apply_teacher_action_envelope(self._teacher_actions, self._actions, delta=self._teacher_delta)
+            teacher_exec_gap_abs = torch.abs(act_exec - self._teacher_actions)
             teacher_freq_hz = float(teacher_diag["freq_hz"].mean().item()) if "freq_hz" in teacher_diag else float("nan")
         else:
             self._teacher_delta = float(self.cfg.teacher_guidance_delta_final)
             self._teacher_actions.zero_()
             self._teacher_action_gap_abs.zero_()
+            teacher_exec_gap_abs = torch.zeros_like(self._teacher_action_gap_abs)
             teacher_freq_hz = float("nan")
         # low-pass filter
         if self.cfg.act_lpf_tau_s > 0.0:
@@ -773,7 +820,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self.extras["log"] = {
             "Teacher/delta": float(self._teacher_delta),
             "Teacher/mean_abs_gap": float(self._teacher_action_gap_abs.mean().item()),
+            "Teacher/mean_exec_abs_gap": float(teacher_exec_gap_abs.mean().item()),
             "Teacher/enabled": float(bool(self.cfg.teacher_guidance_enabled)),
+            "Teacher/active": float(bool(teacher_active)),
             "Teacher/freq_hz": teacher_freq_hz,
             "Wind/curriculum_scale": float(self._wind_curriculum_scale),
             "Wind/mean_x_mps": float(self._wind_mean_w[:, 0].mean().item()),
