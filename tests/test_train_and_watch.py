@@ -104,3 +104,56 @@ def test_wait_for_run_dir_raises_if_process_exits_first(tmp_path: Path) -> None:
         assert "Training exited before creating a run directory" in str(exc)
     else:
         raise AssertionError("Expected RuntimeError when process exits before run dir appears.")
+
+def test_build_train_cmd_includes_resume_arguments() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-PureRL-Direct-v0",
+        run_name="pure_resume",
+        num_envs=128,
+        max_iterations=400,
+        save_interval=20,
+        seed=7,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=3,
+        poll_s=30.0,
+        run_dir_timeout_s=120.0,
+        eval_suite="straight_standard",
+        headless=True,
+        resume=True,
+        load_run="2026-03-07_19-36-58_task2_smoke_weak",
+        checkpoint="best_model.pt",
+    )
+
+    cmd = train_and_watch._build_train_cmd(args)
+
+    assert "--resume" in cmd
+    assert cmd[cmd.index("--load_run") + 1] == "2026-03-07_19-36-58_task2_smoke_weak"
+    assert cmd[cmd.index("--checkpoint") + 1] == "best_model.pt"
+
+
+def test_build_train_cmd_omits_resume_arguments_when_disabled() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-WeakTeacherRL-Direct-v0",
+        run_name="weak_fresh",
+        num_envs=64,
+        max_iterations=200,
+        save_interval=10,
+        seed=3,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=1,
+        poll_s=10.0,
+        run_dir_timeout_s=60.0,
+        eval_suite="single",
+        headless=False,
+        resume=False,
+        load_run=None,
+        checkpoint=None,
+    )
+
+    cmd = train_and_watch._build_train_cmd(args)
+
+    assert "--resume" not in cmd
+    assert "--load_run" not in cmd
+    assert "--checkpoint" not in cmd

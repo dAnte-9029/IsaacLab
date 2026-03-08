@@ -56,6 +56,9 @@ def _parse_args() -> argparse.Namespace:
         default="straight_standard",
         choices=("straight_standard", "single"),
     )
+    parser.add_argument("--resume", action="store_true", help="Resume training from a previous run/checkpoint.")
+    parser.add_argument("--load_run", type=str, default=None, help="Existing run directory name used for resume.")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint filename or regex used for resume.")
     parser.add_argument("--headless", action="store_true")
     return parser.parse_args()
 
@@ -148,11 +151,7 @@ def _run_final_eval_once(watch_cmd: list[str]) -> int:
     return subprocess.call(final_cmd)
 
 
-def main():
-    args = _parse_args()
-    repo_root = Path(__file__).resolve().parents[2]
-    os.chdir(repo_root)
-
+def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     train_cmd = [
         "./isaaclab.sh",
         "-p",
@@ -170,8 +169,23 @@ def main():
         f"agent.run_name={args.run_name}",
         f"agent.save_interval={args.save_interval}",
     ]
+    if bool(args.resume):
+        train_cmd.append("--resume")
+    if args.load_run is not None:
+        train_cmd.extend(["--load_run", str(args.load_run)])
+    if args.checkpoint is not None:
+        train_cmd.extend(["--checkpoint", str(args.checkpoint)])
     if args.headless:
         train_cmd.append("--headless")
+    return train_cmd
+
+
+def main():
+    args = _parse_args()
+    repo_root = Path(__file__).resolve().parents[2]
+    os.chdir(repo_root)
+
+    train_cmd = _build_train_cmd(args)
 
     print("[INFO] Launching training:")
     print(" ", " ".join(train_cmd), flush=True)
