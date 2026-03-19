@@ -75,3 +75,6 @@ tests/
 
 # Docker history
 .isaac-lab-docker-history
+
+# Local git worktrees
+.worktrees/
