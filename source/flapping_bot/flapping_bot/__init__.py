@@ -24,6 +24,8 @@ __all__ = [
     "FlappingRoomSceneCfg",
     "FlappingBotEnvCfg",
     "FlappingBotEnv",
+    "FlappingBotPathTrackingEnvCfg",
+    "FlappingBotPathTrackingEnv",
     "FlappingBotStraightFlightEnvCfg",
     "FlappingBotStraightFlightSimpleEnvCfg",
     "FlappingBotStraightFlightDeLaurierEnvCfg",
@@ -39,10 +41,20 @@ def __getattr__(name: str):
         from .assets import FlappingBotCfg
 
         return FlappingBotCfg
-    if name in ("FlappingBotEnv", "FlappingBotEnvCfg"):
-        from .direct.flapping_bot import FlappingBotEnv, FlappingBotEnvCfg
+    if name in ("FlappingBotEnv", "FlappingBotEnvCfg", "FlappingBotPathTrackingEnv", "FlappingBotPathTrackingEnvCfg"):
+        from .direct.flapping_bot import (
+            FlappingBotEnv,
+            FlappingBotEnvCfg,
+            FlappingBotPathTrackingEnv,
+            FlappingBotPathTrackingEnvCfg,
+        )
 
-        return {"FlappingBotEnv": FlappingBotEnv, "FlappingBotEnvCfg": FlappingBotEnvCfg}[name]
+        return {
+            "FlappingBotEnv": FlappingBotEnv,
+            "FlappingBotEnvCfg": FlappingBotEnvCfg,
+            "FlappingBotPathTrackingEnv": FlappingBotPathTrackingEnv,
+            "FlappingBotPathTrackingEnvCfg": FlappingBotPathTrackingEnvCfg,
+        }[name]
     if name in (
         "FlappingBotStraightFlightEnv",
         "FlappingBotStraightFlightEnvCfg",
