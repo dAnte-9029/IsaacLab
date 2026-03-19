@@ -26,3 +26,28 @@ def _build_preview_observation(query: dict[str, torch.Tensor]) -> torch.Tensor:
         dim=-1,
     )
     return torch.cat((preview, extras), dim=-1)
+
+
+def _compute_tracking_reward(
+    *,
+    lateral_error: torch.Tensor,
+    height_error: torch.Tensor,
+    align_error: torch.Tensor,
+    delta_s: torch.Tensor,
+    airspeed: torch.Tensor,
+    action: torch.Tensor,
+    action_delta: torch.Tensor,
+    tilt: torch.Tensor,
+    ang_rate: torch.Tensor,
+) -> torch.Tensor:
+    """Compute a minimal tracking-plus-progress reward."""
+    del action, action_delta, tilt, ang_rate
+    low_speed_penalty = 0.2 * torch.clamp(4.0 - airspeed, min=0.0)
+    return delta_s - 0.2 * lateral_error - 0.2 * height_error - 0.1 * align_error - low_speed_penalty
+
+
+def _teacher_recovery_mask(**kwargs) -> torch.Tensor:
+    """Thin wrapper placeholder for recovery-teacher masking."""
+    from flapping_bot.flapping_bot.px4_like.rl_training_utils import compute_recovery_teacher_mask
+
+    return compute_recovery_teacher_mask(**kwargs)

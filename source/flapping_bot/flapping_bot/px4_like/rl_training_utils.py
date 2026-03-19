@@ -65,3 +65,26 @@ def apply_teacher_action_envelope(teacher_actions: Tensor, rl_actions: Tensor, d
 
     bounded_delta = torch.clamp(rl_actions - teacher_actions, min=-delta, max=delta)
     return torch.clamp(teacher_actions + bounded_delta, min=-1.0, max=1.0)
+
+
+def compute_recovery_teacher_mask(
+    *,
+    lateral_error: Tensor,
+    height_error: Tensor,
+    airspeed: Tensor,
+    tilt_deg: Tensor,
+    ang_rate_deg_s: Tensor,
+    lateral_error_trigger_m: float,
+    height_error_trigger_m: float,
+    min_safe_airspeed_mps: float,
+    tilt_trigger_deg: float,
+    ang_rate_trigger_deg_s: float,
+) -> Tensor:
+    """Return a boolean mask for states that should use recovery teacher guidance."""
+    return (
+        (torch.abs(lateral_error) > lateral_error_trigger_m)
+        | (torch.abs(height_error) > height_error_trigger_m)
+        | (airspeed < min_safe_airspeed_mps)
+        | (torch.abs(tilt_deg) > tilt_trigger_deg)
+        | (torch.abs(ang_rate_deg_s) > ang_rate_trigger_deg_s)
+    )
