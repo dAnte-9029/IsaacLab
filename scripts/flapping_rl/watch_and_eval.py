@@ -30,6 +30,7 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from checkpoint_selection import refresh_best_checkpoint_artifacts
+from eval_suites import build_eval_cases, get_eval_suite_choices
 
 
 def _parse_args() -> argparse.Namespace:
@@ -52,7 +53,7 @@ def _parse_args() -> argparse.Namespace:
         "--eval_suite",
         type=str,
         default="straight_standard",
-        choices=("straight_standard", "single"),
+        choices=get_eval_suite_choices(),
         help="Evaluation suite. `straight_standard` runs calm / steady-crosswind / OU-crosswind cases.",
     )
     AppLauncher.add_app_launcher_args(parser)
@@ -63,47 +64,6 @@ def _parse_args() -> argparse.Namespace:
 def _extract_ckpt_index(p: Path) -> int:
     m = re.match(r"model_(\d+)\.pt$", p.name)
     return int(m.group(1)) if m else -1
-
-
-def _default_eval_cases(eval_suite: str) -> list[dict]:
-    if eval_suite == "single":
-        return [
-            {
-                "name": "single",
-                "wind_enabled": False,
-                "wind_xy_mps": (0.0, 0.0),
-                "wind_ou_enabled": False,
-                "wind_ou_tau_s": 2.0,
-                "wind_ou_sigma_xy_mps": (0.0, 0.0),
-            }
-        ]
-
-    return [
-        {
-            "name": "calm",
-            "wind_enabled": False,
-            "wind_xy_mps": (0.0, 0.0),
-            "wind_ou_enabled": False,
-            "wind_ou_tau_s": 2.0,
-            "wind_ou_sigma_xy_mps": (0.0, 0.0),
-        },
-        {
-            "name": "crosswind_steady",
-            "wind_enabled": True,
-            "wind_xy_mps": (0.0, 2.0),
-            "wind_ou_enabled": False,
-            "wind_ou_tau_s": 2.0,
-            "wind_ou_sigma_xy_mps": (0.0, 0.0),
-        },
-        {
-            "name": "crosswind_ou",
-            "wind_enabled": True,
-            "wind_xy_mps": (0.0, 1.5),
-            "wind_ou_enabled": True,
-            "wind_ou_tau_s": 2.0,
-            "wind_ou_sigma_xy_mps": (0.0, 0.8),
-        },
-    ]
 
 
 def _score_row(row: dict) -> float:
@@ -276,7 +236,7 @@ def main():
         agent_cfg_dict = agent_cfg.to_dict()
     agent_cfg_dict["device"] = args.device if args.device is not None else agent_cfg_dict.get("device", "cuda:0")
 
-    eval_cases = _default_eval_cases(args.eval_suite)
+    eval_cases = build_eval_cases(args.eval_suite)
     _apply_eval_case(eval_cases[0], env_cfg)
 
     env = gym.make(args.task, cfg=env_cfg)

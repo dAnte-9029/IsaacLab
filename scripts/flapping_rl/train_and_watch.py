@@ -35,6 +35,7 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from checkpoint_selection import refresh_best_checkpoint_artifacts, select_best_checkpoint_row
+from eval_suites import get_eval_suite_choices
 
 
 def _parse_args() -> argparse.Namespace:
@@ -54,7 +55,7 @@ def _parse_args() -> argparse.Namespace:
         "--eval-suite",
         type=str,
         default="straight_standard",
-        choices=("straight_standard", "single"),
+        choices=get_eval_suite_choices(),
     )
     parser.add_argument("--resume", action="store_true", help="Resume training from a previous run/checkpoint.")
     parser.add_argument("--load_run", type=str, default=None, help="Existing run directory name used for resume.")
