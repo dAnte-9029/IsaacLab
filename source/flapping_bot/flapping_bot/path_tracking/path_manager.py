@@ -138,13 +138,19 @@ class PathManager:
             candidate = self._query_segment(segment, position_xy)
             backward_m = max(0.0, self._last_progress_s - candidate.progress_s - self._BACKWARD_PROGRESS_TOL_M)
             score = candidate.distance_sq_xy + self._BACKWARD_PROGRESS_PENALTY * backward_m * backward_m
-            if score < best_score or (
-                math.isclose(score, best_score, rel_tol=0.0, abs_tol=1.0e-9)
-                and best is not None
-                and candidate.progress_s > best.progress_s
-            ):
+            if score < best_score:
                 best = candidate
                 best_score = score
+                continue
+            if math.isclose(score, best_score, rel_tol=0.0, abs_tol=1.0e-9) and best is not None:
+                candidate_progress_gap = abs(candidate.progress_s - self._last_progress_s)
+                best_progress_gap = abs(best.progress_s - self._last_progress_s)
+                if candidate_progress_gap < best_progress_gap or (
+                    math.isclose(candidate_progress_gap, best_progress_gap, rel_tol=0.0, abs_tol=1.0e-9)
+                    and candidate.progress_s < best.progress_s
+                ):
+                    best = candidate
+                    best_score = score
 
         if best is None:
             raise RuntimeError("path query failed to evaluate any segment.")

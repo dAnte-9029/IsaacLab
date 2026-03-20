@@ -62,3 +62,25 @@ def test_path_tracking_module_exports_task_symbols() -> None:
     assert FlappingBotPathTrackingEnv.__name__ == "FlappingBotPathTrackingEnv"
     assert FlappingBotPathTrackingEnvCfg.__name__ == "FlappingBotPathTrackingEnvCfg"
     assert isinstance(PATH_TRACKING_RUNTIME_AVAILABLE, bool)
+
+
+def test_path_tracking_env_defaults_enable_teacher_guidance() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "path_tracking_env.py"
+        ).read_text()
+    )
+    for node in ast.walk(module):
+        if not isinstance(node, ast.ClassDef) or node.name != "FlappingBotPathTrackingEnvCfg":
+            continue
+        for item in node.body:
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "teacher_guidance_enabled":
+                assert isinstance(item.value, ast.Constant) and item.value.value is True
+                return
+    raise AssertionError("teacher_guidance_enabled=True not found in FlappingBotPathTrackingEnvCfg")

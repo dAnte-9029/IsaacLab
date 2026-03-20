@@ -29,7 +29,7 @@ try:
     from isaaclab.utils import configclass
     from isaaclab.utils.math import euler_xyz_from_quat, quat_apply_inverse
 
-    from .straight_flight_env import FlappingBotStraightFlightDeLaurierPureRLEnvCfg, FlappingBotStraightFlightEnv
+    from .straight_flight_env import FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg, FlappingBotStraightFlightEnv
 except ModuleNotFoundError as exc:
     PATH_TRACKING_RUNTIME_IMPORT_ERROR = exc
     PATH_TRACKING_RUNTIME_AVAILABLE = False
@@ -45,11 +45,19 @@ else:
     PATH_TRACKING_RUNTIME_AVAILABLE = True
 
     @configclass
-    class FlappingBotPathTrackingEnvCfg(FlappingBotStraightFlightDeLaurierPureRLEnvCfg):
+    class FlappingBotPathTrackingEnvCfg(FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg):
         """Configuration for the generic path-tracking environment."""
 
         observation_space: int = 87
         episode_length_s: float = 18.0
+
+        teacher_guidance_enabled: bool = True
+        teacher_guidance_delta_init: float = 0.15
+        teacher_guidance_delta_final: float = 2.0
+        teacher_guidance_anneal_steps: int = 160_000
+        teacher_guidance_schedule_steps: tuple[int, ...] = (0, 20_000, 80_000, 160_000)
+        teacher_guidance_schedule_deltas: tuple[float, ...] = (0.15, 0.25, 0.75, 2.0)
+        teacher_guidance_disable_after_steps: int = -1
 
         mission_seed: int = 0
         mission_num_segments_min: int = 2
