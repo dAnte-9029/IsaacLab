@@ -4,13 +4,33 @@ from __future__ import annotations
 
 import torch
 
+PATH_TRACKING_RUNTIME_IMPORT_ERROR: ModuleNotFoundError | None = None
 
-class FlappingBotPathTrackingEnvCfg:
-    """Configuration placeholder for the path-tracking environment."""
+try:
+    from isaaclab.utils import configclass
+
+    from .straight_flight_env import FlappingBotStraightFlightDeLaurierPureRLEnvCfg, FlappingBotStraightFlightEnv
+except ModuleNotFoundError as exc:
+    PATH_TRACKING_RUNTIME_IMPORT_ERROR = exc
+    PATH_TRACKING_RUNTIME_AVAILABLE = False
+
+    class FlappingBotPathTrackingEnvCfg:
+        """Headless fallback config placeholder for path-tracking tests."""
 
 
-class FlappingBotPathTrackingEnv:
-    """Minimal path-tracking environment placeholder."""
+    class FlappingBotPathTrackingEnv:
+        """Headless fallback env placeholder for path-tracking tests."""
+
+else:
+    PATH_TRACKING_RUNTIME_AVAILABLE = True
+
+    @configclass
+    class FlappingBotPathTrackingEnvCfg(FlappingBotStraightFlightDeLaurierPureRLEnvCfg):
+        """Configuration skeleton for the generic path-tracking environment."""
+
+
+    class FlappingBotPathTrackingEnv(FlappingBotStraightFlightEnv):
+        """Generic path-tracking environment skeleton."""
 
 
 def _build_preview_observation(query: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -48,6 +68,6 @@ def _compute_tracking_reward(
 
 def _teacher_recovery_mask(**kwargs) -> torch.Tensor:
     """Thin wrapper placeholder for recovery-teacher masking."""
-    from flapping_bot.flapping_bot.px4_like.rl_training_utils import compute_recovery_teacher_mask
+    from ...px4_like.rl_training_utils import compute_recovery_teacher_mask
 
     return compute_recovery_teacher_mask(**kwargs)

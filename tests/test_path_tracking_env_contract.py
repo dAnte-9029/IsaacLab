@@ -3,6 +3,12 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from flapping_bot.direct.flapping_bot.path_tracking_env import (
+    FlappingBotPathTrackingEnv,
+    FlappingBotPathTrackingEnvCfg,
+    PATH_TRACKING_RUNTIME_AVAILABLE,
+)
+
 
 REGISTRATION_FILE = (
     Path(__file__).resolve().parents[1]
@@ -50,3 +56,9 @@ def test_path_tracking_task_is_registered() -> None:
 def test_path_tracking_task_uses_expected_env_cfg() -> None:
     registered = _registered_env_cfgs()
     assert registered["Isaac-FlappingBot-PathTracking-DeLaurier-Direct-v0"] == "FlappingBotPathTrackingEnvCfg"
+
+
+def test_path_tracking_module_exports_task_symbols() -> None:
+    assert FlappingBotPathTrackingEnv.__name__ == "FlappingBotPathTrackingEnv"
+    assert FlappingBotPathTrackingEnvCfg.__name__ == "FlappingBotPathTrackingEnvCfg"
+    assert isinstance(PATH_TRACKING_RUNTIME_AVAILABLE, bool)

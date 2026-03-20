@@ -1,33 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
 import torch
 
-
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "source"
-    / "flapping_bot"
-    / "flapping_bot"
-    / "direct"
-    / "flapping_bot"
-    / "path_tracking_env.py"
-)
-
-
-def _load_module():
-    spec = importlib.util.spec_from_file_location("path_tracking_env_reward_test_module", MODULE_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec is not None and spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+from flapping_bot.direct.flapping_bot.path_tracking_env import _compute_tracking_reward
 
 
 def test_progress_is_rewarded_but_low_speed_is_penalized():
-    module = _load_module()
-    reward_fast = module._compute_tracking_reward(
+    reward_fast = _compute_tracking_reward(
         lateral_error=torch.tensor([0.1]),
         height_error=torch.tensor([0.1]),
         align_error=torch.tensor([0.05]),
@@ -38,7 +17,7 @@ def test_progress_is_rewarded_but_low_speed_is_penalized():
         tilt=torch.tensor([0.1]),
         ang_rate=torch.tensor([0.1]),
     )
-    reward_slow = module._compute_tracking_reward(
+    reward_slow = _compute_tracking_reward(
         lateral_error=torch.tensor([0.1]),
         height_error=torch.tensor([0.1]),
         align_error=torch.tensor([0.05]),

@@ -1,9 +1,6 @@
 import torch
 
-try:
-    from flapping_bot.px4_like.rl_training_utils import compute_recovery_teacher_mask
-except ModuleNotFoundError:  # pragma: no cover - compatibility import path
-    from flapping_bot.flapping_bot.px4_like.rl_training_utils import compute_recovery_teacher_mask
+from flapping_bot.px4_like.rl_training_utils import compute_recovery_teacher_mask
 
 
 def test_recovery_mask_triggers_on_large_error_or_low_speed():

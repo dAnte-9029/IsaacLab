@@ -1,15 +1,9 @@
 import torch
 
-try:
-    from flapping_bot.px4_like.path_tracking_controller import (
-        PX4LikePathTrackingController,
-        PX4LikePathTrackingControllerCfg,
-    )
-except ModuleNotFoundError:  # pragma: no cover - compatibility import path
-    from flapping_bot.flapping_bot.px4_like.path_tracking_controller import (
-        PX4LikePathTrackingController,
-        PX4LikePathTrackingControllerCfg,
-    )
+from flapping_bot.px4_like.path_tracking_controller import (
+    PX4LikePathTrackingController,
+    PX4LikePathTrackingControllerCfg,
+)
 
 
 def test_generic_controller_returns_four_actions():

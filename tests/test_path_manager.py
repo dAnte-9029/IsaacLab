@@ -1,9 +1,5 @@
-try:
-    from flapping_bot.path_tracking.mission_primitives import Mission, MissionSegment
-    from flapping_bot.path_tracking.path_manager import PathManager, PathManagerCfg
-except ModuleNotFoundError:  # pragma: no cover - compatibility import path
-    from flapping_bot.flapping_bot.path_tracking.mission_primitives import Mission, MissionSegment
-    from flapping_bot.flapping_bot.path_tracking.path_manager import PathManager, PathManagerCfg
+from flapping_bot.path_tracking.mission_primitives import Mission, MissionSegment
+from flapping_bot.path_tracking.path_manager import PathManager, PathManagerCfg
 
 
 def test_path_manager_produces_finite_curvature_and_progress():

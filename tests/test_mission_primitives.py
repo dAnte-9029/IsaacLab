@@ -1,7 +1,4 @@
-try:
-    from flapping_bot.path_tracking.mission_primitives import MissionGeneratorCfg, sample_mission
-except ModuleNotFoundError:  # pragma: no cover - compatibility import path
-    from flapping_bot.flapping_bot.path_tracking.mission_primitives import MissionGeneratorCfg, sample_mission
+from flapping_bot.path_tracking.mission_primitives import MissionGeneratorCfg, sample_mission
 
 
 def test_sample_mission_returns_allowed_segments():
