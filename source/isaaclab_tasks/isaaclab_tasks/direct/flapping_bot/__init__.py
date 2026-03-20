@@ -44,7 +44,10 @@ except Exception:  # pragma: no cover - best-effort path fix for local dev
                     break
 
 from .agents.rsl_rl_ppo_cfg import FlappingBotPPORunnerCfg  # noqa: E402
-from .agents.rsl_rl_ppo_straightflight_cfg import FlappingBotStraightFlightPPORunnerCfg  # noqa: E402
+from .agents.rsl_rl_ppo_straightflight_cfg import (  # noqa: E402
+    FlappingBotPathTrackingPPORunnerCfg,
+    FlappingBotStraightFlightPPORunnerCfg,
+)
 
 # Import environment classes directly from the extension's top-level package.
 # The flapping_bot extension re-exports these symbols in its __init__.py.
@@ -134,6 +137,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlappingBotPathTrackingEnvCfg,
-        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotPathTrackingPPORunnerCfg,
     },
 )

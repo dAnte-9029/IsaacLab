@@ -39,3 +39,10 @@ class FlappingBotStraightFlightPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class FlappingBotPathTrackingPPORunnerCfg(FlappingBotStraightFlightPPORunnerCfg):
+    """RSL-RL PPO configuration for generic path-tracking tasks."""
+
+    experiment_name = "flapping_bot_path_tracking"
