@@ -33,6 +33,12 @@ from checkpoint_selection import refresh_best_checkpoint_artifacts
 from eval_suites import build_eval_cases, get_eval_suite_choices
 
 
+def _resolve_eval_suite(task: str, eval_suite: str) -> str:
+    if eval_suite == "straight_standard" and "PathTracking" in str(task):
+        return "path_tracking_truth_nowind_v1"
+    return str(eval_suite)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Watch a run directory and evaluate new checkpoints.")
     parser.add_argument("--task", type=str, required=True)
@@ -239,7 +245,8 @@ def main():
         agent_cfg_dict = agent_cfg.to_dict()
     agent_cfg_dict["device"] = args.device if args.device is not None else agent_cfg_dict.get("device", "cuda:0")
 
-    eval_cases = build_eval_cases(args.eval_suite)
+    eval_suite = _resolve_eval_suite(args.task, args.eval_suite)
+    eval_cases = build_eval_cases(eval_suite)
     _apply_eval_case(eval_cases[0], env_cfg)
 
     env = gym.make(args.task, cfg=env_cfg)

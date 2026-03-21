@@ -38,6 +38,12 @@ from checkpoint_selection import refresh_best_checkpoint_artifacts, select_best_
 from eval_suites import get_eval_suite_choices
 
 
+def _resolve_eval_suite(task: str, eval_suite: str) -> str:
+    if eval_suite == "straight_standard" and "PathTracking" in str(task):
+        return "path_tracking_truth_nowind_v1"
+    return str(eval_suite)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train + watch/eval new checkpoints.")
     parser.add_argument("--task", type=str, required=True)
@@ -181,6 +187,31 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     return train_cmd
 
 
+def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
+    watch_cmd = [
+        "./isaaclab.sh",
+        "-p",
+        "scripts/flapping_rl/watch_and_eval.py",
+        "--task",
+        args.task,
+        "--log_dir",
+        str(run_dir),
+        "--device",
+        args.eval_device,
+        "--episodes",
+        str(args.episodes),
+        "--num_envs",
+        "1",
+        "--poll_s",
+        str(args.poll_s),
+        "--eval_suite",
+        _resolve_eval_suite(args.task, str(args.eval_suite)),
+    ]
+    if args.headless:
+        watch_cmd.append("--headless")
+    return watch_cmd
+
+
 def main():
     args = _parse_args()
     repo_root = Path(__file__).resolve().parents[2]
@@ -229,27 +260,7 @@ def main():
         run_dir = (log_root / f"{timestamp}_{args.run_name}").resolve()
         _wait_for_run_dir(run_dir, train, timeout_s=float(args.run_dir_timeout_s))
 
-        watch_cmd = [
-            "./isaaclab.sh",
-            "-p",
-            "scripts/flapping_rl/watch_and_eval.py",
-            "--task",
-            args.task,
-            "--log_dir",
-            str(run_dir),
-            "--device",
-            args.eval_device,
-            "--episodes",
-            str(args.episodes),
-            "--num_envs",
-            "1",
-            "--poll_s",
-            str(args.poll_s),
-            "--eval_suite",
-            str(args.eval_suite),
-        ]
-        if args.headless:
-            watch_cmd.append("--headless")
+        watch_cmd = _build_watch_cmd(args, run_dir)
 
         print("[INFO] Launching watcher:")
         print(" ", " ".join(watch_cmd), flush=True)

@@ -157,3 +157,29 @@ def test_build_train_cmd_omits_resume_arguments_when_disabled() -> None:
     assert "--resume" not in cmd
     assert "--load_run" not in cmd
     assert "--checkpoint" not in cmd
+
+
+def test_build_watch_cmd_defaults_path_tracking_task_to_truth_suite(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0",
+        run_name="path_teacher",
+        num_envs=64,
+        max_iterations=200,
+        save_interval=10,
+        seed=3,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=2,
+        poll_s=10.0,
+        run_dir_timeout_s=60.0,
+        eval_suite="straight_standard",
+        headless=True,
+        resume=False,
+        load_run=None,
+        checkpoint=None,
+    )
+
+    cmd = train_and_watch._build_watch_cmd(args, run_dir)
+
+    assert cmd[cmd.index("--eval_suite") + 1] == "path_tracking_truth_nowind_v1"

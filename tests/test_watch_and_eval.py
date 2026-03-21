@@ -64,3 +64,14 @@ def test_watch_and_eval_parser_accepts_truth_nowind_suite(monkeypatch) -> None:
     args = watch_and_eval._parse_args()
 
     assert args.eval_suite == "path_tracking_truth_nowind_v1"
+
+
+def test_watch_and_eval_resolves_path_tracking_task_to_truth_suite() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    resolved = watch_and_eval._resolve_eval_suite(
+        "Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0",
+        "straight_standard",
+    )
+
+    assert resolved == "path_tracking_truth_nowind_v1"
