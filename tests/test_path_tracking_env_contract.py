@@ -84,3 +84,52 @@ def test_path_tracking_env_defaults_enable_teacher_guidance() -> None:
                 assert isinstance(item.value, ast.Constant) and item.value.value is True
                 return
     raise AssertionError("teacher_guidance_enabled=True not found in FlappingBotPathTrackingEnvCfg")
+
+
+def test_path_tracking_env_uses_fixed_five_point_preview_contract() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "path_tracking_env.py"
+        ).read_text()
+    )
+
+    preview_tuple_values: list[tuple[int, ...]] = []
+    observation_space_value: int | None = None
+
+    for node in ast.walk(module):
+        if isinstance(node, ast.ClassDef) and node.name == "FlappingBotPathTrackingEnvCfg":
+            for item in node.body:
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "observation_space":
+                    assert isinstance(item.value, ast.Constant) and isinstance(item.value.value, int)
+                    observation_space_value = item.value.value
+
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if not isinstance(target, ast.Attribute) or target.attr not in {
+                "_path_preview_points_xyz",
+                "_path_preview_points_body_xyz",
+            }:
+                continue
+            call = node.value
+            if not isinstance(call, ast.Call):
+                continue
+            if not isinstance(call.func, ast.Attribute) or call.func.attr != "zeros":
+                continue
+            shape_arg = call.args[0] if call.args else None
+            if not isinstance(shape_arg, ast.Tuple):
+                continue
+            dims: list[int] = []
+            for elt in shape_arg.elts:
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, int):
+                    dims.append(elt.value)
+            if dims:
+                preview_tuple_values.append(tuple(dims))
+
+    assert observation_space_value == 96
+    assert (5, 3) in {dims[-2:] for dims in preview_tuple_values}

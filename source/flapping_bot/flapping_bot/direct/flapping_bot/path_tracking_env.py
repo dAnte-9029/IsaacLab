@@ -48,7 +48,7 @@ else:
     class FlappingBotPathTrackingEnvCfg(FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg):
         """Configuration for the generic path-tracking environment."""
 
-        observation_space: int = 87
+        observation_space: int = 96
         episode_length_s: float = 18.0
 
         teacher_guidance_enabled: bool = True
@@ -83,6 +83,7 @@ else:
             self._path_managers: list[PathManager | None] = []
 
             self._path_closest_point_xyz: torch.Tensor | None = None
+            self._path_closest_point_body_xyz: torch.Tensor | None = None
             self._path_tangent_xy: torch.Tensor | None = None
             self._path_curvature_m_inv: torch.Tensor | None = None
             self._path_progress_s: torch.Tensor | None = None
@@ -123,6 +124,7 @@ else:
             num_envs = int(self.num_envs)
             device = self.device
             self._path_closest_point_xyz = torch.zeros((num_envs, 3), device=device)
+            self._path_closest_point_body_xyz = torch.zeros((num_envs, 3), device=device)
             self._path_tangent_xy = torch.zeros((num_envs, 2), device=device)
             self._path_curvature_m_inv = torch.zeros((num_envs,), device=device)
             self._path_progress_s = torch.zeros((num_envs,), device=device)
@@ -201,6 +203,7 @@ else:
             assert self._path_height_sp_m is not None
             assert self._path_closest_point_xyz is not None
             assert self._path_tangent_xy is not None
+            assert self._path_closest_point_body_xyz is not None
             assert self._path_action_delta is not None
 
             for env_id in env_ids.tolist():
@@ -217,6 +220,7 @@ else:
             self._path_progress_s[env_ids] = 0.0
             self._path_height_sp_m[env_ids] = self._height_cmd[env_ids]
             self._path_closest_point_xyz[env_ids] = 0.0
+            self._path_closest_point_body_xyz[env_ids] = 0.0
             self._path_tangent_xy[env_ids, 0] = 1.0
             self._path_tangent_xy[env_ids, 1] = 0.0
             self._path_preview_points_xyz[env_ids] = 0.0
@@ -231,6 +235,7 @@ else:
             self._ensure_path_buffers()
             assert self._path_closest_point_xyz is not None
             assert self._path_tangent_xy is not None
+            assert self._path_closest_point_body_xyz is not None
             assert self._path_curvature_m_inv is not None
             assert self._path_progress_s is not None
             assert self._path_progress_prev_s is not None
@@ -303,7 +308,9 @@ else:
             )
 
             rel_preview_xyz = self._path_preview_points_xyz - pos_local.unsqueeze(1)
+            rel_closest_xyz = self._path_closest_point_xyz - pos_local
             quat_batch = self._robot.data.root_quat_w.repeat_interleave(self._path_preview_points_xyz.shape[1], dim=0)
+            self._path_closest_point_body_xyz.copy_(quat_apply_inverse(self._robot.data.root_quat_w, rel_closest_xyz))
             self._path_preview_points_body_xyz.copy_(
                 quat_apply_inverse(quat_batch, rel_preview_xyz.reshape(-1, 3)).reshape(self.num_envs, -1, 3)
             )
@@ -351,11 +358,13 @@ else:
         def _get_observations(self) -> dict[str, torch.Tensor]:
             self._refresh_path_state()
             assert self._path_height_sp_m is not None
+            assert self._path_closest_point_body_xyz is not None
             assert self._path_preview_points_body_xyz is not None
             assert self._path_lateral_error_m is not None
             assert self._path_height_error_m is not None
             assert self._path_curvature_m_inv is not None
             assert self._path_progress_s is not None
+            assert self._path_align_error_rad is not None
 
             lin_vel_b = self._robot.data.root_lin_vel_b
             ang_vel_b = self._robot.data.root_ang_vel_b
@@ -413,11 +422,14 @@ else:
             )
             preview_obs = _build_preview_observation(
                 {
+                    "closest_point_body_xyz": self._path_closest_point_body_xyz,
+                    "tangent_xy": self._path_tangent_xy,
                     "preview_points_body_xyz": self._path_preview_points_body_xyz,
                     "lateral_error_m": self._path_lateral_error_m,
                     "height_error_m": self._path_height_error_m,
+                    "align_error_rad": self._path_align_error_rad,
                     "curvature_m_inv": self._path_curvature_m_inv,
-                    "progress_s": self._path_progress_s,
+                    "previous_action": self._act_cmd,
                 }
             )
             return {"policy": torch.cat((base_obs, preview_obs), dim=1)}
@@ -467,17 +479,19 @@ else:
 
 def _build_preview_observation(query: dict[str, torch.Tensor]) -> torch.Tensor:
     """Build a flat preview-based observation vector."""
-    preview = query["preview_points_body_xyz"].reshape(query["preview_points_body_xyz"].shape[0], -1)
-    extras = torch.stack(
-        [
-            query["lateral_error_m"],
-            query["height_error_m"],
-            query["curvature_m_inv"],
-            query["progress_s"],
-        ],
+    current_geometry = torch.cat(
+        (
+            query["closest_point_body_xyz"],
+            query["tangent_xy"],
+            query["curvature_m_inv"].unsqueeze(-1),
+            query["lateral_error_m"].unsqueeze(-1),
+            query["height_error_m"].unsqueeze(-1),
+            query["align_error_rad"].unsqueeze(-1),
+        ),
         dim=-1,
     )
-    return torch.cat((preview, extras), dim=-1)
+    preview = query["preview_points_body_xyz"].reshape(query["preview_points_body_xyz"].shape[0], -1)
+    return torch.cat((current_geometry, preview, query["previous_action"]), dim=-1)
 
 
 def _compute_tracking_reward(
