@@ -53,6 +53,29 @@ def teacher_guidance_is_active(step: int, *, enabled: bool, disable_after_steps:
     return True
 
 
+def compute_teacher_guidance_delta(
+    step: int,
+    *,
+    enabled: bool,
+    delta_init: float,
+    delta_final: float,
+    anneal_steps: int,
+    schedule_steps: Sequence[int],
+    schedule_deltas: Sequence[float],
+    disable_after_steps: int,
+) -> float:
+    """Compute the current teacher-action envelope width."""
+    if not teacher_guidance_is_active(step, enabled=enabled, disable_after_steps=disable_after_steps):
+        return float(delta_final)
+
+    if len(schedule_steps) > 0 or len(schedule_deltas) > 0:
+        if len(schedule_steps) != len(schedule_deltas):
+            raise ValueError("schedule_steps and schedule_deltas must have the same length.")
+        return piecewise_linear_anneal(step, steps=schedule_steps, values=schedule_deltas)
+
+    return linear_anneal(step, start=delta_init, end=delta_final, duration_steps=anneal_steps)
+
+
 def apply_teacher_action_envelope(teacher_actions: Tensor, rl_actions: Tensor, delta: float | Tensor) -> Tensor:
     """Limit executed actions to a bounded deviation around teacher actions."""
     if teacher_actions.shape != rl_actions.shape:

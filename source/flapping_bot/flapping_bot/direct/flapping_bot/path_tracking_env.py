@@ -355,6 +355,20 @@ else:
                 ang_vel_body=ang_vel_body,
             )
 
+        def _get_teacher_delta(self) -> float:
+            from ...px4_like.rl_training_utils import compute_teacher_guidance_delta
+
+            return compute_teacher_guidance_delta(
+                int(self.common_step_counter),
+                enabled=bool(self.cfg.teacher_guidance_enabled),
+                delta_init=float(self.cfg.teacher_guidance_delta_init),
+                delta_final=float(self.cfg.teacher_guidance_delta_final),
+                anneal_steps=int(self.cfg.teacher_guidance_anneal_steps),
+                schedule_steps=tuple(int(v) for v in self.cfg.teacher_guidance_schedule_steps),
+                schedule_deltas=tuple(float(v) for v in self.cfg.teacher_guidance_schedule_deltas),
+                disable_after_steps=int(self.cfg.teacher_guidance_disable_after_steps),
+            )
+
         def _get_observations(self) -> dict[str, torch.Tensor]:
             self._refresh_path_state()
             assert self._path_height_sp_m is not None
