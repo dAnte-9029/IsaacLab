@@ -443,9 +443,15 @@ else:
             assert self._path_action_delta is not None
 
             airspeed = torch.linalg.norm(self._robot.data.root_lin_vel_w - self._wind_w, dim=1)
+            pos_w = self._robot.data.root_pos_w - self.scene.env_origins
             g_b = self._robot.data.projected_gravity_b
             tilt = torch.sqrt(g_b[:, 0] ** 2 + g_b[:, 1] ** 2)
             ang_rate = torch.linalg.norm(self._robot.data.root_ang_vel_b, dim=1)
+            tilt_thr = torch.sin(torch.deg2rad(torch.tensor(self.cfg.terminate_tilt_deg, device=self.device)))
+            terminated = pos_w[:, 2] <= float(self.cfg.terminate_ground_height)
+            terminated = terminated | (tilt > tilt_thr)
+            terminated = terminated | (torch.abs(self._path_lateral_error_m) > float(self.cfg.terminate_path_error_m))
+            terminated = terminated | (torch.abs(self._path_height_error_m) > float(self.cfg.terminate_height_error_m))
             return _compute_tracking_reward(
                 lateral_error=torch.abs(self._path_lateral_error_m),
                 height_error=torch.abs(self._path_height_error_m),
@@ -456,6 +462,7 @@ else:
                 action_delta=self._path_action_delta,
                 tilt=tilt,
                 ang_rate=ang_rate,
+                terminated=terminated,
             )
 
         def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -505,6 +512,7 @@ def _compute_tracking_reward(
     action_delta: torch.Tensor,
     tilt: torch.Tensor,
     ang_rate: torch.Tensor,
+    terminated: torch.Tensor,
 ) -> torch.Tensor:
     """Compute a tracking-plus-progress reward."""
     low_speed_penalty = 0.2 * torch.clamp(4.0 - airspeed, min=0.0)
@@ -512,6 +520,7 @@ def _compute_tracking_reward(
     action_delta_penalty = 0.01 * torch.sum(action_delta**2, dim=1)
     tilt_penalty = 0.05 * tilt
     ang_rate_penalty = 0.02 * ang_rate
+    termination_penalty = 5.0 * terminated.float()
     return (
         delta_s
         - 0.2 * lateral_error
@@ -522,6 +531,7 @@ def _compute_tracking_reward(
         - action_delta_penalty
         - tilt_penalty
         - ang_rate_penalty
+        - termination_penalty
     )
 
 
