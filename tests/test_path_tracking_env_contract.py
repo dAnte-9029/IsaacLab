@@ -7,6 +7,7 @@ from flapping_bot.direct.flapping_bot.path_tracking_env import (
     FlappingBotPathTrackingEnv,
     FlappingBotPathTrackingEnvCfg,
     PATH_TRACKING_RUNTIME_AVAILABLE,
+    _compute_mission_seed,
 )
 
 
@@ -143,3 +144,21 @@ def test_path_tracking_env_uses_fixed_five_point_preview_contract() -> None:
 
     assert observation_space_value == 96
     assert (5, 3) in {dims[-2:] for dims in preview_tuple_values}
+
+
+def test_compute_mission_seed_can_freeze_eval_missions_across_resets() -> None:
+    changing_seed = _compute_mission_seed(
+        base_seed=101,
+        path_reset_counter=4,
+        env_id=2,
+        increment_per_reset=True,
+    )
+    frozen_seed = _compute_mission_seed(
+        base_seed=101,
+        path_reset_counter=4,
+        env_id=2,
+        increment_per_reset=False,
+    )
+
+    assert changing_seed == 101 + 4 * 7919 + 2
+    assert frozen_seed == 103

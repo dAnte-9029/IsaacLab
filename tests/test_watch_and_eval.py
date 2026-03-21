@@ -75,3 +75,60 @@ def test_watch_and_eval_resolves_path_tracking_task_to_truth_suite() -> None:
     )
 
     assert resolved == "path_tracking_truth_nowind_v1"
+
+
+def test_watch_and_eval_applies_path_tracking_mission_overrides() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    cfg = types.SimpleNamespace(
+        randomize_commands=True,
+        vx_cmd=0.0,
+        height_cmd=0.0,
+        teacher_guidance_enabled=True,
+        wind_curriculum_enabled=True,
+        wind_enabled=True,
+        randomize_wind=True,
+        wind_xy_mps=(1.0, 1.0),
+        wind_x_range_mps=(1.0, 1.0),
+        wind_y_range_mps=(1.0, 1.0),
+        wind_ou_enabled=True,
+        wind_ou_tau_s=1.0,
+        wind_ou_sigma_xy_mps=(1.0, 1.0),
+        wind_ou_clip_to_range=True,
+        mission_seed=0,
+        mission_increment_seed_per_reset=True,
+        mission_num_segments_min=2,
+        mission_num_segments_max=4,
+        mission_allow_straight=True,
+        mission_allow_turn=True,
+        mission_allow_loiter=True,
+        mission_allow_climb_on_straight=True,
+    )
+    case = {
+        "name": "straight_nowind",
+        "wind_enabled": False,
+        "wind_xy_mps": (0.0, 0.0),
+        "wind_ou_enabled": False,
+        "wind_ou_tau_s": 2.0,
+        "wind_ou_sigma_xy_mps": (0.0, 0.0),
+        "mission_seed": 101,
+        "mission_increment_seed_per_reset": False,
+        "mission_num_segments_min": 1,
+        "mission_num_segments_max": 1,
+        "mission_allow_straight": True,
+        "mission_allow_turn": False,
+        "mission_allow_loiter": False,
+        "mission_allow_climb_on_straight": False,
+    }
+
+    watch_and_eval._apply_eval_case_to_cfg(case, cfg, vx_cmd=None, height_cmd=None)
+
+    assert cfg.wind_enabled is False
+    assert cfg.wind_xy_mps == (0.0, 0.0)
+    assert cfg.mission_seed == 101
+    assert cfg.mission_increment_seed_per_reset is False
+    assert cfg.mission_num_segments_min == 1
+    assert cfg.mission_num_segments_max == 1
+    assert cfg.mission_allow_straight is True
+    assert cfg.mission_allow_turn is False
+    assert cfg.mission_allow_loiter is False

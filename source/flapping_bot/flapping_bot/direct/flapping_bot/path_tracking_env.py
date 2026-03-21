@@ -25,6 +25,13 @@ def _compute_alignment_error(*, tangent_xy: torch.Tensor, ground_vel_xy: torch.T
     return torch.where(ground_speed > 1.0e-3, align_error, torch.zeros_like(align_error))
 
 
+def _compute_mission_seed(*, base_seed: int, path_reset_counter: int, env_id: int, increment_per_reset: bool) -> int:
+    """Compute the deterministic mission seed for one environment reset."""
+    if increment_per_reset:
+        return int(base_seed) + int(path_reset_counter) * 7919 + int(env_id)
+    return int(base_seed) + int(env_id)
+
+
 try:
     from isaaclab.utils import configclass
     from isaaclab.utils.math import euler_xyz_from_quat, quat_apply_inverse
@@ -66,6 +73,7 @@ else:
         mission_allow_turn: bool = True
         mission_allow_loiter: bool = True
         mission_allow_climb_on_straight: bool = True
+        mission_increment_seed_per_reset: bool = True
 
         path_manager_max_roll_deg: float = 35.0
         path_manager_max_flight_path_angle_deg: float = 10.0
@@ -113,6 +121,10 @@ else:
                         max_flap_hz=float(self.cfg.max_flap_hz),
                         enable_tecs=True,
                         speed_sp_mps=float(self.cfg.vx_cmd),
+                        initial_elevon_pitch_action=float(self.cfg.reset_elevon_pitch_deg)
+                        / max(float(self.cfg.elevon_max_deg), 1.0e-6),
+                        initial_elevon_roll_action=float(self.cfg.reset_elevon_roll_deg)
+                        / max(float(self.cfg.elevon_max_deg), 1.0e-6),
                     ),
                     device=self.device,
                 )
@@ -151,7 +163,12 @@ else:
             return env_ids.to(device=self.device, dtype=torch.long)
 
         def _sample_mission_for_env(self, env_id: int) -> Mission:
-            seed = int(self.cfg.mission_seed) + int(self._path_reset_counter) * 7919 + int(env_id)
+            seed = _compute_mission_seed(
+                base_seed=int(self.cfg.mission_seed),
+                path_reset_counter=int(self._path_reset_counter),
+                env_id=int(env_id),
+                increment_per_reset=bool(self.cfg.mission_increment_seed_per_reset),
+            )
             self._path_reset_counter += 1
             return sample_mission(
                 MissionGeneratorCfg(

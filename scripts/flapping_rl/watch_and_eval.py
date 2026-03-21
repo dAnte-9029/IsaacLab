@@ -39,6 +39,44 @@ def _resolve_eval_suite(task: str, eval_suite: str) -> str:
     return str(eval_suite)
 
 
+def _apply_eval_case_to_cfg(case: dict, cfg, *, vx_cmd: float | None, height_cmd: float | None) -> None:
+    """Apply one evaluation-case override set onto an environment config."""
+    cfg.randomize_commands = False
+    if vx_cmd is not None:
+        cfg.vx_cmd = float(vx_cmd)
+    if height_cmd is not None:
+        cfg.height_cmd = float(height_cmd)
+
+    if hasattr(cfg, "teacher_guidance_enabled"):
+        cfg.teacher_guidance_enabled = False
+    if hasattr(cfg, "wind_curriculum_enabled"):
+        cfg.wind_curriculum_enabled = False
+
+    cfg.wind_enabled = bool(case["wind_enabled"])
+    cfg.randomize_wind = False
+    cfg.wind_xy_mps = tuple(float(v) for v in case["wind_xy_mps"])
+    cfg.wind_x_range_mps = (float(case["wind_xy_mps"][0]), float(case["wind_xy_mps"][0]))
+    cfg.wind_y_range_mps = (float(case["wind_xy_mps"][1]), float(case["wind_xy_mps"][1]))
+    cfg.wind_ou_enabled = bool(case["wind_ou_enabled"])
+    cfg.wind_ou_tau_s = float(case["wind_ou_tau_s"])
+    cfg.wind_ou_sigma_xy_mps = tuple(float(v) for v in case["wind_ou_sigma_xy_mps"])
+    cfg.wind_ou_clip_to_range = False
+
+    mission_fields = (
+        "mission_seed",
+        "mission_increment_seed_per_reset",
+        "mission_num_segments_min",
+        "mission_num_segments_max",
+        "mission_allow_straight",
+        "mission_allow_turn",
+        "mission_allow_loiter",
+        "mission_allow_climb_on_straight",
+    )
+    for field_name in mission_fields:
+        if field_name in case and hasattr(cfg, field_name):
+            setattr(cfg, field_name, case[field_name])
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Watch a run directory and evaluate new checkpoints.")
     parser.add_argument("--task", type=str, required=True)
@@ -212,28 +250,6 @@ def main():
     if args.height_cmd is not None:
         env_cfg.height_cmd = float(args.height_cmd)
 
-    def _apply_eval_case(case: dict, cfg) -> None:
-        cfg.randomize_commands = False
-        if args.vx_cmd is not None:
-            cfg.vx_cmd = float(args.vx_cmd)
-        if args.height_cmd is not None:
-            cfg.height_cmd = float(args.height_cmd)
-
-        if hasattr(cfg, "teacher_guidance_enabled"):
-            cfg.teacher_guidance_enabled = False
-        if hasattr(cfg, "wind_curriculum_enabled"):
-            cfg.wind_curriculum_enabled = False
-
-        cfg.wind_enabled = bool(case["wind_enabled"])
-        cfg.randomize_wind = False
-        cfg.wind_xy_mps = tuple(float(v) for v in case["wind_xy_mps"])
-        cfg.wind_x_range_mps = (float(case["wind_xy_mps"][0]), float(case["wind_xy_mps"][0]))
-        cfg.wind_y_range_mps = (float(case["wind_xy_mps"][1]), float(case["wind_xy_mps"][1]))
-        cfg.wind_ou_enabled = bool(case["wind_ou_enabled"])
-        cfg.wind_ou_tau_s = float(case["wind_ou_tau_s"])
-        cfg.wind_ou_sigma_xy_mps = tuple(float(v) for v in case["wind_ou_sigma_xy_mps"])
-        cfg.wind_ou_clip_to_range = False
-
     agent_cfg_dict = None
     if use_saved_cfg:
         saved_agent = log_dir / "params" / "agent.yaml"
@@ -247,7 +263,7 @@ def main():
 
     eval_suite = _resolve_eval_suite(args.task, args.eval_suite)
     eval_cases = build_eval_cases(eval_suite)
-    _apply_eval_case(eval_cases[0], env_cfg)
+    _apply_eval_case_to_cfg(eval_cases[0], env_cfg, vx_cmd=args.vx_cmd, height_cmd=args.height_cmd)
 
     env = gym.make(args.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg_dict.get("clip_actions", None))
@@ -280,7 +296,7 @@ def main():
         # load weights
         runner.load(str(ckpt))
         policy = runner.get_inference_policy(device=env.unwrapped.device)
-        _apply_eval_case(case, env.unwrapped.cfg)
+        _apply_eval_case_to_cfg(case, env.unwrapped.cfg, vx_cmd=args.vx_cmd, height_cmd=args.height_cmd)
         obs, _ = env.reset()
         policy_nn.reset(torch.ones(env.unwrapped.num_envs, dtype=torch.long, device=env.unwrapped.device))
 
