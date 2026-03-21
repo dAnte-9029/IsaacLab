@@ -97,6 +97,43 @@ def test_path_tracking_env_defaults_enable_teacher_guidance() -> None:
     raise AssertionError("teacher_guidance_enabled=True not found in FlappingBotPathTrackingEnvCfg")
 
 
+def test_path_tracking_env_defaults_are_no_wind_for_truth_training() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "path_tracking_env.py"
+        ).read_text()
+    )
+
+    expected_fields = {
+        "wind_enabled": False,
+        "randomize_wind": False,
+        "wind_ou_enabled": False,
+        "wind_curriculum_enabled": False,
+    }
+    found_fields: dict[str, bool] = {}
+
+    for node in ast.walk(module):
+        if not isinstance(node, ast.ClassDef) or node.name != "FlappingBotPathTrackingEnvCfg":
+            continue
+        for item in node.body:
+            if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+                continue
+            field_name = item.target.id
+            if field_name not in expected_fields:
+                continue
+            assert isinstance(item.value, ast.Constant)
+            found_fields[field_name] = item.value.value
+        break
+
+    assert found_fields == expected_fields
+
+
 def test_path_tracking_env_uses_fixed_five_point_preview_contract() -> None:
     module = ast.parse(
         (

@@ -66,6 +66,15 @@ else:
         teacher_guidance_schedule_deltas: tuple[float, ...] = (0.15, 0.25, 0.75, 2.0)
         teacher_guidance_disable_after_steps: int = -1
 
+        wind_enabled: bool = False
+        wind_xy_mps: tuple[float, float] = (0.0, 0.0)
+        randomize_wind: bool = False
+        wind_x_range_mps: tuple[float, float] = (0.0, 0.0)
+        wind_y_range_mps: tuple[float, float] = (0.0, 0.0)
+        wind_ou_enabled: bool = False
+        wind_ou_sigma_xy_mps: tuple[float, float] = (0.0, 0.0)
+        wind_curriculum_enabled: bool = False
+
         mission_seed: int = 0
         mission_num_segments_min: int = 2
         mission_num_segments_max: int = 4
