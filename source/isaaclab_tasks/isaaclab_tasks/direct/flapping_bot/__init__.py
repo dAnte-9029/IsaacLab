@@ -140,3 +140,14 @@ gym.register(
         "rsl_rl_cfg_entry_point": FlappingBotPathTrackingPPORunnerCfg,
     },
 )
+
+
+gym.register(
+    id="Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0",
+    entry_point=FlappingBotPathTrackingEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotPathTrackingEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotPathTrackingPPORunnerCfg,
+    },
+)

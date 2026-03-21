@@ -10,6 +10,7 @@ EXPECTED_TASKS = {
     "Isaac-FlappingBot-StraightFlight-DeLaurier-TeacherRL-Direct-v0": "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-WeakTeacherRL-Direct-v0": "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-PureRL-Direct-v0": "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
+    "Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0": "FlappingBotPathTrackingEnvCfg",
 }
 
 

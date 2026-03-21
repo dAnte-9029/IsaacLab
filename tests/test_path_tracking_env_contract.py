@@ -58,6 +58,16 @@ def test_path_tracking_task_uses_expected_env_cfg() -> None:
     assert registered["Isaac-FlappingBot-PathTracking-DeLaurier-Direct-v0"] == "FlappingBotPathTrackingEnvCfg"
 
 
+def test_path_tracking_teacher_rl_task_is_registered() -> None:
+    registered = _registered_env_cfgs()
+    assert "Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0" in registered
+
+
+def test_path_tracking_teacher_rl_task_uses_expected_env_cfg() -> None:
+    registered = _registered_env_cfgs()
+    assert registered["Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0"] == "FlappingBotPathTrackingEnvCfg"
+
+
 def test_path_tracking_module_exports_task_symbols() -> None:
     assert FlappingBotPathTrackingEnv.__name__ == "FlappingBotPathTrackingEnv"
     assert FlappingBotPathTrackingEnvCfg.__name__ == "FlappingBotPathTrackingEnvCfg"
