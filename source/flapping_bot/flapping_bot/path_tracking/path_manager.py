@@ -94,12 +94,16 @@ class _ArcSegment:
 
 @dataclass(frozen=True)
 class _QueryCandidate:
+    segment_idx: int
     closest_point_xyz: tuple[float, float, float]
     tangent_xy: tuple[float, float]
     curvature_m_inv: float
     progress_s: float
+    progress_local_m: float
+    remaining_length_m: float
     lateral_error_m: float
     distance_sq_xy: float
+    boundary_distance_m: float
 
 
 class PathManager:
@@ -107,6 +111,12 @@ class PathManager:
 
     _BACKWARD_PROGRESS_TOL_M = 2.0
     _BACKWARD_PROGRESS_PENALTY = 1.0e3
+    _SCORE_TIE_ABS_TOL = 1.0e-9
+    _CLOSED_LOOP_ENTRY_PROGRESS_TOL_RAD = 0.1
+    _CLOSED_LOOP_BOUNDARY_TOL_RAD = 1.0e-9
+    _TRANSITION_LOOKAHEAD_SEGMENTS = 1
+    _MIN_TRANSITION_WINDOW_M = 2.5
+    _TRANSITION_WINDOW_TIME_S = 0.5
 
     def __init__(self, cfg: PathManagerCfg, mission: Mission):
         if len(cfg.preview_times_s) != 5:
@@ -119,10 +129,14 @@ class PathManager:
         self._segments = self._build_segments()
         self.total_length_m = self._segments[-1].s_end
         self._last_progress_s = 0.0
+        self._last_segment_idx = 0
+        self._last_segment_progress_s = 0.0
 
     def reset(self) -> None:
         """Reset internal progress hysteresis."""
         self._last_progress_s = 0.0
+        self._last_segment_idx = 0
+        self._last_segment_progress_s = 0.0
 
     def query(
         self,
@@ -131,32 +145,35 @@ class PathManager:
         altitude_m: float,
         speed_mps: float,
     ) -> PathQuery:
-        best: _QueryCandidate | None = None
-        best_score = float("inf")
+        reference_segment_idx = self._resolve_reference_segment_idx()
+        best = self._query_segment(reference_segment_idx, self._segments[reference_segment_idx], position_xy)
+        best_score = self._candidate_score(best)
+        transition_window_m = self._transition_window_m(speed_mps)
 
-        for segment in self._segments:
-            candidate = self._query_segment(segment, position_xy)
-            backward_m = max(0.0, self._last_progress_s - candidate.progress_s - self._BACKWARD_PROGRESS_TOL_M)
-            score = candidate.distance_sq_xy + self._BACKWARD_PROGRESS_PENALTY * backward_m * backward_m
-            if score < best_score:
+        upper_idx = min(
+            len(self._segments) - 1,
+            reference_segment_idx + self._TRANSITION_LOOKAHEAD_SEGMENTS,
+        )
+        for segment_idx in range(reference_segment_idx + 1, upper_idx + 1):
+            candidate = self._query_segment(segment_idx, self._segments[segment_idx], position_xy)
+            if not self._can_advance(best, candidate, transition_window_m):
+                continue
+            score = self._candidate_score(candidate)
+            if score < best_score - self._SCORE_TIE_ABS_TOL:
                 best = candidate
                 best_score = score
                 continue
-            if math.isclose(score, best_score, rel_tol=0.0, abs_tol=1.0e-9) and best is not None:
-                candidate_progress_gap = abs(candidate.progress_s - self._last_progress_s)
-                best_progress_gap = abs(best.progress_s - self._last_progress_s)
-                if candidate_progress_gap < best_progress_gap or (
-                    math.isclose(candidate_progress_gap, best_progress_gap, rel_tol=0.0, abs_tol=1.0e-9)
-                    and candidate.progress_s < best.progress_s
-                ):
-                    best = candidate
-                    best_score = score
+            if math.isclose(score, best_score, rel_tol=0.0, abs_tol=self._SCORE_TIE_ABS_TOL) and candidate.progress_s > best.progress_s:
+                best = candidate
+                best_score = score
 
         if best is None:
             raise RuntimeError("path query failed to evaluate any segment.")
 
         progress_s = max(self._last_progress_s, best.progress_s)
         self._last_progress_s = progress_s
+        self._last_segment_idx = best.segment_idx
+        self._last_segment_progress_s = best.progress_s
         closest_point_xyz = self.sample(progress_s)
         preview_speed_mps = max(float(speed_mps), 1.0)
         preview_points_xyz = [
@@ -200,7 +217,10 @@ class PathManager:
                     position_xy[1] + length_m * unit_tangent_xy[1],
                 )
                 max_alt_delta_m = length_m * math.tan(math.radians(float(self.cfg.max_flight_path_angle_deg)))
-                if mission_segment.altitude_changes:
+                altitude_direction = int(getattr(mission_segment, "altitude_direction", 0))
+                if altitude_direction != 0:
+                    altitude_delta_m = math.copysign(min(float(self.cfg.climb_delta_m), max_alt_delta_m), altitude_direction)
+                elif mission_segment.altitude_changes:
                     altitude_delta_m = climb_sign * min(float(self.cfg.climb_delta_m), max_alt_delta_m)
                     climb_sign *= -1.0
                 else:
@@ -267,6 +287,7 @@ class PathManager:
 
     def _query_segment(
         self,
+        segment_idx: int,
         segment: _StraightSegment | _ArcSegment,
         position_xy: tuple[float, float],
     ) -> _QueryCandidate:
@@ -281,22 +302,38 @@ class PathManager:
             closest_alt_m = segment.start_alt_m + frac * (segment.end_alt_m - segment.start_alt_m)
             offset_xy = (position_xy[0] - closest_xy[0], position_xy[1] - closest_xy[1])
             return _QueryCandidate(
+                segment_idx=segment_idx,
                 closest_point_xyz=(closest_xy[0], closest_xy[1], closest_alt_m),
                 tangent_xy=segment.unit_tangent_xy,
                 curvature_m_inv=0.0,
                 progress_s=segment.s_start + along_m,
+                progress_local_m=along_m,
+                remaining_length_m=segment.length_m - along_m,
                 lateral_error_m=_cross2d(segment.unit_tangent_xy, offset_xy),
                 distance_sq_xy=_dot2d(offset_xy, offset_xy),
+                boundary_distance_m=min(along_m, segment.length_m - along_m),
             )
 
         raw_angle_rad = math.atan2(position_xy[1] - segment.center_xy[1], position_xy[0] - segment.center_xy[0])
         delta_candidates_rad = self._arc_progress_candidates(segment, raw_angle_rad)
+        total_sweep_rad = abs(segment.sweep_angle_rad)
+        if segment.turn_direction > 0:
+            base_delta_rad = _wrap_to_2pi(raw_angle_rad - segment.start_angle_rad)
+        else:
+            base_delta_rad = _wrap_to_2pi(segment.start_angle_rad - raw_angle_rad)
         target_progress_rad = _clamp(
             (self._last_progress_s - segment.s_start) / max(segment.radius_m, 1.0e-6),
             0.0,
-            abs(segment.sweep_angle_rad),
+            total_sweep_rad,
         )
-        delta_rad = min(delta_candidates_rad, key=lambda value: (abs(value - target_progress_rad), -value))
+        if (
+            total_sweep_rad >= 2.0 * math.pi - 1.0e-9
+            and target_progress_rad <= self._CLOSED_LOOP_ENTRY_PROGRESS_TOL_RAD
+            and self._CLOSED_LOOP_BOUNDARY_TOL_RAD < base_delta_rad < min(math.pi, total_sweep_rad)
+        ):
+            delta_rad = base_delta_rad
+        else:
+            delta_rad = min(delta_candidates_rad, key=lambda value: (abs(value - target_progress_rad), -value))
         angle_on_path_rad = segment.start_angle_rad + segment.turn_direction * delta_rad
         closest_xy = (
             segment.center_xy[0] + segment.radius_m * math.cos(angle_on_path_rad),
@@ -307,14 +344,54 @@ class PathManager:
             segment.turn_direction * math.cos(angle_on_path_rad),
         )
         offset_xy = (position_xy[0] - closest_xy[0], position_xy[1] - closest_xy[1])
+        progress_local_m = segment.radius_m * delta_rad
         return _QueryCandidate(
+            segment_idx=segment_idx,
             closest_point_xyz=(closest_xy[0], closest_xy[1], segment.altitude_m),
             tangent_xy=tangent_xy,
             curvature_m_inv=segment.turn_direction / max(segment.radius_m, 1.0e-6),
-            progress_s=segment.s_start + segment.radius_m * delta_rad,
+            progress_s=segment.s_start + progress_local_m,
+            progress_local_m=progress_local_m,
+            remaining_length_m=segment.arc_length_m - progress_local_m,
             lateral_error_m=_cross2d(tangent_xy, offset_xy),
             distance_sq_xy=_dot2d(offset_xy, offset_xy),
+            boundary_distance_m=min(progress_local_m, segment.arc_length_m - progress_local_m),
         )
+
+    def _resolve_reference_segment_idx(self) -> int:
+        if 0 <= self._last_segment_idx < len(self._segments):
+            segment = self._segments[self._last_segment_idx]
+            if segment.s_start - 1.0e-9 <= self._last_progress_s <= segment.s_end + 1.0e-9:
+                return self._last_segment_idx
+        return self._segment_index_from_progress(self._last_progress_s)
+
+    def _segment_index_from_progress(self, progress_s: float) -> int:
+        clamped_progress_s = _clamp(float(progress_s), 0.0, self.total_length_m)
+        for segment_idx, segment in enumerate(self._segments):
+            if clamped_progress_s <= segment.s_end + 1.0e-9:
+                return segment_idx
+        return len(self._segments) - 1
+
+    def _transition_window_m(self, speed_mps: float) -> float:
+        return max(self._MIN_TRANSITION_WINDOW_M, max(float(speed_mps), 1.0) * self._TRANSITION_WINDOW_TIME_S)
+
+    def _candidate_score(self, candidate: _QueryCandidate) -> float:
+        backward_m = max(0.0, self._last_progress_s - candidate.progress_s - self._BACKWARD_PROGRESS_TOL_M)
+        return candidate.distance_sq_xy + self._BACKWARD_PROGRESS_PENALTY * backward_m * backward_m
+
+    def _can_advance(
+        self,
+        current_candidate: _QueryCandidate,
+        next_candidate: _QueryCandidate,
+        transition_window_m: float,
+    ) -> bool:
+        if next_candidate.segment_idx != current_candidate.segment_idx + 1:
+            return False
+        if current_candidate.remaining_length_m > transition_window_m:
+            return False
+        if next_candidate.progress_s + self._BACKWARD_PROGRESS_TOL_M < current_candidate.progress_s:
+            return False
+        return True
 
     def _arc_progress_candidates(self, segment: _ArcSegment, raw_angle_rad: float) -> list[float]:
         total_sweep_rad = abs(segment.sweep_angle_rad)
@@ -332,6 +409,13 @@ class PathManager:
             candidate_rad = base_delta_rad + 2.0 * math.pi * turn_idx
             if candidate_rad <= total_sweep_rad + 1.0e-9:
                 candidates.append(candidate_rad)
+        if total_sweep_rad >= 2.0 * math.pi - 1.0e-9:
+            for turn_idx in range(turns + 1):
+                boundary_rad = min(2.0 * math.pi * turn_idx, total_sweep_rad)
+                if not any(math.isclose(boundary_rad, existing, rel_tol=0.0, abs_tol=1.0e-9) for existing in candidates):
+                    candidates.append(boundary_rad)
+            if not any(math.isclose(total_sweep_rad, existing, rel_tol=0.0, abs_tol=1.0e-9) for existing in candidates):
+                candidates.append(total_sweep_rad)
         if not candidates:
             candidates.append(_clamp(base_delta_rad, 0.0, total_sweep_rad))
         return candidates
