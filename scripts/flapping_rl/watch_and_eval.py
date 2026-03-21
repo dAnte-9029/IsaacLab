@@ -31,50 +31,22 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from checkpoint_selection import refresh_best_checkpoint_artifacts
 from eval_suites import build_eval_cases, get_eval_suite_choices
+from path_tracking_eval_common import (
+    aggregate_case_row,
+    aggregate_suite_row,
+    apply_eval_case_to_cfg as _apply_eval_case_to_cfg_common,
+    compute_path_tracking_score,
+    is_path_tracking_task,
+    resolve_eval_suite as _resolve_eval_suite_common,
+)
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
-    if eval_suite == "straight_standard" and "PathTracking" in str(task):
-        return "path_tracking_truth_nowind_v1"
-    return str(eval_suite)
+    return _resolve_eval_suite_common(task, eval_suite)
 
 
 def _apply_eval_case_to_cfg(case: dict, cfg, *, vx_cmd: float | None, height_cmd: float | None) -> None:
-    """Apply one evaluation-case override set onto an environment config."""
-    cfg.randomize_commands = False
-    if vx_cmd is not None:
-        cfg.vx_cmd = float(vx_cmd)
-    if height_cmd is not None:
-        cfg.height_cmd = float(height_cmd)
-
-    if hasattr(cfg, "teacher_guidance_enabled"):
-        cfg.teacher_guidance_enabled = False
-    if hasattr(cfg, "wind_curriculum_enabled"):
-        cfg.wind_curriculum_enabled = False
-
-    cfg.wind_enabled = bool(case["wind_enabled"])
-    cfg.randomize_wind = False
-    cfg.wind_xy_mps = tuple(float(v) for v in case["wind_xy_mps"])
-    cfg.wind_x_range_mps = (float(case["wind_xy_mps"][0]), float(case["wind_xy_mps"][0]))
-    cfg.wind_y_range_mps = (float(case["wind_xy_mps"][1]), float(case["wind_xy_mps"][1]))
-    cfg.wind_ou_enabled = bool(case["wind_ou_enabled"])
-    cfg.wind_ou_tau_s = float(case["wind_ou_tau_s"])
-    cfg.wind_ou_sigma_xy_mps = tuple(float(v) for v in case["wind_ou_sigma_xy_mps"])
-    cfg.wind_ou_clip_to_range = False
-
-    mission_fields = (
-        "mission_seed",
-        "mission_increment_seed_per_reset",
-        "mission_num_segments_min",
-        "mission_num_segments_max",
-        "mission_allow_straight",
-        "mission_allow_turn",
-        "mission_allow_loiter",
-        "mission_allow_climb_on_straight",
-    )
-    for field_name in mission_fields:
-        if field_name in case and hasattr(cfg, field_name):
-            setattr(cfg, field_name, case[field_name])
+    _apply_eval_case_to_cfg_common(case, cfg, vx_cmd=vx_cmd, height_cmd=height_cmd)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -114,6 +86,14 @@ def _extract_ckpt_index(p: Path) -> int:
 
 
 def _score_row(row: dict) -> float:
+    if "completion_rate" in row and "mean_abs_lateral_error_m" in row:
+        return compute_path_tracking_score(
+            completion_rate=float(row["completion_rate"]),
+            mean_abs_lateral_error_m=float(row["mean_abs_lateral_error_m"]),
+            mean_abs_height_error_m=float(row["mean_abs_height_error_m"]),
+            mean_abs_align_error_deg=float(row["mean_abs_align_error_deg"]),
+            termination_rate=float(row["termination_rate"]),
+        )
     cost = (
         float(row["mean_abs_vx_err"])
         + float(row["mean_abs_z_err"])
@@ -122,6 +102,19 @@ def _score_row(row: dict) -> float:
         + 5.0 * float(row["termination_rate"])
     )
     return 100.0 / (1.0 + cost)
+
+
+def _percentile(values: list[float], q: float) -> float:
+    if len(values) == 0:
+        return 0.0
+    if len(values) == 1:
+        return float(values[0])
+    values = sorted(float(v) for v in values)
+    idx = (len(values) - 1) * max(0.0, min(1.0, q))
+    lower = int(idx)
+    upper = min(lower + 1, len(values) - 1)
+    alpha = idx - lower
+    return values[lower] + (values[upper] - values[lower]) * alpha
 
 
 def main():
@@ -300,7 +293,79 @@ def main():
         obs, _ = env.reset()
         policy_nn.reset(torch.ones(env.unwrapped.num_envs, dtype=torch.long, device=env.unwrapped.device))
 
-        # per-episode aggregation (similar to eval_straight_flight_checkpoint.py but kept minimal)
+        if is_path_tracking_task(args.task):
+            target_episodes = int(args.episodes)
+            ep_done = 0
+            step_abs_lateral = [[] for _ in range(env.unwrapped.num_envs)]
+            step_abs_height = [[] for _ in range(env.unwrapped.num_envs)]
+            step_abs_align_deg = [[] for _ in range(env.unwrapped.num_envs)]
+            final_progress_ratio = [0.0 for _ in range(env.unwrapped.num_envs)]
+            ep_rows: list[dict[str, float | int]] = []
+
+            while ep_done < target_episodes:
+                with torch.inference_mode():
+                    actions = policy(obs)
+                obs, _rew, dones, _info = env.step(actions)
+                policy_nn.reset(dones)
+
+                env.unwrapped._refresh_path_state()
+                lateral_error = torch.abs(env.unwrapped._path_lateral_error_m).detach().cpu()
+                height_error = torch.abs(env.unwrapped._path_height_error_m).detach().cpu()
+                align_error_deg = torch.rad2deg(torch.abs(env.unwrapped._path_align_error_rad)).detach().cpu()
+                progress_s = env.unwrapped._path_progress_s.detach().cpu()
+
+                for env_id in range(env.unwrapped.num_envs):
+                    step_abs_lateral[env_id].append(float(lateral_error[env_id].item()))
+                    step_abs_height[env_id].append(float(height_error[env_id].item()))
+                    step_abs_align_deg[env_id].append(float(align_error_deg[env_id].item()))
+                    manager = env.unwrapped._path_managers[env_id]
+                    total_length = float(manager.total_length_m) if manager is not None else 1.0
+                    final_progress_ratio[env_id] = min(
+                        max(float(progress_s[env_id].item()) / max(total_length, 1.0e-6), 0.0),
+                        1.0,
+                    )
+
+                done_ids = torch.nonzero(dones > 0, as_tuple=False).squeeze(-1)
+                if done_ids.numel() == 0:
+                    continue
+
+                for env_id in done_ids.tolist():
+                    if ep_done >= target_episodes:
+                        break
+                    ep_rows.append(
+                        {
+                            "mean_abs_lateral_error_m": float(
+                                sum(step_abs_lateral[env_id]) / max(len(step_abs_lateral[env_id]), 1)
+                            ),
+                            "mean_abs_height_error_m": float(
+                                sum(step_abs_height[env_id]) / max(len(step_abs_height[env_id]), 1)
+                            ),
+                            "mean_abs_align_error_deg": float(
+                                sum(step_abs_align_deg[env_id]) / max(len(step_abs_align_deg[env_id]), 1)
+                            ),
+                            "p95_abs_lateral_error_m": _percentile(step_abs_lateral[env_id], 0.95),
+                            "p95_abs_height_error_m": _percentile(step_abs_height[env_id], 0.95),
+                            "p95_abs_align_error_deg": _percentile(step_abs_align_deg[env_id], 0.95),
+                            "final_progress_ratio": float(final_progress_ratio[env_id]),
+                            "completed": int(final_progress_ratio[env_id] >= 0.98),
+                            "terminated": int(env.unwrapped.reset_terminated[env_id].item()),
+                            "time_out": int(env.unwrapped.reset_time_outs[env_id].item()),
+                        }
+                    )
+                    ep_done += 1
+                    step_abs_lateral[env_id].clear()
+                    step_abs_height[env_id].clear()
+                    step_abs_align_deg[env_id].clear()
+                    final_progress_ratio[env_id] = 0.0
+
+            return aggregate_case_row(
+                checkpoint=ckpt,
+                ckpt_index=_extract_ckpt_index(ckpt),
+                case=case,
+                episode_rows=ep_rows,
+            )
+
+        # per-episode aggregation for straight-flight metrics
         n_env = int(env.unwrapped.num_envs)
         target_episodes = int(args.episodes)
 
@@ -388,6 +453,10 @@ def main():
 
     def _eval_checkpoint(ckpt: Path) -> list[dict]:
         case_rows = [_eval_case(ckpt, case) for case in eval_cases]
+        if is_path_tracking_task(args.task):
+            suite_row = aggregate_suite_row(case_rows)
+            suite_row["score"] = _score_row(suite_row)
+            return case_rows + [suite_row]
         suite_row = {
             "checkpoint": str(ckpt),
             "case": "suite",

@@ -132,3 +132,28 @@ def test_watch_and_eval_applies_path_tracking_mission_overrides() -> None:
     assert cfg.mission_allow_straight is True
     assert cfg.mission_allow_turn is False
     assert cfg.mission_allow_loiter is False
+
+
+def test_watch_and_eval_scores_path_tracking_rows_with_completion_priority() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    better = watch_and_eval._score_row(
+        {
+            "completion_rate": 0.9,
+            "mean_abs_lateral_error_m": 0.2,
+            "mean_abs_height_error_m": 0.1,
+            "mean_abs_align_error_deg": 4.0,
+            "termination_rate": 0.0,
+        }
+    )
+    worse = watch_and_eval._score_row(
+        {
+            "completion_rate": 0.4,
+            "mean_abs_lateral_error_m": 0.8,
+            "mean_abs_height_error_m": 0.5,
+            "mean_abs_align_error_deg": 12.0,
+            "termination_rate": 0.4,
+        }
+    )
+
+    assert better > worse

@@ -26,7 +26,20 @@ def select_best_checkpoint_row(summary_csv: Path, *, case: str = "suite") -> dic
     if not rows:
         return None
 
+    def _is_path_tracking_row(row: dict[str, str]) -> bool:
+        return "completion_rate" in row and "mean_abs_lateral_error_m" in row
+
     def _sort_key(row: dict[str, str]) -> tuple[float, float, float, float, float, float, float]:
+        if _is_path_tracking_row(row):
+            return (
+                _row_float(row, "score"),
+                _row_float(row, "completion_rate"),
+                -_row_float(row, "termination_rate"),
+                -_row_float(row, "mean_abs_lateral_error_m"),
+                -_row_float(row, "mean_abs_height_error_m"),
+                -_row_float(row, "mean_abs_align_error_deg"),
+                _row_float(row, "timeout_rate"),
+            )
         return (
             _row_float(row, "score"),
             -_row_float(row, "termination_rate"),
