@@ -224,7 +224,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # Differential elevons now generate a physical roll moment, so this surrogate is disabled by default.
     # tau_x += gain * q_dyn * roll_deflection - damping * p
     virtual_roll_moment_gain: float = 0.0
-    virtual_roll_moment_damping: float = 0.25
+    virtual_roll_moment_damping: float = 0.0
     # virtual pitch control (decoupled from visual model)
     # tau_y += gain * q_dyn * elevator_deflection - damping * q
     virtual_pitch_moment_gain: float = 0.0

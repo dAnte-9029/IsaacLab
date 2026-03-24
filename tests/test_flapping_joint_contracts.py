@@ -66,6 +66,12 @@ def test_straight_flight_env_writes_rudder_target_to_joint_buffer() -> None:
     assert "jt[:, self._IDX_RUDDER] = self._rudder_cmd" in body
 
 
+def test_straight_flight_env_disables_virtual_roll_surrogate_by_default() -> None:
+    assignments = _class_assignments(STRAIGHT_FLIGHT_ENV_FILE, "FlappingBotStraightFlightEnvCfg")
+    assert assignments["virtual_roll_moment_gain"] == 0.0
+    assert assignments["virtual_roll_moment_damping"] == 0.0
+
+
 def test_straight_flight_env_reset_initializes_rudder_joint() -> None:
     body = _method_body(STRAIGHT_FLIGHT_ENV_FILE, "_reset_idx")
     assert "jpos[:, self._IDX_RUDDER] = rudder0" in body
