@@ -10,6 +10,7 @@ class MissionSegment:
 
     kind: str
     altitude_changes: bool = False
+    altitude_direction: int = 0
 
 
 @dataclass(frozen=True)

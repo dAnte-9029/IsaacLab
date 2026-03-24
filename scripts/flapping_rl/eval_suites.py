@@ -8,6 +8,7 @@ EVAL_SUITE_CHOICES = (
     "single",
     "path_tracking_standard",
     "path_tracking_truth_nowind_v1",
+    "path_tracking_truth_primitives_nowind_v1",
 )
 
 
@@ -122,6 +123,52 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
                 mission_allow_turn=True,
                 mission_allow_loiter=True,
                 mission_allow_climb_on_straight=True,
+            ),
+        ]
+
+    if eval_suite == "path_tracking_truth_primitives_nowind_v1":
+        return [
+            _case(
+                "straight_primitive_nowind",
+                wind_enabled=False,
+                wind_xy_mps=(0.0, 0.0),
+                wind_ou_enabled=False,
+                mission_seed=111,
+                mission_increment_seed_per_reset=False,
+                mission_num_segments_min=1,
+                mission_num_segments_max=1,
+                mission_allow_straight=True,
+                mission_allow_turn=False,
+                mission_allow_loiter=False,
+                mission_allow_climb_on_straight=False,
+            ),
+            _case(
+                "turn_primitive_nowind",
+                wind_enabled=False,
+                wind_xy_mps=(0.0, 0.0),
+                wind_ou_enabled=False,
+                mission_seed=222,
+                mission_increment_seed_per_reset=False,
+                mission_num_segments_min=1,
+                mission_num_segments_max=1,
+                mission_allow_straight=False,
+                mission_allow_turn=True,
+                mission_allow_loiter=False,
+                mission_allow_climb_on_straight=False,
+            ),
+            _case(
+                "loiter_primitive_nowind",
+                wind_enabled=False,
+                wind_xy_mps=(0.0, 0.0),
+                wind_ou_enabled=False,
+                mission_seed=333,
+                mission_increment_seed_per_reset=False,
+                mission_num_segments_min=1,
+                mission_num_segments_max=1,
+                mission_allow_straight=False,
+                mission_allow_turn=False,
+                mission_allow_loiter=True,
+                mission_allow_climb_on_straight=False,
             ),
         ]
 

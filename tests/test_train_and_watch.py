@@ -6,6 +6,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "flapping_rl" / "train_and_watch.py"
 SPEC = importlib.util.spec_from_file_location("train_and_watch", MODULE_PATH)
@@ -110,6 +112,7 @@ def test_build_train_cmd_includes_resume_arguments() -> None:
         task="Isaac-FlappingBot-StraightFlight-DeLaurier-PureRL-Direct-v0",
         run_name="pure_resume",
         num_envs=128,
+        eval_num_envs=8,
         max_iterations=400,
         save_interval=20,
         seed=7,
@@ -132,11 +135,68 @@ def test_build_train_cmd_includes_resume_arguments() -> None:
     assert cmd[cmd.index("--checkpoint") + 1] == "best_model.pt"
 
 
+def test_build_train_cmd_supports_weights_only_warm_start() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-PathTracking-DeLaurier-PrimitivePureRL-Direct-v0",
+        run_name="pure_warm_start",
+        num_envs=128,
+        eval_num_envs=8,
+        max_iterations=400,
+        save_interval=20,
+        seed=7,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=3,
+        poll_s=30.0,
+        run_dir_timeout_s=120.0,
+        eval_suite="path_tracking_truth_primitives_nowind_v1",
+        headless=True,
+        resume=False,
+        load_weights_only=True,
+        load_run="2026-03-23_10-15-26_pt_bc_abs_primitives_v1",
+        checkpoint="model_bc.pt",
+    )
+
+    cmd = train_and_watch._build_train_cmd(args)
+
+    assert "--load_weights_only" in cmd
+    assert "--resume" not in cmd
+    assert cmd[cmd.index("--load_run") + 1] == "2026-03-23_10-15-26_pt_bc_abs_primitives_v1"
+    assert cmd[cmd.index("--checkpoint") + 1] == "model_bc.pt"
+
+
+def test_build_train_cmd_rejects_conflicting_resume_and_weights_only_flags() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-PathTracking-DeLaurier-PrimitivePureRL-Direct-v0",
+        run_name="conflict",
+        num_envs=128,
+        eval_num_envs=8,
+        max_iterations=400,
+        save_interval=20,
+        seed=7,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=3,
+        poll_s=30.0,
+        run_dir_timeout_s=120.0,
+        eval_suite="path_tracking_truth_primitives_nowind_v1",
+        headless=True,
+        resume=True,
+        load_weights_only=True,
+        load_run="2026-03-23_10-15-26_pt_bc_abs_primitives_v1",
+        checkpoint="model_bc.pt",
+    )
+
+    with pytest.raises(ValueError, match="cannot both be enabled"):
+        train_and_watch._build_train_cmd(args)
+
+
 def test_build_train_cmd_omits_resume_arguments_when_disabled() -> None:
     args = train_and_watch.argparse.Namespace(
         task="Isaac-FlappingBot-StraightFlight-DeLaurier-WeakTeacherRL-Direct-v0",
         run_name="weak_fresh",
         num_envs=64,
+        eval_num_envs=4,
         max_iterations=200,
         save_interval=10,
         seed=3,
@@ -165,6 +225,7 @@ def test_build_watch_cmd_defaults_path_tracking_task_to_truth_suite(tmp_path: Pa
         task="Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0",
         run_name="path_teacher",
         num_envs=64,
+        eval_num_envs=16,
         max_iterations=200,
         save_interval=10,
         seed=3,
@@ -183,3 +244,61 @@ def test_build_watch_cmd_defaults_path_tracking_task_to_truth_suite(tmp_path: Pa
     cmd = train_and_watch._build_watch_cmd(args, run_dir)
 
     assert cmd[cmd.index("--eval_suite") + 1] == "path_tracking_truth_nowind_v1"
+    assert cmd[cmd.index("--num_envs") + 1] == "16"
+
+
+def test_build_train_cmd_uses_portable_root_kit_args() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-PathTracking-DeLaurier-PrimitiveWeakTeacherRL-Direct-v0",
+        run_name="portable_smoke",
+        num_envs=128,
+        eval_num_envs=4,
+        max_iterations=50,
+        save_interval=10,
+        seed=5,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=2,
+        poll_s=10.0,
+        run_dir_timeout_s=60.0,
+        eval_suite="path_tracking_truth_nowind_v1",
+        headless=True,
+        resume=False,
+        load_run=None,
+        checkpoint=None,
+        portable_root_base=Path("logs/portable/train_and_watch/portable_smoke_seed5_pid123"),
+    )
+
+    cmd = train_and_watch._build_train_cmd(args)
+
+    assert "--kit_args" in cmd
+    assert cmd[cmd.index("--kit_args") + 1] == "--portable-root logs/portable/train_and_watch/portable_smoke_seed5_pid123/train"
+
+
+def test_build_watch_cmd_uses_distinct_portable_root_kit_args(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-PathTracking-DeLaurier-PrimitiveWeakTeacherRL-Direct-v0",
+        run_name="portable_smoke",
+        num_envs=128,
+        eval_num_envs=4,
+        max_iterations=50,
+        save_interval=10,
+        seed=5,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=2,
+        poll_s=10.0,
+        run_dir_timeout_s=60.0,
+        eval_suite="path_tracking_truth_nowind_v1",
+        headless=True,
+        resume=False,
+        load_run=None,
+        checkpoint=None,
+        portable_root_base=Path("logs/portable/train_and_watch/portable_smoke_seed5_pid123"),
+    )
+
+    cmd = train_and_watch._build_watch_cmd(args, run_dir)
+
+    assert "--kit_args" in cmd
+    assert cmd[cmd.index("--kit_args") + 1] == "--portable-root logs/portable/train_and_watch/portable_smoke_seed5_pid123/watch"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
+import re
 import sys
 from pathlib import Path
 from collections.abc import Iterable, Mapping, Sized
@@ -15,7 +15,16 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from eval_suites import build_eval_cases, get_eval_suite_choices
-from path_tracking_eval_common import aggregate_case_row, aggregate_suite_row, apply_eval_case_to_cfg, resolve_eval_suite
+from path_tracking_eval_common import (
+    aggregate_case_row,
+    aggregate_suite_row,
+    apply_eval_case_to_cfg,
+    compute_path_tracking_finish_masks,
+    read_path_tracking_step_metrics,
+    reset_path_tracking_eval_envs,
+    resolve_eval_suite,
+    summarize_path_tracking_episode,
+)
 
 
 def _add_app_launcher_args(parser: argparse.ArgumentParser) -> None:
@@ -55,19 +64,9 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
-def _percentile(values: list[float], q: float) -> float:
-    if len(values) == 0:
-        return 0.0
-    if len(values) == 1:
-        return float(values[0])
-    values = sorted(float(v) for v in values)
-    idx = (len(values) - 1) * max(0.0, min(1.0, q))
-    lower = int(math.floor(idx))
-    upper = int(math.ceil(idx))
-    if lower == upper:
-        return values[lower]
-    alpha = idx - lower
-    return values[lower] + (values[upper] - values[lower]) * alpha
+def _checkpoint_index_from_name(checkpoint_name: str) -> int:
+    match = re.search(r"model_(\d+)\.pt$", str(checkpoint_name))
+    return int(match.group(1)) if match else -1
 
 
 def main() -> None:
@@ -211,7 +210,7 @@ def main() -> None:
         policy_nn = runner.alg.actor_critic
 
     checkpoint_name = checkpoint_path.name
-    ckpt_index = int(checkpoint_name.split("_")[1].split(".")[0]) if checkpoint_name.startswith("model_") else -1
+    ckpt_index = _checkpoint_index_from_name(checkpoint_name)
     case_rows: list[dict[str, float | int | str]] = []
 
     for case in eval_cases:
@@ -223,6 +222,9 @@ def main() -> None:
         step_abs_lateral = [[] for _ in range(env.unwrapped.num_envs)]
         step_abs_height = [[] for _ in range(env.unwrapped.num_envs)]
         step_abs_align_deg = [[] for _ in range(env.unwrapped.num_envs)]
+        step_loiter_radial = [[] for _ in range(env.unwrapped.num_envs)]
+        step_loiter_progress = [[] for _ in range(env.unwrapped.num_envs)]
+        loiter_quarter_turn_complete = [False for _ in range(env.unwrapped.num_envs)]
         final_progress_ratio = [0.0 for _ in range(env.unwrapped.num_envs)]
         episode_rows: list[dict[str, float | int]] = []
 
@@ -230,48 +232,73 @@ def main() -> None:
             with torch.inference_mode():
                 actions = policy(obs)
             obs, _rew, dones, _info = env.step(actions)
-            policy_nn.reset(dones)
 
-            env.unwrapped._refresh_path_state()
-            lateral_error = torch.abs(env.unwrapped._path_lateral_error_m).detach().cpu()
-            height_error = torch.abs(env.unwrapped._path_height_error_m).detach().cpu()
-            align_error_deg = torch.rad2deg(torch.abs(env.unwrapped._path_align_error_rad)).detach().cpu()
-            progress_s = env.unwrapped._path_progress_s.detach().cpu()
+            step_metrics = read_path_tracking_step_metrics(env.unwrapped)
+            lateral_error = step_metrics["abs_lateral_error_m"]
+            height_error = step_metrics["abs_height_error_m"]
+            align_error_deg = step_metrics["abs_align_error_deg"]
+            progress_ratio = step_metrics["progress_ratio"]
+            loiter_radial_error = step_metrics["loiter_radial_error_m"]
+            loiter_progress_ratio = step_metrics["loiter_progress_ratio"]
+            loiter_quarter_turn = step_metrics["loiter_quarter_turn_complete"]
 
             for env_id in range(env.unwrapped.num_envs):
                 step_abs_lateral[env_id].append(float(lateral_error[env_id].item()))
                 step_abs_height[env_id].append(float(height_error[env_id].item()))
                 step_abs_align_deg[env_id].append(float(align_error_deg[env_id].item()))
-                manager = env.unwrapped._path_managers[env_id]
-                total_length = float(manager.total_length_m) if manager is not None else 1.0
-                final_progress_ratio[env_id] = min(max(float(progress_s[env_id].item()) / max(total_length, 1.0e-6), 0.0), 1.0)
+                if torch.isfinite(loiter_radial_error[env_id]):
+                    step_loiter_radial[env_id].append(float(loiter_radial_error[env_id].item()))
+                if torch.isfinite(loiter_progress_ratio[env_id]):
+                    step_loiter_progress[env_id].append(float(loiter_progress_ratio[env_id].item()))
+                loiter_quarter_turn_complete[env_id] = loiter_quarter_turn_complete[env_id] or bool(
+                    loiter_quarter_turn[env_id].item()
+                )
+                final_progress_ratio[env_id] = float(progress_ratio[env_id].item())
 
-            done_ids = torch.nonzero(dones > 0, as_tuple=False).squeeze(-1)
-            if done_ids.numel() == 0:
-                continue
+            finish_mask, early_success_mask, completed_mask = compute_path_tracking_finish_masks(
+                progress_ratio=progress_ratio,
+                dones=dones,
+                completion_ratio=float(args.completion_ratio),
+            )
+            finish_ids = torch.nonzero(finish_mask, as_tuple=False).squeeze(-1)
 
-            for env_id in done_ids.tolist():
+            for env_id in finish_ids.tolist():
                 if ep_done >= int(args.episodes):
                     break
                 episode_rows.append(
-                    {
-                        "mean_abs_lateral_error_m": float(sum(step_abs_lateral[env_id]) / max(len(step_abs_lateral[env_id]), 1)),
-                        "mean_abs_height_error_m": float(sum(step_abs_height[env_id]) / max(len(step_abs_height[env_id]), 1)),
-                        "mean_abs_align_error_deg": float(sum(step_abs_align_deg[env_id]) / max(len(step_abs_align_deg[env_id]), 1)),
-                        "p95_abs_lateral_error_m": _percentile(step_abs_lateral[env_id], 0.95),
-                        "p95_abs_height_error_m": _percentile(step_abs_height[env_id], 0.95),
-                        "p95_abs_align_error_deg": _percentile(step_abs_align_deg[env_id], 0.95),
-                        "final_progress_ratio": float(final_progress_ratio[env_id]),
-                        "completed": int(final_progress_ratio[env_id] >= float(args.completion_ratio)),
-                        "terminated": int(env.unwrapped.reset_terminated[env_id].item()),
-                        "time_out": int(env.unwrapped.reset_time_outs[env_id].item()),
-                    }
+                    summarize_path_tracking_episode(
+                        step_abs_lateral=step_abs_lateral[env_id],
+                        step_abs_height=step_abs_height[env_id],
+                        step_abs_align_deg=step_abs_align_deg[env_id],
+                        step_loiter_radial_error=step_loiter_radial[env_id],
+                        step_loiter_progress_ratio=step_loiter_progress[env_id],
+                        loiter_quarter_turn_complete=loiter_quarter_turn_complete[env_id],
+                        final_progress_ratio=float(final_progress_ratio[env_id]),
+                        completion_ratio=float(args.completion_ratio),
+                        terminated=bool(env.unwrapped.reset_terminated[env_id].item()),
+                        time_out=bool(env.unwrapped.reset_time_outs[env_id].item()),
+                        stalled=bool(
+                            getattr(env.unwrapped, "reset_stalled", env.unwrapped.reset_terminated * 0)[env_id].item()
+                        ),
+                    )
                 )
                 ep_done += 1
                 step_abs_lateral[env_id].clear()
                 step_abs_height[env_id].clear()
                 step_abs_align_deg[env_id].clear()
+                step_loiter_radial[env_id].clear()
+                step_loiter_progress[env_id].clear()
+                loiter_quarter_turn_complete[env_id] = False
                 final_progress_ratio[env_id] = 0.0
+
+            early_success_ids = torch.nonzero(early_success_mask, as_tuple=False).squeeze(-1)
+            if early_success_ids.numel() > 0:
+                obs = reset_path_tracking_eval_envs(env, early_success_ids)
+
+            reset_flags = dones.clone()
+            if early_success_ids.numel() > 0:
+                reset_flags[early_success_ids] = 1
+            policy_nn.reset(reset_flags)
 
         case_rows.append(
             aggregate_case_row(

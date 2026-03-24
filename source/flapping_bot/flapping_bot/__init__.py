@@ -26,6 +26,11 @@ __all__ = [
     "FlappingBotEnv",
     "FlappingBotPathTrackingEnvCfg",
     "FlappingBotPathTrackingEnv",
+    "FlappingBotPathTrackingWeakTeacherRLEnvCfg",
+    "FlappingBotPathTrackingPureRLEnvCfg",
+    "FlappingBotPathTrackingPrimitiveTeacherRLEnvCfg",
+    "FlappingBotPathTrackingPrimitiveWeakTeacherRLEnvCfg",
+    "FlappingBotPathTrackingPrimitivePureRLEnvCfg",
     "FlappingBotStraightFlightEnvCfg",
     "FlappingBotStraightFlightSimpleEnvCfg",
     "FlappingBotStraightFlightDeLaurierEnvCfg",
@@ -41,19 +46,43 @@ def __getattr__(name: str):
         from .assets import FlappingBotCfg
 
         return FlappingBotCfg
-    if name in ("FlappingBotEnv", "FlappingBotEnvCfg", "FlappingBotPathTrackingEnv", "FlappingBotPathTrackingEnvCfg"):
+    if name in ("FlappingBotEnv", "FlappingBotEnvCfg"):
         from .direct.flapping_bot import (
             FlappingBotEnv,
             FlappingBotEnvCfg,
-            FlappingBotPathTrackingEnv,
-            FlappingBotPathTrackingEnvCfg,
         )
 
         return {
             "FlappingBotEnv": FlappingBotEnv,
             "FlappingBotEnvCfg": FlappingBotEnvCfg,
+        }[name]
+    if name in (
+        "FlappingBotPathTrackingEnv",
+        "FlappingBotPathTrackingEnvCfg",
+        "FlappingBotPathTrackingWeakTeacherRLEnvCfg",
+        "FlappingBotPathTrackingPureRLEnvCfg",
+        "FlappingBotPathTrackingPrimitiveTeacherRLEnvCfg",
+        "FlappingBotPathTrackingPrimitiveWeakTeacherRLEnvCfg",
+        "FlappingBotPathTrackingPrimitivePureRLEnvCfg",
+    ):
+        from .direct.flapping_bot import (
+            FlappingBotPathTrackingEnv,
+            FlappingBotPathTrackingEnvCfg,
+            FlappingBotPathTrackingPrimitiveTeacherRLEnvCfg,
+            FlappingBotPathTrackingPrimitivePureRLEnvCfg,
+            FlappingBotPathTrackingPrimitiveWeakTeacherRLEnvCfg,
+            FlappingBotPathTrackingPureRLEnvCfg,
+            FlappingBotPathTrackingWeakTeacherRLEnvCfg,
+        )
+
+        return {
             "FlappingBotPathTrackingEnv": FlappingBotPathTrackingEnv,
             "FlappingBotPathTrackingEnvCfg": FlappingBotPathTrackingEnvCfg,
+            "FlappingBotPathTrackingWeakTeacherRLEnvCfg": FlappingBotPathTrackingWeakTeacherRLEnvCfg,
+            "FlappingBotPathTrackingPureRLEnvCfg": FlappingBotPathTrackingPureRLEnvCfg,
+            "FlappingBotPathTrackingPrimitiveTeacherRLEnvCfg": FlappingBotPathTrackingPrimitiveTeacherRLEnvCfg,
+            "FlappingBotPathTrackingPrimitiveWeakTeacherRLEnvCfg": FlappingBotPathTrackingPrimitiveWeakTeacherRLEnvCfg,
+            "FlappingBotPathTrackingPrimitivePureRLEnvCfg": FlappingBotPathTrackingPrimitivePureRLEnvCfg,
         }[name]
     if name in (
         "FlappingBotStraightFlightEnv",

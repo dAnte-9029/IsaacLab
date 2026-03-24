@@ -58,6 +58,13 @@ class PathQuery:
     height_sp_m: float
     lateral_error_m: float
     preview_points_xyz: list[tuple[float, float, float]]
+    segment_kind: str | None = None
+    segment_progress_ratio: float = 0.0
+    loiter_center_xy: tuple[float, float] | None = None
+    loiter_radius_m: float | None = None
+    loiter_start_angle_rad: float | None = None
+    loiter_turn_direction: int | None = None
+    loiter_total_turns: float | None = None
 
 
 @dataclass(frozen=True)
@@ -180,6 +187,26 @@ class PathManager:
             self.sample(min(progress_s + preview_speed_mps * preview_time_s, self.total_length_m))
             for preview_time_s in self.cfg.preview_times_s
         ]
+        active_segment = self._segments[best.segment_idx]
+        if isinstance(active_segment, _StraightSegment):
+            segment_kind = "straight"
+            segment_length_m = active_segment.length_m
+        else:
+            segment_kind = active_segment.kind
+            segment_length_m = active_segment.arc_length_m
+        segment_progress_ratio = _clamp(best.progress_local_m / max(segment_length_m, 1.0e-6), 0.0, 1.0)
+
+        loiter_center_xy: tuple[float, float] | None = None
+        loiter_radius_m: float | None = None
+        loiter_start_angle_rad: float | None = None
+        loiter_turn_direction: int | None = None
+        loiter_total_turns: float | None = None
+        if isinstance(active_segment, _ArcSegment) and active_segment.kind == "loiter":
+            loiter_center_xy = active_segment.center_xy
+            loiter_radius_m = active_segment.radius_m
+            loiter_start_angle_rad = active_segment.start_angle_rad
+            loiter_turn_direction = active_segment.turn_direction
+            loiter_total_turns = abs(active_segment.sweep_angle_rad) / (2.0 * math.pi)
 
         return PathQuery(
             closest_point_xyz=closest_point_xyz,
@@ -189,6 +216,13 @@ class PathManager:
             height_sp_m=closest_point_xyz[2],
             lateral_error_m=best.lateral_error_m,
             preview_points_xyz=preview_points_xyz,
+            segment_kind=segment_kind,
+            segment_progress_ratio=segment_progress_ratio,
+            loiter_center_xy=loiter_center_xy,
+            loiter_radius_m=loiter_radius_m,
+            loiter_start_angle_rad=loiter_start_angle_rad,
+            loiter_turn_direction=loiter_turn_direction,
+            loiter_total_turns=loiter_total_turns,
         )
 
     def sample(self, progress_s: float) -> tuple[float, float, float]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import importlib.util
 import sys
 import types
@@ -64,6 +65,28 @@ def test_watch_and_eval_parser_accepts_truth_nowind_suite(monkeypatch) -> None:
     args = watch_and_eval._parse_args()
 
     assert args.eval_suite == "path_tracking_truth_nowind_v1"
+
+
+def test_watch_and_eval_parser_accepts_truth_primitives_nowind_suite(monkeypatch) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "watch_and_eval.py",
+            "--task",
+            "Isaac-FlappingBot-PathTracking-DeLaurier-PrimitiveWeakTeacherRL-Direct-v0",
+            "--log_dir",
+            "logs/dummy_run",
+            "--eval_suite",
+            "path_tracking_truth_primitives_nowind_v1",
+        ],
+    )
+
+    args = watch_and_eval._parse_args()
+
+    assert args.eval_suite == "path_tracking_truth_primitives_nowind_v1"
 
 
 def test_watch_and_eval_resolves_path_tracking_task_to_truth_suite() -> None:
@@ -140,6 +163,7 @@ def test_watch_and_eval_scores_path_tracking_rows_with_completion_priority() -> 
     better = watch_and_eval._score_row(
         {
             "completion_rate": 0.9,
+            "mean_final_progress_ratio": 0.95,
             "mean_abs_lateral_error_m": 0.2,
             "mean_abs_height_error_m": 0.1,
             "mean_abs_align_error_deg": 4.0,
@@ -149,6 +173,7 @@ def test_watch_and_eval_scores_path_tracking_rows_with_completion_priority() -> 
     worse = watch_and_eval._score_row(
         {
             "completion_rate": 0.4,
+            "mean_final_progress_ratio": 0.45,
             "mean_abs_lateral_error_m": 0.8,
             "mean_abs_height_error_m": 0.5,
             "mean_abs_align_error_deg": 12.0,
@@ -157,3 +182,87 @@ def test_watch_and_eval_scores_path_tracking_rows_with_completion_priority() -> 
     )
 
     assert better > worse
+
+
+def test_watch_and_eval_scores_path_tracking_rows_with_progress_priority() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    better = watch_and_eval._score_row(
+        {
+            "completion_rate": 0.0,
+            "mean_final_progress_ratio": 0.8,
+            "mean_abs_lateral_error_m": 0.05,
+            "mean_abs_height_error_m": 0.05,
+            "mean_abs_align_error_deg": 1.0,
+            "termination_rate": 0.0,
+        }
+    )
+    worse = watch_and_eval._score_row(
+        {
+            "completion_rate": 0.0,
+            "mean_final_progress_ratio": 0.02,
+            "mean_abs_lateral_error_m": 0.05,
+            "mean_abs_height_error_m": 0.05,
+            "mean_abs_align_error_deg": 1.0,
+            "termination_rate": 0.0,
+        }
+    )
+
+    assert better > worse
+
+
+def test_watch_and_eval_exposes_path_tracking_success_gate() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    passed = watch_and_eval.row_meets_path_tracking_success_gate(
+        {
+            "completion_rate": 0.0,
+            "mean_final_progress_ratio": 0.004,
+            "termination_rate": 0.0,
+            "timeout_rate": 1.0,
+        }
+    )
+
+    assert passed is False
+
+
+def test_path_tracking_episode_rows_include_stalled_flag_for_eval_aggregation() -> None:
+    watch_source = (Path(__file__).resolve().parents[1] / "scripts" / "flapping_rl" / "watch_and_eval.py").read_text()
+    eval_source = (
+        Path(__file__).resolve().parents[1] / "scripts" / "flapping_rl" / "eval_path_tracking_checkpoint.py"
+    ).read_text()
+
+    assert "summarize_path_tracking_episode(" in watch_source
+    assert "stalled=bool(" in watch_source
+    assert "summarize_path_tracking_episode(" in eval_source
+    assert "stalled=bool(" in eval_source
+
+
+def test_watch_and_eval_rewrites_summary_csv_when_new_columns_are_added(tmp_path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    summary_csv = tmp_path / "summary.csv"
+    with summary_csv.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["checkpoint", "case", "score"])
+        writer.writeheader()
+        writer.writerow({"checkpoint": "model_1.pt", "case": "suite", "score": "10.0"})
+
+    watch_and_eval._append_summary_row(
+        summary_csv,
+        {
+            "checkpoint": "model_2.pt",
+            "case": "suite",
+            "score": 11.0,
+            "stall_rate": 0.25,
+        },
+    )
+
+    with summary_csv.open("r", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 2
+    assert "stall_rate" in rows[0]
+    assert rows[0]["checkpoint"] == "model_1.pt"
+    assert rows[0]["stall_rate"] == ""
+    assert rows[1]["checkpoint"] == "model_2.pt"
+    assert rows[1]["stall_rate"] == "0.25"
