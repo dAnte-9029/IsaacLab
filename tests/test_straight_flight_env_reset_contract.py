@@ -33,6 +33,13 @@ def _find_method(class_node: ast.ClassDef, method_name: str) -> ast.FunctionDef:
     raise AssertionError(f"method {method_name} not found in {class_node.name}")
 
 
+def _find_ann_assign(class_node: ast.ClassDef, field_name: str) -> ast.AnnAssign:
+    for node in class_node.body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == field_name:
+            return node
+    raise AssertionError(f"field {field_name} not found in {class_node.name}")
+
+
 def test_straight_flight_reset_calls_base_reset_idx() -> None:
     module = _load_module()
     class_node = _find_class(module, "FlappingBotStraightFlightEnv")
@@ -50,3 +57,11 @@ def test_straight_flight_reset_calls_base_reset_idx() -> None:
         return
 
     raise AssertionError("FlappingBotStraightFlightEnv._reset_idx must call super()._reset_idx(env_ids)")
+
+
+def test_straight_flight_env_exposes_near_physical_elevon_authority() -> None:
+    module = _load_module()
+    class_node = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+    assign = _find_ann_assign(class_node, "elevon_max_deg")
+    assert isinstance(assign.value, ast.Constant)
+    assert float(assign.value.value) >= 40.5

@@ -211,7 +211,9 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     redistribute_removed_mass_to_base: bool = True
 
     # elevon/rudder command mapping (desired symmetric range, intersected with joint limits)
-    elevon_max_deg: float = 25.0
+    # Keep commanded elevon authority near the URDF physical limit; the effective
+    # command is still intersected with the softened joint limits at runtime.
+    elevon_max_deg: float = 41.0
     rudder_max_deg: float = 25.0
     elevon_pitch_mix: float = 1.0
     elevon_roll_mix: float = 1.0

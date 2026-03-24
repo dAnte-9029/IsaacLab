@@ -205,6 +205,52 @@ def test_path_tracking_env_defaults_disable_action_filtering() -> None:
     assert found_fields == expected_fields
 
 
+def test_path_tracking_teacher_normalizes_initial_elevon_action_with_env_limit() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "path_tracking_env.py"
+        ).read_text()
+    )
+
+    class_node = None
+    for node in ast.walk(module):
+        if isinstance(node, ast.ClassDef) and node.name == "FlappingBotPathTrackingEnv":
+            class_node = node
+            break
+    assert class_node is not None
+
+    init_method = None
+    for node in class_node.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__":
+            init_method = node
+            break
+    assert init_method is not None
+
+    for node in ast.walk(init_method):
+        if not isinstance(node, ast.keyword) or node.arg != "initial_elevon_pitch_action":
+            continue
+        assert isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.Div)
+        denominator = node.value.right
+        assert isinstance(denominator, ast.Call)
+        assert isinstance(denominator.func, ast.Name) and denominator.func.id == "max"
+        first_arg = denominator.args[0]
+        assert isinstance(first_arg, ast.Call)
+        assert isinstance(first_arg.func, ast.Name) and first_arg.func.id == "float"
+        attr = first_arg.args[0]
+        assert isinstance(attr, ast.Attribute) and attr.attr == "elevon_max_deg"
+        assert isinstance(attr.value, ast.Attribute) and attr.value.attr == "cfg"
+        assert isinstance(attr.value.value, ast.Name) and attr.value.value.id == "self"
+        return
+
+    raise AssertionError("initial_elevon_pitch_action must normalize by self.cfg.elevon_max_deg")
+
+
 def test_path_tracking_env_exposes_no_progress_stall_cfg_fields() -> None:
     module = ast.parse(
         (
