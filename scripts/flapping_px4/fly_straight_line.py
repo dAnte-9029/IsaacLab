@@ -17,6 +17,16 @@ from pathlib import Path
 from isaaclab.app import AppLauncher
 
 
+def _resolve_initial_elevon_actions(args: argparse.Namespace, env_cfg) -> tuple[float, float]:
+    if not bool(getattr(args, "seed_controller_from_env_reset", False)):
+        return 0.0, 0.0
+    elevon_limit_deg = max(float(getattr(env_cfg, "elevon_max_deg", 0.0)), 1.0e-6)
+    return (
+        float(getattr(env_cfg, "reset_elevon_pitch_deg", 0.0)) / elevon_limit_deg,
+        float(getattr(env_cfg, "reset_elevon_roll_deg", 0.0)) / elevon_limit_deg,
+    )
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PX4-like straight-line control for FlappingBot.")
     parser.add_argument(
@@ -194,6 +204,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Override env_cfg.fuselage_drag_cda (if supported).",
     )
+    parser.add_argument(
+        "--seed_controller_from_env_reset",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Initialize the controller's internal elevon state from env reset trim to mimic teacher startup.",
+    )
     parser.add_argument("--out_dir", type=Path, default=Path("logs/flapping_px4/straight_line"))
     parser.add_argument("--print_every", type=int, default=250)
     AppLauncher.add_app_launcher_args(parser)
@@ -287,6 +303,7 @@ def main():
     env = gym.make(args.task, cfg=env_cfg)
 
     env.reset()
+    initial_elevon_pitch_action, initial_elevon_roll_action = _resolve_initial_elevon_actions(args, env.unwrapped.cfg)
     controller_cfg = PX4LikeStraightLineControllerCfg(
         line_start_xy=(0.0, 0.0),
         line_end_xy=(float(args.line_length), 0.0),
@@ -334,6 +351,8 @@ def main():
         inner_pitch_ki=float(args.inner_pitch_ki),
         inner_pitch_integrator_limit=float(args.inner_pitch_integrator_limit),
         inner_pitch_integrator_leak_per_s=float(args.inner_pitch_integrator_leak_per_s),
+        initial_elevon_pitch_action=initial_elevon_pitch_action,
+        initial_elevon_roll_action=initial_elevon_roll_action,
         enable_speed_hold=bool(args.enable_speed_hold),
         speed_sp_mps=float(args.speed_sp),
         speed_kp_hz_per_mps=float(args.speed_kp_hz_per_mps),
@@ -791,6 +810,9 @@ def main():
             "inner_pitch_ki": float(args.inner_pitch_ki),
             "inner_pitch_integrator_limit": float(args.inner_pitch_integrator_limit),
             "inner_pitch_integrator_leak_per_s": float(args.inner_pitch_integrator_leak_per_s),
+            "seed_controller_from_env_reset": bool(args.seed_controller_from_env_reset),
+            "initial_elevon_pitch_action": float(initial_elevon_pitch_action),
+            "initial_elevon_roll_action": float(initial_elevon_roll_action),
             "rudder_max_deg": float(getattr(env_cfg, "rudder_max_deg", 25.0)),
             "elevon_max_deg": float(getattr(env_cfg, "elevon_max_deg", 25.0)),
             "elevon_trim_deg": float(getattr(env_cfg, "elevon_trim_deg", 0.0)),
