@@ -30,6 +30,28 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from checkpoint_selection import refresh_best_checkpoint_artifacts
+from eval_suites import build_eval_cases, get_eval_suite_choices
+from path_tracking_eval_common import (
+    aggregate_case_row,
+    aggregate_suite_row,
+    apply_eval_case_to_cfg as _apply_eval_case_to_cfg_common,
+    compute_path_tracking_finish_masks,
+    compute_path_tracking_score,
+    is_path_tracking_task,
+    read_path_tracking_step_metrics,
+    reset_path_tracking_eval_envs,
+    row_meets_path_tracking_success_gate,
+    resolve_eval_suite as _resolve_eval_suite_common,
+    summarize_path_tracking_episode,
+)
+
+
+def _resolve_eval_suite(task: str, eval_suite: str) -> str:
+    return _resolve_eval_suite_common(task, eval_suite)
+
+
+def _apply_eval_case_to_cfg(case: dict, cfg, *, vx_cmd: float | None, height_cmd: float | None) -> None:
+    _apply_eval_case_to_cfg_common(case, cfg, vx_cmd=vx_cmd, height_cmd=height_cmd)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -52,8 +74,11 @@ def _parse_args() -> argparse.Namespace:
         "--eval_suite",
         type=str,
         default="straight_standard",
-        choices=("straight_standard", "single"),
-        help="Evaluation suite. `straight_standard` runs calm / steady-crosswind / OU-crosswind cases.",
+        choices=get_eval_suite_choices(),
+        help=(
+            "Evaluation suite. `straight_standard` runs calm / steady-crosswind / OU-crosswind cases; "
+            "`path_tracking_truth_nowind_v1` freezes the first no-wind straight / loiter / random-mission target set."
+        ),
     )
     AppLauncher.add_app_launcher_args(parser)
     args, _ = parser.parse_known_args()
@@ -65,48 +90,16 @@ def _extract_ckpt_index(p: Path) -> int:
     return int(m.group(1)) if m else -1
 
 
-def _default_eval_cases(eval_suite: str) -> list[dict]:
-    if eval_suite == "single":
-        return [
-            {
-                "name": "single",
-                "wind_enabled": False,
-                "wind_xy_mps": (0.0, 0.0),
-                "wind_ou_enabled": False,
-                "wind_ou_tau_s": 2.0,
-                "wind_ou_sigma_xy_mps": (0.0, 0.0),
-            }
-        ]
-
-    return [
-        {
-            "name": "calm",
-            "wind_enabled": False,
-            "wind_xy_mps": (0.0, 0.0),
-            "wind_ou_enabled": False,
-            "wind_ou_tau_s": 2.0,
-            "wind_ou_sigma_xy_mps": (0.0, 0.0),
-        },
-        {
-            "name": "crosswind_steady",
-            "wind_enabled": True,
-            "wind_xy_mps": (0.0, 2.0),
-            "wind_ou_enabled": False,
-            "wind_ou_tau_s": 2.0,
-            "wind_ou_sigma_xy_mps": (0.0, 0.0),
-        },
-        {
-            "name": "crosswind_ou",
-            "wind_enabled": True,
-            "wind_xy_mps": (0.0, 1.5),
-            "wind_ou_enabled": True,
-            "wind_ou_tau_s": 2.0,
-            "wind_ou_sigma_xy_mps": (0.0, 0.8),
-        },
-    ]
-
-
 def _score_row(row: dict) -> float:
+    if "completion_rate" in row and "mean_abs_lateral_error_m" in row:
+        return compute_path_tracking_score(
+            completion_rate=float(row["completion_rate"]),
+            mean_final_progress_ratio=float(row.get("mean_final_progress_ratio", row["completion_rate"])),
+            mean_abs_lateral_error_m=float(row["mean_abs_lateral_error_m"]),
+            mean_abs_height_error_m=float(row["mean_abs_height_error_m"]),
+            mean_abs_align_error_deg=float(row["mean_abs_align_error_deg"]),
+            termination_rate=float(row["termination_rate"]),
+        )
     cost = (
         float(row["mean_abs_vx_err"])
         + float(row["mean_abs_z_err"])
@@ -115,6 +108,39 @@ def _score_row(row: dict) -> float:
         + 5.0 * float(row["termination_rate"])
     )
     return 100.0 / (1.0 + cost)
+
+
+def _append_summary_row(summary_csv: Path, row: Mapping[str, object]) -> None:
+    row_dict = dict(row)
+    if not summary_csv.exists():
+        with summary_csv.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(row_dict.keys()))
+            writer.writeheader()
+            writer.writerow(row_dict)
+        return
+
+    with summary_csv.open("r", newline="") as f:
+        reader = csv.DictReader(f)
+        existing_rows = list(reader)
+        existing_fieldnames = list(reader.fieldnames or [])
+
+    if existing_fieldnames == list(row_dict.keys()):
+        with summary_csv.open("a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=existing_fieldnames)
+            writer.writerow(row_dict)
+        return
+
+    merged_fieldnames = existing_fieldnames.copy()
+    for key in row_dict.keys():
+        if key not in merged_fieldnames:
+            merged_fieldnames.append(key)
+
+    with summary_csv.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=merged_fieldnames)
+        writer.writeheader()
+        for existing_row in existing_rows:
+            writer.writerow({key: existing_row.get(key, "") for key in merged_fieldnames})
+        writer.writerow({key: row_dict.get(key, "") for key in merged_fieldnames})
 
 
 def main():
@@ -243,28 +269,6 @@ def main():
     if args.height_cmd is not None:
         env_cfg.height_cmd = float(args.height_cmd)
 
-    def _apply_eval_case(case: dict, cfg) -> None:
-        cfg.randomize_commands = False
-        if args.vx_cmd is not None:
-            cfg.vx_cmd = float(args.vx_cmd)
-        if args.height_cmd is not None:
-            cfg.height_cmd = float(args.height_cmd)
-
-        if hasattr(cfg, "teacher_guidance_enabled"):
-            cfg.teacher_guidance_enabled = False
-        if hasattr(cfg, "wind_curriculum_enabled"):
-            cfg.wind_curriculum_enabled = False
-
-        cfg.wind_enabled = bool(case["wind_enabled"])
-        cfg.randomize_wind = False
-        cfg.wind_xy_mps = tuple(float(v) for v in case["wind_xy_mps"])
-        cfg.wind_x_range_mps = (float(case["wind_xy_mps"][0]), float(case["wind_xy_mps"][0]))
-        cfg.wind_y_range_mps = (float(case["wind_xy_mps"][1]), float(case["wind_xy_mps"][1]))
-        cfg.wind_ou_enabled = bool(case["wind_ou_enabled"])
-        cfg.wind_ou_tau_s = float(case["wind_ou_tau_s"])
-        cfg.wind_ou_sigma_xy_mps = tuple(float(v) for v in case["wind_ou_sigma_xy_mps"])
-        cfg.wind_ou_clip_to_range = False
-
     agent_cfg_dict = None
     if use_saved_cfg:
         saved_agent = log_dir / "params" / "agent.yaml"
@@ -276,8 +280,9 @@ def main():
         agent_cfg_dict = agent_cfg.to_dict()
     agent_cfg_dict["device"] = args.device if args.device is not None else agent_cfg_dict.get("device", "cuda:0")
 
-    eval_cases = _default_eval_cases(args.eval_suite)
-    _apply_eval_case(eval_cases[0], env_cfg)
+    eval_suite = _resolve_eval_suite(args.task, args.eval_suite)
+    eval_cases = build_eval_cases(eval_suite)
+    _apply_eval_case_to_cfg(eval_cases[0], env_cfg, vx_cmd=args.vx_cmd, height_cmd=args.height_cmd)
 
     env = gym.make(args.task, cfg=env_cfg)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg_dict.get("clip_actions", None))
@@ -298,23 +303,106 @@ def main():
                 if "checkpoint" in row and (case_name in (None, "suite")):
                     evaluated.add(row["checkpoint"])
 
-    def _append_row(row: dict):
-        write_header = not summary_csv.exists()
-        with summary_csv.open("a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(row.keys()))
-            if write_header:
-                writer.writeheader()
-            writer.writerow(row)
-
     def _eval_case(ckpt: Path, case: dict) -> dict:
         # load weights
         runner.load(str(ckpt))
         policy = runner.get_inference_policy(device=env.unwrapped.device)
-        _apply_eval_case(case, env.unwrapped.cfg)
+        _apply_eval_case_to_cfg(case, env.unwrapped.cfg, vx_cmd=args.vx_cmd, height_cmd=args.height_cmd)
         obs, _ = env.reset()
         policy_nn.reset(torch.ones(env.unwrapped.num_envs, dtype=torch.long, device=env.unwrapped.device))
 
-        # per-episode aggregation (similar to eval_straight_flight_checkpoint.py but kept minimal)
+        if is_path_tracking_task(args.task):
+            target_episodes = int(args.episodes)
+            ep_done = 0
+            step_abs_lateral = [[] for _ in range(env.unwrapped.num_envs)]
+            step_abs_height = [[] for _ in range(env.unwrapped.num_envs)]
+            step_abs_align_deg = [[] for _ in range(env.unwrapped.num_envs)]
+            step_loiter_radial = [[] for _ in range(env.unwrapped.num_envs)]
+            step_loiter_progress = [[] for _ in range(env.unwrapped.num_envs)]
+            loiter_quarter_turn_complete = [False for _ in range(env.unwrapped.num_envs)]
+            final_progress_ratio = [0.0 for _ in range(env.unwrapped.num_envs)]
+            ep_rows: list[dict[str, float | int]] = []
+
+            while ep_done < target_episodes:
+                with torch.inference_mode():
+                    actions = policy(obs)
+                obs, _rew, dones, _info = env.step(actions)
+
+                step_metrics = read_path_tracking_step_metrics(env.unwrapped)
+                lateral_error = step_metrics["abs_lateral_error_m"]
+                height_error = step_metrics["abs_height_error_m"]
+                align_error_deg = step_metrics["abs_align_error_deg"]
+                progress_ratio = step_metrics["progress_ratio"]
+                loiter_radial_error = step_metrics["loiter_radial_error_m"]
+                loiter_progress_ratio = step_metrics["loiter_progress_ratio"]
+                loiter_quarter_turn = step_metrics["loiter_quarter_turn_complete"]
+
+                for env_id in range(env.unwrapped.num_envs):
+                    step_abs_lateral[env_id].append(float(lateral_error[env_id].item()))
+                    step_abs_height[env_id].append(float(height_error[env_id].item()))
+                    step_abs_align_deg[env_id].append(float(align_error_deg[env_id].item()))
+                    if torch.isfinite(loiter_radial_error[env_id]):
+                        step_loiter_radial[env_id].append(float(loiter_radial_error[env_id].item()))
+                    if torch.isfinite(loiter_progress_ratio[env_id]):
+                        step_loiter_progress[env_id].append(float(loiter_progress_ratio[env_id].item()))
+                    loiter_quarter_turn_complete[env_id] = loiter_quarter_turn_complete[env_id] or bool(
+                        loiter_quarter_turn[env_id].item()
+                    )
+                    final_progress_ratio[env_id] = float(progress_ratio[env_id].item())
+
+                finish_mask, early_success_mask, _completed_mask = compute_path_tracking_finish_masks(
+                    progress_ratio=progress_ratio,
+                    dones=dones,
+                    completion_ratio=0.98,
+                )
+                finish_ids = torch.nonzero(finish_mask, as_tuple=False).squeeze(-1)
+
+                for env_id in finish_ids.tolist():
+                    if ep_done >= target_episodes:
+                        break
+                    ep_rows.append(
+                        summarize_path_tracking_episode(
+                            step_abs_lateral=step_abs_lateral[env_id],
+                            step_abs_height=step_abs_height[env_id],
+                            step_abs_align_deg=step_abs_align_deg[env_id],
+                            step_loiter_radial_error=step_loiter_radial[env_id],
+                            step_loiter_progress_ratio=step_loiter_progress[env_id],
+                            loiter_quarter_turn_complete=loiter_quarter_turn_complete[env_id],
+                            final_progress_ratio=float(final_progress_ratio[env_id]),
+                            completion_ratio=0.98,
+                            terminated=bool(env.unwrapped.reset_terminated[env_id].item()),
+                            time_out=bool(env.unwrapped.reset_time_outs[env_id].item()),
+                            stalled=bool(
+                                getattr(env.unwrapped, "reset_stalled", env.unwrapped.reset_terminated * 0)[env_id].item()
+                            ),
+                        )
+                    )
+                    ep_done += 1
+                    step_abs_lateral[env_id].clear()
+                    step_abs_height[env_id].clear()
+                    step_abs_align_deg[env_id].clear()
+                    step_loiter_radial[env_id].clear()
+                    step_loiter_progress[env_id].clear()
+                    loiter_quarter_turn_complete[env_id] = False
+                    final_progress_ratio[env_id] = 0.0
+
+                early_success_ids = torch.nonzero(early_success_mask, as_tuple=False).squeeze(-1)
+                if early_success_ids.numel() > 0:
+                    obs = reset_path_tracking_eval_envs(env, early_success_ids)
+
+                reset_flags = dones.clone()
+                if early_success_ids.numel() > 0:
+                    reset_flags[early_success_ids] = 1
+                policy_nn.reset(reset_flags)
+
+            return aggregate_case_row(
+                checkpoint=ckpt,
+                ckpt_index=_extract_ckpt_index(ckpt),
+                case=case,
+                episode_rows=ep_rows,
+            )
+
+        # per-episode aggregation for straight-flight metrics
         n_env = int(env.unwrapped.num_envs)
         target_episodes = int(args.episodes)
 
@@ -402,6 +490,10 @@ def main():
 
     def _eval_checkpoint(ckpt: Path) -> list[dict]:
         case_rows = [_eval_case(ckpt, case) for case in eval_cases]
+        if is_path_tracking_task(args.task):
+            suite_row = aggregate_suite_row(case_rows)
+            suite_row["score"] = _score_row(suite_row)
+            return case_rows + [suite_row]
         suite_row = {
             "checkpoint": str(ckpt),
             "case": "suite",
@@ -432,7 +524,7 @@ def main():
             for ckpt in new_ckpts:
                 rows = _eval_checkpoint(ckpt)
                 for row in rows:
-                    _append_row(row)
+                    _append_summary_row(summary_csv, row)
                 (eval_dir / f"{Path(ckpt).stem}.json").write_text(json.dumps(rows, indent=2))
                 best_row = refresh_best_checkpoint_artifacts(log_dir, summary_csv=summary_csv)
                 evaluated.add(str(ckpt))
@@ -442,8 +534,10 @@ def main():
                     ckpt.name,
                     {
                         "suite_score": suite_row["score"],
+                        "suite_success_gate_passed": suite_row.get("success_gate_passed"),
                         "best_checkpoint": None if best_row is None else best_row["checkpoint"],
                         "best_score": None if best_row is None else best_row["score"],
+                        "best_success_gate_passed": None if best_row is None else best_row.get("success_gate_passed"),
                     },
                 )
 

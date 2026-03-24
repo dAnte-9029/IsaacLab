@@ -10,6 +10,11 @@ EXPECTED_TASKS = {
     "Isaac-FlappingBot-StraightFlight-DeLaurier-TeacherRL-Direct-v0": "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-WeakTeacherRL-Direct-v0": "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-PureRL-Direct-v0": "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
+    "Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0": "FlappingBotPathTrackingEnvCfg",
+    "Isaac-FlappingBot-PathTracking-DeLaurier-WeakTeacherRL-Direct-v0": "FlappingBotPathTrackingWeakTeacherRLEnvCfg",
+    "Isaac-FlappingBot-PathTracking-DeLaurier-PureRL-Direct-v0": "FlappingBotPathTrackingPureRLEnvCfg",
+    "Isaac-FlappingBot-PathTracking-DeLaurier-PrimitiveWeakTeacherRL-Direct-v0": "FlappingBotPathTrackingPrimitiveWeakTeacherRLEnvCfg",
+    "Isaac-FlappingBot-PathTracking-DeLaurier-PrimitivePureRL-Direct-v0": "FlappingBotPathTrackingPrimitivePureRLEnvCfg",
 }
 
 

@@ -40,13 +40,15 @@ from ...physics import (
     build_wing_geometry_from_csv,
 )
 from ...px4_like.rl_training_utils import (
-    apply_teacher_action_envelope,
+    apply_teacher_guided_actions,
     linear_anneal,
     piecewise_linear_anneal,
+    resolve_teacher_guidance_mode,
     teacher_guidance_is_active,
 )
 from ...px4_like.straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
 from ...scenes import FlappingRoomSceneCfg
+from .startup_phase import advance_flap_phase
 
 Tensor = torch.Tensor
 
@@ -88,6 +90,8 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
 
     # teacher-guided RL in the normalized action space [-1, 1]
     teacher_guidance_enabled: bool = False
+    teacher_guidance_mode: str = "envelope"
+    teacher_guidance_zero_actor_init: bool = False
     teacher_guidance_delta_init: float = 0.20
     teacher_guidance_delta_final: float = 2.0
     teacher_guidance_anneal_steps: int = 120_000
@@ -390,7 +394,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._teacher_controller: PX4LikeStraightLineController | None = None
         self._teacher_actions: Tensor | None = None
         self._teacher_action_gap_abs: Tensor | None = None
-        self._teacher_delta: float = 0.0
+        self._teacher_delta: float | Tensor = 0.0
         self._wind_curriculum_scale: float = 0.0
 
         # indices
@@ -578,6 +582,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     max_flap_hz=float(self.cfg.max_flap_hz),
                     enable_tecs=True,
                     speed_sp_mps=float(self.cfg.vx_cmd),
+                    initial_elevon_pitch_action=float(self.cfg.reset_elevon_pitch_deg)
+                    / max(float(self.cfg.elevon_max_deg), 1.0e-6),
+                    initial_elevon_roll_action=float(self.cfg.reset_elevon_roll_deg)
+                    / max(float(self.cfg.elevon_max_deg), 1.0e-6),
                 ),
                 device=self.device,
             )
@@ -770,18 +778,29 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._actions = actions.clamp(-1.0, 1.0)
         act_exec = self._actions
         teacher_active = self._teacher_guidance_active()
+        teacher_guidance_mode = resolve_teacher_guidance_mode(self.cfg.teacher_guidance_mode)
         if teacher_active:
             self._teacher_delta = self._get_teacher_delta()
             teacher_actions, teacher_diag = self._compute_teacher_actions()
             self._teacher_actions.copy_(teacher_actions)
-            self._teacher_action_gap_abs.copy_(torch.abs(self._actions - self._teacher_actions))
-            act_exec = apply_teacher_action_envelope(self._teacher_actions, self._actions, delta=self._teacher_delta)
+            act_exec = apply_teacher_guided_actions(
+                self._teacher_actions,
+                self._actions,
+                delta=self._teacher_delta,
+                mode=teacher_guidance_mode,
+            )
+            teacher_requested_gap_abs = torch.abs(self._actions - self._teacher_actions)
             teacher_exec_gap_abs = torch.abs(act_exec - self._teacher_actions)
+            if teacher_guidance_mode == "residual":
+                self._teacher_action_gap_abs.copy_(teacher_exec_gap_abs)
+            else:
+                self._teacher_action_gap_abs.copy_(teacher_requested_gap_abs)
             teacher_freq_hz = float(teacher_diag["freq_hz"].mean().item()) if "freq_hz" in teacher_diag else float("nan")
         else:
             self._teacher_delta = float(self.cfg.teacher_guidance_delta_final)
             self._teacher_actions.zero_()
             self._teacher_action_gap_abs.zero_()
+            teacher_requested_gap_abs = torch.zeros_like(self._teacher_action_gap_abs)
             teacher_exec_gap_abs = torch.zeros_like(self._teacher_action_gap_abs)
             teacher_freq_hz = float("nan")
         # low-pass filter
@@ -818,11 +837,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         right_raw = trim + mixed_pitch - mixed_roll
 
         self.extras["log"] = {
-            "Teacher/delta": float(self._teacher_delta),
+            "Teacher/delta": float(self._teacher_delta.mean().item()) if torch.is_tensor(self._teacher_delta) else float(self._teacher_delta),
             "Teacher/mean_abs_gap": float(self._teacher_action_gap_abs.mean().item()),
+            "Teacher/mean_requested_abs_gap": float(teacher_requested_gap_abs.mean().item()),
             "Teacher/mean_exec_abs_gap": float(teacher_exec_gap_abs.mean().item()),
             "Teacher/enabled": float(bool(self.cfg.teacher_guidance_enabled)),
             "Teacher/active": float(bool(teacher_active)),
+            "Teacher/mode_residual": float(teacher_guidance_mode == "residual"),
             "Teacher/freq_hz": teacher_freq_hz,
             "Wind/curriculum_scale": float(self._wind_curriculum_scale),
             "Wind/mean_x_mps": float(self._wind_mean_w[:, 0].mean().item()),
@@ -842,7 +863,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     def _apply_action(self):
         # advance phase (per-physics step)
         two_pi = 6.283185307179586
-        self._phase = (self._phase + two_pi * self._freq * self.physics_dt) % two_pi
+        self._phase = advance_flap_phase(
+            phase=self._phase,
+            freq_hz=self._freq,
+            physics_dt_s=float(self.physics_dt),
+            freeze_steps=self._freeze_steps,
+        )
 
         # commanded wing joint targets
         # Use a cosine waveform so that phase=0 starts at max deflection with zero velocity.
@@ -1081,6 +1107,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     def _reset_idx(self, env_ids: Tensor | list[int]):
         if isinstance(env_ids, list):
             env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
+
+        super()._reset_idx(env_ids)
 
         # commands: randomize or set defaults per env
         if self.cfg.randomize_commands:

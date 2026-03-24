@@ -83,3 +83,157 @@ def test_refresh_best_checkpoint_artifacts_writes_text_json_and_symlink(tmp_path
     best_model = run_dir / "best_model.pt"
     assert best_model.exists()
     assert best_model.resolve() == model_2.resolve()
+
+
+def test_select_best_suite_row_supports_path_tracking_schema(tmp_path: Path) -> None:
+    summary_csv = tmp_path / "summary.csv"
+    _write_summary(
+        summary_csv,
+        [
+            {
+                "checkpoint": str(tmp_path / "model_10.pt"),
+                "case": "suite",
+                "ckpt_index": 10,
+                "score": 71.0,
+                "completion_rate": 0.7,
+                "termination_rate": 0.3,
+                "timeout_rate": 0.7,
+                "mean_abs_lateral_error_m": 0.8,
+                "mean_abs_height_error_m": 0.4,
+                "mean_abs_align_error_deg": 12.0,
+            },
+            {
+                "checkpoint": str(tmp_path / "model_20.pt"),
+                "case": "suite",
+                "ckpt_index": 20,
+                "score": 71.0,
+                "completion_rate": 0.9,
+                "termination_rate": 0.1,
+                "timeout_rate": 0.9,
+                "mean_abs_lateral_error_m": 0.4,
+                "mean_abs_height_error_m": 0.2,
+                "mean_abs_align_error_deg": 7.0,
+            },
+        ],
+    )
+
+    best = checkpoint_selection.select_best_checkpoint_row(summary_csv)
+
+    assert best is not None
+    assert best["checkpoint"].endswith("model_20.pt")
+
+
+def test_select_best_suite_row_recomputes_path_tracking_priority_from_progress(tmp_path: Path) -> None:
+    summary_csv = tmp_path / "summary.csv"
+    _write_summary(
+        summary_csv,
+        [
+            {
+                "checkpoint": str(tmp_path / "model_40.pt"),
+                "case": "suite",
+                "ckpt_index": 40,
+                "score": 12.516141263762279,
+                "completion_rate": 0.0,
+                "mean_final_progress_ratio": 0.004013363174938907,
+                "termination_rate": 0.0,
+                "timeout_rate": 1.0,
+                "mean_abs_lateral_error_m": 0.000028084132277455615,
+                "mean_abs_height_error_m": 0.0010813618883674528,
+                "mean_abs_align_error_deg": 0.030677858063328456,
+            },
+            {
+                "checkpoint": str(tmp_path / "model_139.pt"),
+                "case": "suite",
+                "ckpt_index": 139,
+                "score": 11.240295143097601,
+                "completion_rate": 0.0,
+                "mean_final_progress_ratio": 0.3087998726259684,
+                "termination_rate": 0.5,
+                "timeout_rate": 0.5,
+                "mean_abs_lateral_error_m": 0.3625829867775672,
+                "mean_abs_height_error_m": 0.3538913671264346,
+                "mean_abs_align_error_deg": 5.324440425907998,
+            },
+        ],
+    )
+
+    best = checkpoint_selection.select_best_checkpoint_row(summary_csv)
+
+    assert best is not None
+    assert best["checkpoint"].endswith("model_139.pt")
+    assert int(best["success_gate_passed"]) == 0
+
+
+def test_select_best_suite_row_marks_path_tracking_success_gate(tmp_path: Path) -> None:
+    summary_csv = tmp_path / "summary.csv"
+    _write_summary(
+        summary_csv,
+        [
+            {
+                "checkpoint": str(tmp_path / "model_20.pt"),
+                "case": "suite",
+                "ckpt_index": 20,
+                "score": 30.0,
+                "completion_rate": 0.0,
+                "mean_final_progress_ratio": 0.01,
+                "termination_rate": 0.0,
+                "timeout_rate": 1.0,
+                "mean_abs_lateral_error_m": 0.01,
+                "mean_abs_height_error_m": 0.01,
+                "mean_abs_align_error_deg": 0.5,
+            },
+            {
+                "checkpoint": str(tmp_path / "model_40.pt"),
+                "case": "suite",
+                "ckpt_index": 40,
+                "score": 10.0,
+                "completion_rate": 0.9,
+                "mean_final_progress_ratio": 0.95,
+                "termination_rate": 0.05,
+                "timeout_rate": 0.05,
+                "mean_abs_lateral_error_m": 0.3,
+                "mean_abs_height_error_m": 0.2,
+                "mean_abs_align_error_deg": 4.0,
+            },
+        ],
+    )
+
+    best = checkpoint_selection.select_best_checkpoint_row(summary_csv)
+
+    assert best is not None
+    assert best["checkpoint"].endswith("model_40.pt")
+    assert int(best["success_gate_passed"]) == 1
+
+
+def test_refresh_best_checkpoint_artifacts_persists_success_gate(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    eval_dir = run_dir / "eval"
+    eval_dir.mkdir(parents=True)
+    model = run_dir / "model_40.pt"
+    model.write_text("checkpoint")
+    summary_csv = eval_dir / "summary.csv"
+    _write_summary(
+        summary_csv,
+        [
+            {
+                "checkpoint": str(model.resolve()),
+                "case": "suite",
+                "ckpt_index": 40,
+                "score": 10.0,
+                "completion_rate": 0.9,
+                "mean_final_progress_ratio": 0.95,
+                "termination_rate": 0.05,
+                "timeout_rate": 0.05,
+                "mean_abs_lateral_error_m": 0.3,
+                "mean_abs_height_error_m": 0.2,
+                "mean_abs_align_error_deg": 4.0,
+            }
+        ],
+    )
+
+    best = checkpoint_selection.refresh_best_checkpoint_artifacts(run_dir, summary_csv=summary_csv)
+
+    assert best is not None
+    assert int(best["success_gate_passed"]) == 1
+    payload = json.loads((eval_dir / "best_checkpoint.json").read_text())
+    assert int(payload["success_gate_passed"]) == 1

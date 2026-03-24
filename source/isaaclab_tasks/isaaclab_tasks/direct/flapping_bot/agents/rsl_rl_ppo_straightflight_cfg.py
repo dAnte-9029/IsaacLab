@@ -39,3 +39,36 @@ class FlappingBotStraightFlightPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class FlappingBotPathTrackingPPORunnerCfg(FlappingBotStraightFlightPPORunnerCfg):
+    """RSL-RL PPO configuration for generic path-tracking tasks."""
+
+    experiment_name = "flapping_bot_path_tracking"
+    num_steps_per_env = 192
+
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=0.25,
+        noise_std_type="log",
+        actor_obs_normalization=False,
+        critic_obs_normalization=False,
+        actor_hidden_dims=[256, 128],
+        critic_hidden_dims=[256, 128],
+        activation="elu",
+    )
+
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=5.0e-4,
+        num_learning_epochs=4,
+        num_mini_batches=4,
+        learning_rate=3.0e-4,
+        schedule="adaptive",
+        gamma=0.999,
+        lam=0.97,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )

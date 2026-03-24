@@ -85,6 +85,8 @@ class PX4LikeStraightLineControllerCfg:
     inner_pitch_ki: float = 0.8
     inner_pitch_integrator_limit: float = 0.6
     inner_pitch_integrator_leak_per_s: float = 0.04
+    initial_elevon_pitch_action: float = 0.0
+    initial_elevon_roll_action: float = 0.0
 
     enable_speed_hold: bool = False
     speed_sp_mps: float = 7.0
@@ -176,9 +178,11 @@ class PX4LikeStraightLineController:
             return
         self._pitch_meas_filt = pitch.clone()
         self._pitch_rate_filt = pitch_rate.clone()
-        self._action_elevon_pitch_prev = torch.zeros_like(pitch)
-        self._action_elevon_roll_prev = torch.zeros_like(pitch)
-        self._action_elevon_pitch_integ = torch.zeros_like(pitch)
+        initial_pitch_action = float(min(max(self.cfg.initial_elevon_pitch_action, -1.0), 1.0))
+        initial_roll_action = float(min(max(self.cfg.initial_elevon_roll_action, -1.0), 1.0))
+        self._action_elevon_pitch_prev = torch.full_like(pitch, initial_pitch_action)
+        self._action_elevon_roll_prev = torch.full_like(pitch, initial_roll_action)
+        self._action_elevon_pitch_integ = torch.full_like(pitch, initial_pitch_action)
 
     def reset(self, env_ids: Tensor | None = None) -> None:
         """Reset controller states, mainly TECS integrators/filters."""

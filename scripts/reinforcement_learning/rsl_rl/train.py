@@ -34,6 +34,12 @@ parser.add_argument("--export_io_descriptors", action="store_true", default=Fals
 parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
+parser.add_argument(
+    "--load_weights_only",
+    action="store_true",
+    default=False,
+    help="Initialize policy weights from a checkpoint without restoring optimizer or iteration state.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -185,8 +191,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
 
-    # save resume path before creating a new log_dir
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if args_cli.load_weights_only and bool(agent_cfg.resume):
+        raise ValueError("--resume and --load_weights_only cannot both be enabled.")
+
+    # save checkpoint path before creating a new log_dir
+    is_resume_run = bool(agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation")
+    is_weights_only_warm_start = bool(args_cli.load_weights_only)
+    should_load_checkpoint = bool(is_resume_run or is_weights_only_warm_start)
+    if should_load_checkpoint:
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
 
     # wrap for video recording
@@ -211,10 +223,38 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
+
+    try:
+        from flapping_bot.px4_like.rl_training_utils import (
+            load_runner_checkpoint_for_warm_start,
+            maybe_bootstrap_teacher_guided_policy,
+            should_randomize_initial_episode_length,
+        )
+    except Exception:
+        load_runner_checkpoint_for_warm_start = None
+        maybe_bootstrap_teacher_guided_policy = None
+        should_randomize_initial_episode_length = None
+    if maybe_bootstrap_teacher_guided_policy is not None:
+        bootstrap_applied = maybe_bootstrap_teacher_guided_policy(
+            policy=runner.alg.policy,
+            teacher_guidance_enabled=bool(getattr(env_cfg, "teacher_guidance_enabled", False)),
+            teacher_guidance_mode=str(getattr(env_cfg, "teacher_guidance_mode", "envelope")),
+            zero_actor_init=bool(getattr(env_cfg, "teacher_guidance_zero_actor_init", False)),
+            is_resume=is_resume_run,
+        )
+        if bootstrap_applied:
+            print("[INFO]: Zero-initialized residual teacher-guided actor head for teacher bootstrap.")
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
     # load the checkpoint
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if is_weights_only_warm_start:
+        print(f"[INFO]: Warm-starting policy weights from checkpoint: {resume_path}")
+        if load_runner_checkpoint_for_warm_start is not None:
+            load_runner_checkpoint_for_warm_start(runner=runner, checkpoint_path=resume_path)
+        else:
+            runner.load(resume_path, load_optimizer=False)
+            runner.current_learning_iteration = 0
+    elif is_resume_run:
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
@@ -224,7 +264,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
 
     # run training
-    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=True)
+    init_at_random_ep_len = True
+    if should_randomize_initial_episode_length is not None:
+        init_at_random_ep_len = should_randomize_initial_episode_length(
+            task=args_cli.task,
+            load_weights_only=bool(args_cli.load_weights_only),
+        )
+    runner.learn(num_learning_iterations=agent_cfg.max_iterations, init_at_random_ep_len=init_at_random_ep_len)
 
     # close the simulator
     env.close()

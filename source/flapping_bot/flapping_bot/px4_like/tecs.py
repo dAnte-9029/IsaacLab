@@ -20,6 +20,15 @@ Tensor = torch.Tensor
 G = 9.81
 
 
+def _as_batch_tensor(value: float | Tensor | None, *, fallback: float, like: Tensor) -> Tensor:
+    """Return a batch-shaped tensor on the same device/dtype as ``like``."""
+    if value is None:
+        return torch.full_like(like, float(fallback))
+    if torch.is_tensor(value):
+        return value.to(device=like.device, dtype=like.dtype)
+    return torch.full_like(like, float(value))
+
+
 @dataclass
 class PX4LikeTECSCfg:
     """Configuration for the simplified PX4-like TECS."""
@@ -155,8 +164,8 @@ class PX4LikeTECS:
         altitude: Tensor,
         altitude_rate: Tensor,
         tas: Tensor,
-        height_sp_m: float | None = None,
-        speed_sp_mps: float | None = None,
+        height_sp_m: float | Tensor | None = None,
+        speed_sp_mps: float | Tensor | None = None,
     ) -> tuple[Tensor, Tensor, dict[str, Tensor]]:
         """Compute pitch and throttle setpoints."""
         if dt <= 0.0:
@@ -175,8 +184,8 @@ class PX4LikeTECS:
         assert self._altitude_rate_filt is not None
         assert self._ratio_underspeed is not None
 
-        height_sp = float(self.cfg.height_sp_m if height_sp_m is None else height_sp_m)
-        speed_sp = float(self.cfg.speed_sp_mps if speed_sp_mps is None else speed_sp_mps)
+        height_sp = _as_batch_tensor(height_sp_m, fallback=float(self.cfg.height_sp_m), like=altitude)
+        speed_sp = _as_batch_tensor(speed_sp_mps, fallback=float(self.cfg.speed_sp_mps), like=tas)
 
         pitch_min = -math.radians(float(self.cfg.max_pitch_up_deg))
         pitch_max = math.radians(float(self.cfg.max_pitch_down_deg))
@@ -250,10 +259,13 @@ class PX4LikeTECS:
 
         # Underspeed ratio in [0,1].
         if bool(self.cfg.detect_underspeed) and bool(self.cfg.airspeed_enabled):
-            tas_err_bound = float(self.cfg.tas_error_percentage) * max(speed_sp, 1.0e-3)
+            tas_err_bound = float(self.cfg.tas_error_percentage) * torch.clamp(speed_sp, min=1.0e-3)
             tas_soft_bound = tas_err_bound
-            tas_fully_underspeed = max(tas_min - tas_err_bound - tas_soft_bound, 0.0)
-            tas_start_underspeed = max(tas_min - tas_err_bound, tas_fully_underspeed + 1.0e-6)
+            tas_fully_underspeed = torch.clamp(tas_min - tas_err_bound - tas_soft_bound, min=0.0)
+            tas_start_underspeed = torch.maximum(
+                tas_min - tas_err_bound,
+                tas_fully_underspeed + 1.0e-6,
+            )
             ratio = 1.0 - torch.clamp(
                 (tas_ctrl - tas_fully_underspeed) / (tas_start_underspeed - tas_fully_underspeed), min=0.0, max=1.0
             )
@@ -372,7 +384,7 @@ class PX4LikeTECS:
             "tecs_altitude_rate_sp_capture": altitude_rate_sp_capture,
             "tecs_capture_blend": capture_blend,
             "tecs_height_err_raw": height_err_raw,
-            "tecs_tas_sp": torch.full_like(tas_ctrl, speed_sp),
+            "tecs_tas_sp": speed_sp,
             "tecs_tas": tas_ctrl,
             "tecs_tas_rate": self._tas_rate_filt,
             "tecs_altitude_filt": self._altitude_filt,

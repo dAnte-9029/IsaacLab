@@ -35,6 +35,13 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from checkpoint_selection import refresh_best_checkpoint_artifacts, select_best_checkpoint_row
+from eval_suites import get_eval_suite_choices
+
+
+def _resolve_eval_suite(task: str, eval_suite: str) -> str:
+    if eval_suite == "straight_standard" and "PathTracking" in str(task):
+        return "path_tracking_truth_nowind_v1"
+    return str(eval_suite)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -47,6 +54,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--train-device", type=str, default="cuda:0")
     parser.add_argument("--eval-device", type=str, default="cuda:1")
+    parser.add_argument("--eval-num-envs", type=int, default=1)
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument("--poll-s", type=float, default=120.0)
     parser.add_argument("--run-dir-timeout-s", type=float, default=180.0)
@@ -54,11 +62,22 @@ def _parse_args() -> argparse.Namespace:
         "--eval-suite",
         type=str,
         default="straight_standard",
-        choices=("straight_standard", "single"),
+        choices=get_eval_suite_choices(),
     )
     parser.add_argument("--resume", action="store_true", help="Resume training from a previous run/checkpoint.")
+    parser.add_argument(
+        "--load_weights_only",
+        action="store_true",
+        help="Warm-start policy weights from a checkpoint without restoring optimizer or iteration state.",
+    )
     parser.add_argument("--load_run", type=str, default=None, help="Existing run directory name used for resume.")
     parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint filename or regex used for resume.")
+    parser.add_argument(
+        "--portable-root-base",
+        type=Path,
+        default=None,
+        help="Base portable root used to isolate IsaacSim cache/state for the train and watcher child processes.",
+    )
     parser.add_argument("--headless", action="store_true")
     return parser.parse_args()
 
@@ -151,7 +170,25 @@ def _run_final_eval_once(watch_cmd: list[str]) -> int:
     return subprocess.call(final_cmd)
 
 
+def _resolve_portable_root_base(args: argparse.Namespace) -> Path:
+    configured = getattr(args, "portable_root_base", None)
+    if configured is not None:
+        return Path(configured)
+    return Path("logs/portable/train_and_watch") / f"{args.run_name}_seed{args.seed}_pid{os.getpid()}"
+
+
+def _portable_root_for_role(args: argparse.Namespace, role: str) -> Path:
+    return _resolve_portable_root_base(args) / role
+
+
+def _portable_kit_args(args: argparse.Namespace, role: str) -> str:
+    return f"--portable-root {_portable_root_for_role(args, role)}"
+
+
 def _build_train_cmd(args: argparse.Namespace) -> list[str]:
+    if bool(args.resume) and bool(getattr(args, "load_weights_only", False)):
+        raise ValueError("--resume and --load_weights_only cannot both be enabled.")
+
     train_cmd = [
         "./isaaclab.sh",
         "-p",
@@ -171,19 +208,51 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     ]
     if bool(args.resume):
         train_cmd.append("--resume")
+    if bool(getattr(args, "load_weights_only", False)):
+        train_cmd.append("--load_weights_only")
     if args.load_run is not None:
         train_cmd.extend(["--load_run", str(args.load_run)])
     if args.checkpoint is not None:
         train_cmd.extend(["--checkpoint", str(args.checkpoint)])
+    train_cmd.extend(["--kit_args", _portable_kit_args(args, "train")])
     if args.headless:
         train_cmd.append("--headless")
     return train_cmd
+
+
+def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
+    watch_cmd = [
+        "./isaaclab.sh",
+        "-p",
+        "scripts/flapping_rl/watch_and_eval.py",
+        "--task",
+        args.task,
+        "--log_dir",
+        str(run_dir),
+        "--device",
+        args.eval_device,
+        "--episodes",
+        str(args.episodes),
+        "--num_envs",
+        str(args.eval_num_envs),
+        "--poll_s",
+        str(args.poll_s),
+        "--eval_suite",
+        _resolve_eval_suite(args.task, str(args.eval_suite)),
+    ]
+    watch_cmd.extend(["--kit_args", _portable_kit_args(args, "watch")])
+    if args.headless:
+        watch_cmd.append("--headless")
+    return watch_cmd
 
 
 def main():
     args = _parse_args()
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)
+    args.portable_root_base = _resolve_portable_root_base(args)
+    _portable_root_for_role(args, "train").mkdir(parents=True, exist_ok=True)
+    _portable_root_for_role(args, "watch").mkdir(parents=True, exist_ok=True)
 
     train_cmd = _build_train_cmd(args)
 
@@ -228,27 +297,7 @@ def main():
         run_dir = (log_root / f"{timestamp}_{args.run_name}").resolve()
         _wait_for_run_dir(run_dir, train, timeout_s=float(args.run_dir_timeout_s))
 
-        watch_cmd = [
-            "./isaaclab.sh",
-            "-p",
-            "scripts/flapping_rl/watch_and_eval.py",
-            "--task",
-            args.task,
-            "--log_dir",
-            str(run_dir),
-            "--device",
-            args.eval_device,
-            "--episodes",
-            str(args.episodes),
-            "--num_envs",
-            "1",
-            "--poll_s",
-            str(args.poll_s),
-            "--eval_suite",
-            str(args.eval_suite),
-        ]
-        if args.headless:
-            watch_cmd.append("--headless")
+        watch_cmd = _build_watch_cmd(args, run_dir)
 
         print("[INFO] Launching watcher:")
         print(" ", " ".join(watch_cmd), flush=True)

@@ -5,12 +5,26 @@ from __future__ import annotations
 import csv
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from path_tracking_success_gate import row_meets_path_tracking_success_gate
 
 
 def _row_float(row: dict[str, Any], key: str) -> float:
     return float(row[key])
+
+
+def _row_float_default(row: dict[str, Any], key: str, default: float) -> float:
+    value = row.get(key, default)
+    if value in (None, ""):
+        return float(default)
+    return float(value)
 
 
 def load_summary_rows(summary_csv: Path) -> list[dict[str, str]]:
@@ -26,7 +40,22 @@ def select_best_checkpoint_row(summary_csv: Path, *, case: str = "suite") -> dic
     if not rows:
         return None
 
+    def _is_path_tracking_row(row: dict[str, str]) -> bool:
+        return "completion_rate" in row and "mean_abs_lateral_error_m" in row
+
     def _sort_key(row: dict[str, str]) -> tuple[float, float, float, float, float, float, float]:
+        if _is_path_tracking_row(row):
+            completion_rate = _row_float_default(row, "completion_rate", 0.0)
+            progress_ratio = _row_float_default(row, "mean_final_progress_ratio", completion_rate)
+            return (
+                completion_rate,
+                progress_ratio,
+                -_row_float(row, "termination_rate"),
+                -_row_float(row, "mean_abs_lateral_error_m"),
+                -_row_float(row, "mean_abs_height_error_m"),
+                -_row_float(row, "mean_abs_align_error_deg"),
+                -_row_float_default(row, "score", 0.0),
+            )
         return (
             _row_float(row, "score"),
             -_row_float(row, "termination_rate"),
@@ -41,7 +70,11 @@ def select_best_checkpoint_row(summary_csv: Path, *, case: str = "suite") -> dic
     tied = [row for row in rows if _sort_key(row) == _sort_key(best)]
     if len(tied) > 1:
         best = min(tied, key=lambda row: int(float(row.get("ckpt_index", -1))))
-    return best
+
+    best_row = dict(best)
+    if _is_path_tracking_row(best_row):
+        best_row["success_gate_passed"] = str(int(row_meets_path_tracking_success_gate(best_row)))
+    return best_row
 
 
 def _write_best_checkpoint_symlink(best_model_path: Path, checkpoint_path: Path) -> None:
