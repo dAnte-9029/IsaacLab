@@ -83,6 +83,7 @@ class FlappingBotEnvCfg(DirectRLEnvCfg):
     controlled_joints: Tuple[str, ...] = (
         "left_wing",
         "right_wing",
+        "rudder",
         "left_tail",
         "right_tail",
     )
@@ -185,6 +186,7 @@ class FlappingBotEnv(DirectRLEnv):
         # indices
         self._IDX_LEFT_WING = None
         self._IDX_RIGHT_WING = None
+        self._IDX_RUDDER = None
         self._IDX_LEFT_TAIL = None
         self._IDX_RIGHT_TAIL = None
 
@@ -254,6 +256,7 @@ class FlappingBotEnv(DirectRLEnv):
         # control indices
         self._IDX_LEFT_WING = name_to_idx.get("left_wing")
         self._IDX_RIGHT_WING = name_to_idx.get("right_wing")
+        self._IDX_RUDDER = name_to_idx.get("rudder")
         self._IDX_LEFT_TAIL = name_to_idx.get("left_tail")
         self._IDX_RIGHT_TAIL = name_to_idx.get("right_tail")
 
@@ -363,6 +366,7 @@ class FlappingBotEnv(DirectRLEnv):
         jt = self._joint_targets
         jt[:, self._IDX_LEFT_WING] = left_cmd
         jt[:, self._IDX_RIGHT_WING] = right_cmd
+        jt[:, self._IDX_RUDDER] = self._default_joint_pos[self._IDX_RUDDER]
         jt[:, self._IDX_LEFT_TAIL] = self._left_tail_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_tail_cmd
         self._robot.set_joint_position_target(jt, joint_ids=self._joint_ids)

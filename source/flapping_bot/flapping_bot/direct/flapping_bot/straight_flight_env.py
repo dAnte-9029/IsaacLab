@@ -179,6 +179,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     controlled_joints: Tuple[str, ...] = (
         "left_wing",
         "right_wing",
+        "rudder",
         "left_tail",
         "right_tail",
     )
@@ -400,6 +401,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # indices
         self._IDX_LEFT_WING = None
         self._IDX_RIGHT_WING = None
+        self._IDX_RUDDER = None
         self._IDX_LEFT_TAIL = None
         self._IDX_RIGHT_TAIL = None
 
@@ -484,11 +486,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # control indices
         self._IDX_LEFT_WING = name_to_idx.get("left_wing")
         self._IDX_RIGHT_WING = name_to_idx.get("right_wing")
+        self._IDX_RUDDER = name_to_idx.get("rudder")
         self._IDX_LEFT_TAIL = name_to_idx.get("left_tail")
         self._IDX_RIGHT_TAIL = name_to_idx.get("right_tail")
         for idx, name in (
             (self._IDX_LEFT_WING, "left_wing"),
             (self._IDX_RIGHT_WING, "right_wing"),
+            (self._IDX_RUDDER, "rudder"),
             (self._IDX_LEFT_TAIL, "left_tail"),
             (self._IDX_RIGHT_TAIL, "right_tail"),
         ):
@@ -606,7 +610,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         base_ids, _ = self._robot.find_bodies(["base_link"], preserve_order=True)
         wing_ids, _ = self._robot.find_bodies(["left_wing", "right_wing"], preserve_order=True)
-        tail_ids, _ = self._robot.find_bodies(["left_tail", "right_tail"], preserve_order=True)
+        tail_ids, _ = self._robot.find_bodies(["left_tail", "right_tail", "rudder"], preserve_order=True)
         if len(base_ids) != 1:
             raise RuntimeError("Expected exactly one base_link body for mass override.")
 
@@ -893,6 +897,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         jt = self._joint_targets
         jt[:, self._IDX_LEFT_WING] = left_cmd
         jt[:, self._IDX_RIGHT_WING] = right_cmd
+        jt[:, self._IDX_RUDDER] = self._rudder_cmd
         # visualization joints for tail (treated as left/right elevons)
         jt[:, self._IDX_LEFT_TAIL] = self._left_elevon_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_elevon_cmd
@@ -1168,6 +1173,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         jpos = self._default_joint_pos.expand(n, -1).clone()
         # initialize tail joints from mixed reset elevon commands
         elevon_lim = torch.deg2rad(torch.tensor(float(self.cfg.elevon_max_deg), device=self.device))
+        rudder_lim = torch.deg2rad(torch.tensor(float(self.cfg.rudder_max_deg), device=self.device))
+        rudder_lower = torch.maximum(self._joint_lower_limits[self._IDX_RUDDER], -rudder_lim)
+        rudder_upper = torch.minimum(self._joint_upper_limits[self._IDX_RUDDER], rudder_lim)
+        rudder0 = torch.full((n,), math.radians(float(self.cfg.reset_rudder_deg)), device=self.device).clamp(
+            rudder_lower, rudder_upper
+        )
         l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -elevon_lim)
         l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], elevon_lim)
         r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], -elevon_lim)
@@ -1179,6 +1190,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         right0 = trim0 + float(self.cfg.elevon_pitch_mix) * pit0 - float(self.cfg.elevon_roll_mix) * rol0
         left0 = torch.full((n,), left0, device=self.device).clamp(l_lower, l_upper)
         right0 = torch.full((n,), right0, device=self.device).clamp(r_lower, r_upper)
+        jpos[:, self._IDX_RUDDER] = rudder0
         jpos[:, self._IDX_LEFT_TAIL] = left0
         jpos[:, self._IDX_RIGHT_TAIL] = right0
         jvel = torch.zeros_like(jpos)

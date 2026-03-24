@@ -13,30 +13,30 @@ import os
 FLAPPING_BOT_CFG = ArticulationCfg(
     prim_path="{ENV_REGEX_NS}/FlappingBot",
     spawn=sim_utils.UrdfFileCfg(
-        # Use the v50 flapping robot from the repo (no machine-specific paths).
+        # Use the latest five-joint flapping robot from the repo.
         asset_path=os.path.join(
             ISAACLAB_ASSETS_DATA_DIR,
             "flapping_bot",
             "robots",
-            "flap_robot_v50",
+            "flap_robot_552",
             "urdf",
-            "flap_robot_v50.urdf",
+            "flap_robot_552.urdf",
         ),
         usd_dir=os.path.join(
             ISAACLAB_ASSETS_DATA_DIR,
             "flapping_bot",
             "robots",
-            "flap_robot_v50",
+            "flap_robot_552",
             "urdf",
         ),
-        usd_file_name="flap_robot_v50.usd",
+        usd_file_name="flap_robot_552.usd",
         fix_base=False,
         merge_fixed_joints=True,
         joint_drive=sim_utils.UrdfConverterCfg.JointDriveCfg(
             gains=sim_utils.UrdfConverterCfg.JointDriveCfg.PDGainsCfg(stiffness=None, damping=None)
         ),
         make_instanceable=False,
-        force_usd_conversion=False,
+        force_usd_conversion=True,
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False,
             solver_position_iteration_count=8,
@@ -60,6 +60,7 @@ FLAPPING_BOT_CFG = ArticulationCfg(
             # a small initial nose-up trim.
             "left_wing": 0.0,
             "right_wing": 0.0,
+            "rudder": 0.0,
             "left_tail": 0.3491,
             "right_tail": 0.3491,
         },
@@ -73,6 +74,11 @@ FLAPPING_BOT_CFG = ArticulationCfg(
         # Left/Right tail servos (differential pair)
         "tail_servos": ImplicitActuatorCfg(
             joint_names_expr=["left_tail", "right_tail"],
+            stiffness=40.0,
+            damping=2.2,
+        ),
+        "rudder_servo": ImplicitActuatorCfg(
+            joint_names_expr=["rudder"],
             stiffness=40.0,
             damping=2.2,
         ),
