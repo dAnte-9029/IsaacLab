@@ -216,13 +216,14 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     elevon_pitch_mix: float = 1.0
     elevon_roll_mix: float = 1.0
     elevon_trim_deg: float = 0.0
-    # Elevator bias applied in the tail aerodynamic model (deg). This captures a fixed tail incidence / trim
-    # without consuming the action range.
+    # Symmetric elevon bias applied in the tail aerodynamic model (deg). This captures a fixed trim/incidence
+    # offset without consuming the action range.
     tail_elevator_bias_deg: float = 0.0
 
-    # virtual roll control (decoupled from visual model)
+    # virtual roll control (decoupled from the aerodynamic tail model)
+    # Differential elevons now generate a physical roll moment, so this surrogate is disabled by default.
     # tau_x += gain * q_dyn * roll_deflection - damping * p
-    virtual_roll_moment_gain: float = 0.12
+    virtual_roll_moment_gain: float = 0.0
     virtual_roll_moment_damping: float = 0.25
     # virtual pitch control (decoupled from visual model)
     # tau_y += gain * q_dyn * elevator_deflection - damping * q
@@ -258,7 +259,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
         air_density=1.225,
     )
 
-    # tail aero (elevator + rudder)
+    # tail aero (fixed horizontal + left/right elevons + fixed vertical + rudder)
     tail_aero: TailAeroCfg = TailAeroCfg()
 
     # diagnostics: selectively apply aerodynamic components
@@ -928,7 +929,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             f_tail, tau_tail = self._tail_model.compute_wrench(
                 root_lin_vel_b=v_air_b,
                 root_ang_vel_b=w_b,
-                elevator_rad=self._elevator_cmd + ele_bias,
+                left_elevon_rad=self._left_elevon_cmd + ele_bias,
+                right_elevon_rad=self._right_elevon_cmd + ele_bias,
                 rudder_rad=self._rudder_cmd,
             )
             speed = torch.linalg.norm(v_air_b, dim=1)
