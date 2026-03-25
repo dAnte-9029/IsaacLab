@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 
 import torch
@@ -15,8 +16,14 @@ from .straight_line_controller import (
 Tensor = torch.Tensor
 
 
+@dataclass
 class PX4LikePathTrackingControllerCfg(PX4LikeStraightLineControllerCfg):
     """Configuration for the generic path-tracking controller."""
+
+    use_tecs_load_factor_compensation: bool = True
+    tecs_roll_throttle_compensation: float = 0.0
+    tecs_load_factor_clamp_max: float = 2.0
+    tecs_load_factor_use_roll_sp: bool = True
 
 
 class PX4LikePathTrackingController(PX4LikeStraightLineController):
@@ -131,6 +138,17 @@ class PX4LikePathTrackingController(PX4LikeStraightLineController):
         self._action_elevon_roll_prev = action_roll
 
         if bool(self.cfg.enable_tecs):
+            if bool(self.cfg.use_tecs_load_factor_compensation):
+                bank_for_load = roll_sp if bool(self.cfg.tecs_load_factor_use_roll_sp) else roll
+                load_factor = 1.0 / torch.clamp(torch.cos(bank_for_load), min=1.0e-3)
+                load_factor = torch.clamp(load_factor, min=1.0, max=float(self.cfg.tecs_load_factor_clamp_max))
+                load_factor_correction = torch.full_like(
+                    load_factor, float(self.cfg.tecs_roll_throttle_compensation)
+                )
+            else:
+                load_factor = torch.ones_like(roll_sp)
+                load_factor_correction = torch.zeros_like(roll_sp)
+
             pitch_sp, throttle_sp, tecs_diag = self._tecs.update(
                 dt=float(self.cfg.control_dt_s),
                 altitude=pos_local[:, 2],
@@ -138,6 +156,8 @@ class PX4LikePathTrackingController(PX4LikeStraightLineController):
                 tas=airspeed,
                 height_sp_m=height_sp_m,
                 speed_sp_mps=float(self.cfg.speed_sp_mps),
+                load_factor=load_factor,
+                load_factor_correction=load_factor_correction,
             )
             freq_hz = float(self.cfg.min_flap_hz) + throttle_sp * (
                 float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz)
