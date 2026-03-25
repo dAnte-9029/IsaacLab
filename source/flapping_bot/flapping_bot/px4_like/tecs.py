@@ -166,6 +166,8 @@ class PX4LikeTECS:
         tas: Tensor,
         height_sp_m: float | Tensor | None = None,
         speed_sp_mps: float | Tensor | None = None,
+        load_factor: float | Tensor | None = None,
+        load_factor_correction: float | Tensor | None = None,
     ) -> tuple[Tensor, Tensor, dict[str, Tensor]]:
         """Compute pitch and throttle setpoints."""
         if dt <= 0.0:
@@ -186,6 +188,9 @@ class PX4LikeTECS:
 
         height_sp = _as_batch_tensor(height_sp_m, fallback=float(self.cfg.height_sp_m), like=altitude)
         speed_sp = _as_batch_tensor(speed_sp_mps, fallback=float(self.cfg.speed_sp_mps), like=tas)
+        load_factor_t = _as_batch_tensor(load_factor, fallback=1.0, like=tas)
+        load_factor_t = torch.clamp(load_factor_t, min=1.0e-3)
+        load_factor_correction_t = _as_batch_tensor(load_factor_correction, fallback=0.0, like=tas)
 
         pitch_min = -math.radians(float(self.cfg.max_pitch_up_deg))
         pitch_max = math.radians(float(self.cfg.max_pitch_down_deg))
@@ -321,7 +326,12 @@ class PX4LikeTECS:
             capture_blend * float(self.cfg.capture_extra_climb_rate_mps) * G,
             -capture_blend * float(self.cfg.capture_extra_sink_rate_mps) * G,
         )
-        ste_rate_sp = torch.clamp(spe_rate_sp + ske_rate_sp + ste_rate_capture_bias, min=ste_rate_min, max=ste_rate_max)
+        ste_rate_load_factor_bias = load_factor_correction_t * (load_factor_t - 1.0)
+        ste_rate_sp = torch.clamp(
+            spe_rate_sp + ske_rate_sp + ste_rate_capture_bias + ste_rate_load_factor_bias,
+            min=ste_rate_min,
+            max=ste_rate_max,
+        )
         ste_rate_est_raw = spe_rate_est + ske_rate_est
         alpha_ste = dt / (max(float(self.cfg.ste_rate_time_const_s), 0.0) + dt)
         alpha_ste = min(max(alpha_ste, 0.0), 1.0)
@@ -395,6 +405,9 @@ class PX4LikeTECS:
             "tecs_ske_rate_est": ske_rate_est,
             "tecs_ste_rate_sp": ste_rate_sp,
             "tecs_ste_rate_capture_bias": ste_rate_capture_bias,
+            "tecs_load_factor": load_factor_t,
+            "tecs_load_factor_correction": load_factor_correction_t,
+            "tecs_load_factor_energy_bias": ste_rate_load_factor_bias,
             "tecs_ste_rate_est": self._ste_rate_est,
             "tecs_seb_rate_sp": seb_rate_sp,
             "tecs_seb_rate_est": seb_rate_est,
