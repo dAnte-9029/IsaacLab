@@ -369,6 +369,11 @@ class TailAeroCfg:
     """Configuration for the five-surface tail aerodynamic model."""
 
     air_density: float = 1.225
+    horizontal_tail_incidence_bias_deg: float = 0.0
+    fixed_horizontal_effectiveness: float = 1.0
+    elevon_effectiveness: float = 1.0
+    elevon_alpha_limit_deg: float = _TAIL_ALPHA_LIMIT_DEG
+    horizontal_tail_q_scale: float = 1.0
     fixed_horizontal: TailSurfaceCfg = field(default_factory=_default_fixed_horizontal_surface)
     left_elevon: TailSurfaceCfg = field(default_factory=_default_left_elevon_surface)
     right_elevon: TailSurfaceCfg = field(default_factory=_default_right_elevon_surface)
@@ -383,6 +388,38 @@ class TailAeroModel:
         self.cfg = cfg
         self.device = torch.device(device)
 
+    @staticmethod
+    def _is_elevon_surface(surf: TailSurfaceCfg) -> bool:
+        return surf.name in {"left_elevon", "right_elevon"}
+
+    @staticmethod
+    def _is_horizontal_surface(surf: TailSurfaceCfg) -> bool:
+        return surf.name in {"fixed_horizontal", "left_elevon", "right_elevon"}
+
+    def _effective_incidence_rad(self, surf: TailSurfaceCfg) -> float:
+        incidence_rad = float(surf.incidence_rad)
+        if surf.name == "fixed_horizontal":
+            incidence_rad += math.radians(float(self.cfg.horizontal_tail_incidence_bias_deg))
+        return incidence_rad
+
+    def _effective_cl_alpha_per_rad(self, surf: TailSurfaceCfg) -> float:
+        cl_alpha = float(surf.cl_alpha_per_rad)
+        if surf.name == "fixed_horizontal":
+            cl_alpha *= float(self.cfg.fixed_horizontal_effectiveness)
+        elif self._is_elevon_surface(surf):
+            cl_alpha *= float(self.cfg.elevon_effectiveness)
+        return cl_alpha
+
+    def _effective_alpha_limit_deg(self, surf: TailSurfaceCfg) -> float:
+        if self._is_elevon_surface(surf):
+            return float(self.cfg.elevon_alpha_limit_deg)
+        return float(surf.alpha_limit_deg)
+
+    def _effective_dynamic_pressure_scale(self, surf: TailSurfaceCfg) -> float:
+        if self._is_horizontal_surface(surf):
+            return float(self.cfg.horizontal_tail_q_scale)
+        return 1.0
+
     def _surface_wrench(
         self,
         surf: TailSurfaceCfg,
@@ -390,11 +427,16 @@ class TailAeroModel:
         root_lin_vel_b: Tensor,
         root_ang_vel_b: Tensor,
         deflection_rad: Tensor,
+        base_com_pos_b: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         device = self.device
         dtype = root_lin_vel_b.dtype
 
         r_b = _as_vec3(surf.lever_arm_body, device=device, dtype=dtype).view(1, 3).expand(root_lin_vel_b.shape[0], 3)
+        if base_com_pos_b is not None:
+            if base_com_pos_b.shape != r_b.shape:
+                raise ValueError("base_com_pos_b must have shape (batch_size, 3).")
+            r_b = r_b - base_com_pos_b.to(device=device, dtype=dtype)
         span = _normalize(_as_vec3(surf.span_axis_body, device=device, dtype=dtype)).view(1, 3).expand_as(r_b)
         chord0 = _normalize(_as_vec3(surf.chord_axis_body, device=device, dtype=dtype)).view(1, 3).expand_as(r_b)
 
@@ -403,7 +445,9 @@ class TailAeroModel:
         speed = torch.linalg.norm(v_proj, dim=1)
         v_dir = F.normalize(v_proj, dim=1, eps=1.0e-9)
 
-        ang = torch.as_tensor(float(surf.incidence_rad), device=device, dtype=dtype) + float(surf.deflection_sign) * deflection_rad
+        ang = torch.as_tensor(self._effective_incidence_rad(surf), device=device, dtype=dtype) + float(
+            surf.deflection_sign
+        ) * deflection_rad
         chord = _rotate_about_axis(chord0, span[0], ang)
         v_in = -v_dir
 
@@ -411,13 +455,13 @@ class TailAeroModel:
         cross_vec = torch.linalg.cross(chord, v_in)
         sin = torch.sum(cross_vec * span, dim=1)
         alpha = torch.atan2(sin, dot)
-        alpha_lim = math.radians(float(surf.alpha_limit_deg))
+        alpha_lim = math.radians(self._effective_alpha_limit_deg(surf))
         alpha = torch.clamp(alpha, -alpha_lim, alpha_lim)
 
-        cl = float(surf.cl_alpha_per_rad) * alpha
+        cl = self._effective_cl_alpha_per_rad(surf) * alpha
         cd = float(surf.cd0) + float(surf.cd_k) * (cl * cl)
 
-        q = 0.5 * float(self.cfg.air_density) * (speed * speed)
+        q = 0.5 * float(self.cfg.air_density) * self._effective_dynamic_pressure_scale(surf) * (speed * speed)
         lift = (q * float(surf.area) * cl).unsqueeze(1)
         drag = (q * float(surf.area) * cd).unsqueeze(1)
 
@@ -437,6 +481,7 @@ class TailAeroModel:
         right_elevon_rad: Tensor | None = None,
         rudder_rad: Tensor,
         elevator_rad: Tensor | None = None,
+        base_com_pos_b: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         """Return net tail wrench in body frame.
 
@@ -450,6 +495,9 @@ class TailAeroModel:
         batch_size = root_lin_vel_b.shape[0]
         if rudder_rad.shape[0] != batch_size:
             raise ValueError("Batch size mismatch in tail aero inputs.")
+        if base_com_pos_b is not None:
+            if base_com_pos_b.ndim != 2 or base_com_pos_b.shape != (batch_size, 3):
+                raise ValueError("base_com_pos_b must have shape (batch_size, 3).")
 
         if elevator_rad is not None:
             if left_elevon_rad is not None or right_elevon_rad is not None:
@@ -480,6 +528,7 @@ class TailAeroModel:
                 root_lin_vel_b=root_lin_vel_b,
                 root_ang_vel_b=root_ang_vel_b,
                 deflection_rad=deflection,
+                base_com_pos_b=base_com_pos_b,
             )
             total_force = total_force + force_b
             total_torque = total_torque + torque_b

@@ -152,6 +152,43 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--climb_delta_m", type=float, default=3.0)
     parser.add_argument("--path_manager_max_roll_deg", type=float, default=35.0)
     parser.add_argument("--path_manager_max_flight_path_angle_deg", type=float, default=10.0)
+    parser.add_argument(
+        "--teacher_use_tecs_load_factor_compensation",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument("--teacher_tecs_roll_throttle_compensation", type=float, default=None)
+    parser.add_argument("--teacher_tecs_load_factor_clamp_max", type=float, default=None)
+    parser.add_argument(
+        "--teacher_tecs_load_factor_use_roll_sp",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument("--teacher_tecs_load_factor_pitch_compensation_gain", type=float, default=None)
+    parser.add_argument(
+        "--teacher_use_tecs_bank_aware_speed_sp",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument("--teacher_tecs_bank_aware_speed_scale", type=float, default=None)
+    parser.add_argument("--teacher_tecs_bank_aware_speed_clamp_mps", type=float, default=None)
+    parser.add_argument(
+        "--teacher_use_tecs_bank_aware_min_airspeed",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument("--teacher_tecs_bank_aware_min_airspeed_mps", type=float, default=None)
+    parser.add_argument("--teacher_tecs_bank_aware_min_airspeed_scale", type=float, default=None)
+    parser.add_argument("--teacher_tecs_bank_aware_min_airspeed_clamp_mps", type=float, default=None)
+    parser.add_argument("--tail_horizontal_tail_incidence_bias_deg", type=float, default=None)
+    parser.add_argument("--tail_fixed_horizontal_effectiveness", type=float, default=None)
+    parser.add_argument("--tail_elevon_effectiveness", type=float, default=None)
+    parser.add_argument("--tail_elevon_alpha_limit_deg", type=float, default=None)
+    parser.add_argument("--tail_horizontal_tail_q_scale", type=float, default=None)
+    parser.add_argument("--base_body_com_override_x_m", type=float, default=None)
+    parser.add_argument("--reset_pitch_deg", type=float, default=None)
+    parser.add_argument("--reset_flap_hz", type=float, default=None)
+    parser.add_argument("--reset_elevon_pitch_deg", type=float, default=None)
     parser.add_argument("--wind_x_mps", type=float, default=0.0)
     parser.add_argument("--wind_y_mps", type=float, default=0.0)
     parser.add_argument(
@@ -306,6 +343,56 @@ def _configure_env(args: argparse.Namespace):
         env_cfg.path_manager_max_roll_deg = float(args.path_manager_max_roll_deg)
     if hasattr(env_cfg, "path_manager_max_flight_path_angle_deg"):
         env_cfg.path_manager_max_flight_path_angle_deg = float(args.path_manager_max_flight_path_angle_deg)
+    if (
+        hasattr(env_cfg, "teacher_use_tecs_load_factor_compensation")
+        and args.teacher_use_tecs_load_factor_compensation is not None
+    ):
+        env_cfg.teacher_use_tecs_load_factor_compensation = bool(args.teacher_use_tecs_load_factor_compensation)
+    if hasattr(env_cfg, "teacher_tecs_roll_throttle_compensation") and args.teacher_tecs_roll_throttle_compensation is not None:
+        env_cfg.teacher_tecs_roll_throttle_compensation = float(args.teacher_tecs_roll_throttle_compensation)
+    if hasattr(env_cfg, "teacher_tecs_load_factor_clamp_max") and args.teacher_tecs_load_factor_clamp_max is not None:
+        env_cfg.teacher_tecs_load_factor_clamp_max = float(args.teacher_tecs_load_factor_clamp_max)
+    if hasattr(env_cfg, "teacher_tecs_load_factor_use_roll_sp") and args.teacher_tecs_load_factor_use_roll_sp is not None:
+        env_cfg.teacher_tecs_load_factor_use_roll_sp = bool(args.teacher_tecs_load_factor_use_roll_sp)
+    if (
+        hasattr(env_cfg, "teacher_tecs_load_factor_pitch_compensation_gain")
+        and args.teacher_tecs_load_factor_pitch_compensation_gain is not None
+    ):
+        env_cfg.teacher_tecs_load_factor_pitch_compensation_gain = float(
+            args.teacher_tecs_load_factor_pitch_compensation_gain
+        )
+    if hasattr(env_cfg, "teacher_use_tecs_bank_aware_speed_sp") and args.teacher_use_tecs_bank_aware_speed_sp is not None:
+        env_cfg.teacher_use_tecs_bank_aware_speed_sp = bool(args.teacher_use_tecs_bank_aware_speed_sp)
+    if hasattr(env_cfg, "teacher_tecs_bank_aware_speed_scale") and args.teacher_tecs_bank_aware_speed_scale is not None:
+        env_cfg.teacher_tecs_bank_aware_speed_scale = float(args.teacher_tecs_bank_aware_speed_scale)
+    if hasattr(env_cfg, "teacher_tecs_bank_aware_speed_clamp_mps") and args.teacher_tecs_bank_aware_speed_clamp_mps is not None:
+        env_cfg.teacher_tecs_bank_aware_speed_clamp_mps = float(args.teacher_tecs_bank_aware_speed_clamp_mps)
+    if hasattr(env_cfg, "teacher_use_tecs_bank_aware_min_airspeed") and args.teacher_use_tecs_bank_aware_min_airspeed is not None:
+        env_cfg.teacher_use_tecs_bank_aware_min_airspeed = bool(args.teacher_use_tecs_bank_aware_min_airspeed)
+    if hasattr(env_cfg, "teacher_tecs_bank_aware_min_airspeed_mps") and args.teacher_tecs_bank_aware_min_airspeed_mps is not None:
+        env_cfg.teacher_tecs_bank_aware_min_airspeed_mps = float(args.teacher_tecs_bank_aware_min_airspeed_mps)
+    if hasattr(env_cfg, "teacher_tecs_bank_aware_min_airspeed_scale") and args.teacher_tecs_bank_aware_min_airspeed_scale is not None:
+        env_cfg.teacher_tecs_bank_aware_min_airspeed_scale = float(args.teacher_tecs_bank_aware_min_airspeed_scale)
+    if hasattr(env_cfg, "teacher_tecs_bank_aware_min_airspeed_clamp_mps") and args.teacher_tecs_bank_aware_min_airspeed_clamp_mps is not None:
+        env_cfg.teacher_tecs_bank_aware_min_airspeed_clamp_mps = float(args.teacher_tecs_bank_aware_min_airspeed_clamp_mps)
+    if hasattr(env_cfg, "tail_horizontal_tail_incidence_bias_deg") and args.tail_horizontal_tail_incidence_bias_deg is not None:
+        env_cfg.tail_horizontal_tail_incidence_bias_deg = float(args.tail_horizontal_tail_incidence_bias_deg)
+    if hasattr(env_cfg, "tail_fixed_horizontal_effectiveness") and args.tail_fixed_horizontal_effectiveness is not None:
+        env_cfg.tail_fixed_horizontal_effectiveness = float(args.tail_fixed_horizontal_effectiveness)
+    if hasattr(env_cfg, "tail_elevon_effectiveness") and args.tail_elevon_effectiveness is not None:
+        env_cfg.tail_elevon_effectiveness = float(args.tail_elevon_effectiveness)
+    if hasattr(env_cfg, "tail_elevon_alpha_limit_deg") and args.tail_elevon_alpha_limit_deg is not None:
+        env_cfg.tail_elevon_alpha_limit_deg = float(args.tail_elevon_alpha_limit_deg)
+    if hasattr(env_cfg, "tail_horizontal_tail_q_scale") and args.tail_horizontal_tail_q_scale is not None:
+        env_cfg.tail_horizontal_tail_q_scale = float(args.tail_horizontal_tail_q_scale)
+    if hasattr(env_cfg, "base_body_com_override_x_m") and args.base_body_com_override_x_m is not None:
+        env_cfg.base_body_com_override_x_m = float(args.base_body_com_override_x_m)
+    if hasattr(env_cfg, "reset_pitch_deg") and args.reset_pitch_deg is not None:
+        env_cfg.reset_pitch_deg = float(args.reset_pitch_deg)
+    if hasattr(env_cfg, "reset_flap_hz") and args.reset_flap_hz is not None:
+        env_cfg.reset_flap_hz = float(args.reset_flap_hz)
+    if hasattr(env_cfg, "reset_elevon_pitch_deg") and args.reset_elevon_pitch_deg is not None:
+        env_cfg.reset_elevon_pitch_deg = float(args.reset_elevon_pitch_deg)
 
     env = gym.make(args.task, cfg=env_cfg)
     return env, env_cfg, env_step_dt
@@ -411,12 +498,18 @@ def main() -> None:
     simulation_app = app_launcher.app
 
     import torch
-    from isaaclab.utils.math import euler_xyz_from_quat
+    from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_apply_inverse
 
     env, env_cfg, env_step_dt = _configure_env(args)
     env.reset()
     mission, mission_label = _build_selected_mission(args)
     manager0 = _inject_mission(env, args, mission)
+    runtime_base_body_com_x_m: float | None = None
+    base_body_ids = getattr(env.unwrapped, "_base_body_ids", None)
+    if base_body_ids is not None and len(base_body_ids) > 0:
+        runtime_base_body_com_x_m = float(
+            env.unwrapped._robot.data.body_com_pos_b[0, int(base_body_ids[0]), 0].item()
+        )
 
     reference_rows = _sample_reference_path(manager0)
     total_path_length_m = float(manager0.total_length_m)
@@ -472,6 +565,57 @@ def main() -> None:
         actions, diag = unwrapped._compute_teacher_actions()
         _, rewards, terminated, truncated, _ = env.step(actions)
         done = terminated | truncated
+
+        act_cmd = unwrapped._act_cmd.clone() if getattr(unwrapped, "_act_cmd", None) is not None else actions.clone()
+        exec_freq_hz = unwrapped._freq.clone() if getattr(unwrapped, "_freq", None) is not None else torch.full_like(
+            actions[:, 0], float("nan")
+        )
+        exec_rudder_rad = (
+            unwrapped._rudder_cmd.clone()
+            if getattr(unwrapped, "_rudder_cmd", None) is not None
+            else torch.full_like(actions[:, 0], float("nan"))
+        )
+        exec_left_elevon_rad = (
+            unwrapped._left_elevon_cmd.clone()
+            if getattr(unwrapped, "_left_elevon_cmd", None) is not None
+            else torch.full_like(actions[:, 0], float("nan"))
+        )
+        exec_right_elevon_rad = (
+            unwrapped._right_elevon_cmd.clone()
+            if getattr(unwrapped, "_right_elevon_cmd", None) is not None
+            else torch.full_like(actions[:, 0], float("nan"))
+        )
+        wing_force_b = (
+            unwrapped._debug_last_wing_force_b.clone()
+            if getattr(unwrapped, "_debug_last_wing_force_b", None) is not None
+            else torch.zeros((actions.shape[0], 3), device=actions.device, dtype=actions.dtype)
+        )
+        tail_force_b = (
+            unwrapped._debug_last_tail_force_b.clone()
+            if getattr(unwrapped, "_debug_last_tail_force_b", None) is not None
+            else torch.zeros((actions.shape[0], 3), device=actions.device, dtype=actions.dtype)
+        )
+        total_force_b = (
+            unwrapped._debug_last_force_b.clone()
+            if getattr(unwrapped, "_debug_last_force_b", None) is not None
+            else torch.zeros((actions.shape[0], 3), device=actions.device, dtype=actions.dtype)
+        )
+        total_torque_b = (
+            unwrapped._debug_last_torque_b.clone()
+            if getattr(unwrapped, "_debug_last_torque_b", None) is not None
+            else torch.zeros((actions.shape[0], 3), device=actions.device, dtype=actions.dtype)
+        )
+        drag_force_b = total_force_b - wing_force_b - tail_force_b
+        total_force_w = quat_apply(quat_w, total_force_b)
+        wing_force_w = quat_apply(quat_w, wing_force_b)
+        tail_force_w = quat_apply(quat_w, tail_force_b)
+        mass_total = (
+            unwrapped._mass_total.clone()
+            if getattr(unwrapped, "_mass_total", None) is not None
+            else torch.full_like(actions[:, 0], float("nan"))
+        )
+        support_ratio = total_force_w[:, 2] / torch.clamp(mass_total * 9.81, min=1.0e-6)
+        v_air_b = robot.data.root_lin_vel_b.clone() - quat_apply_inverse(quat_w, wind_w)
 
         idx = 0
         t_now = float(step) * env_step_dt
@@ -539,6 +683,41 @@ def main() -> None:
                 "freq_hz": float(diag["freq_hz"][idx].item()),
                 "tecs_tas_sp": float(diag["tecs_tas_sp"][idx].item()) if "tecs_tas_sp" in diag else float("nan"),
                 "tecs_tas": float(diag["tecs_tas"][idx].item()) if "tecs_tas" in diag else float("nan"),
+                "tecs_ste_rate_sp": float(diag["tecs_ste_rate_sp"][idx].item())
+                if "tecs_ste_rate_sp" in diag
+                else float("nan"),
+                "tecs_ste_rate_est": float(diag["tecs_ste_rate_est"][idx].item())
+                if "tecs_ste_rate_est" in diag
+                else float("nan"),
+                "tecs_seb_rate_sp": float(diag["tecs_seb_rate_sp"][idx].item())
+                if "tecs_seb_rate_sp" in diag
+                else float("nan"),
+                "tecs_seb_rate_est": float(diag["tecs_seb_rate_est"][idx].item())
+                if "tecs_seb_rate_est" in diag
+                else float("nan"),
+                "tecs_ratio_underspeed": float(diag["tecs_ratio_underspeed"][idx].item())
+                if "tecs_ratio_underspeed" in diag
+                else float("nan"),
+                "tecs_load_factor": float(diag["tecs_load_factor"][idx].item())
+                if "tecs_load_factor" in diag
+                else float("nan"),
+                "tecs_load_factor_energy_bias": float(diag["tecs_load_factor_energy_bias"][idx].item())
+                if "tecs_load_factor_energy_bias" in diag
+                else float("nan"),
+                "tecs_load_factor_pitch_bias": float(diag["tecs_load_factor_pitch_bias"][idx].item())
+                if "tecs_load_factor_pitch_bias" in diag
+                else float("nan"),
+                "tecs_bank_aware_speed_delta_mps": float(diag["tecs_bank_aware_speed_delta_mps"][idx].item())
+                if "tecs_bank_aware_speed_delta_mps" in diag
+                else float("nan"),
+                "tecs_bank_aware_min_airspeed_mps": float(diag["tecs_bank_aware_min_airspeed_mps"][idx].item())
+                if "tecs_bank_aware_min_airspeed_mps" in diag
+                else float("nan"),
+                "tecs_bank_aware_min_airspeed_delta_mps": float(
+                    diag["tecs_bank_aware_min_airspeed_delta_mps"][idx].item()
+                )
+                if "tecs_bank_aware_min_airspeed_delta_mps" in diag
+                else float("nan"),
                 "tecs_throttle_sp": float(diag["tecs_throttle_sp"][idx].item())
                 if "tecs_throttle_sp" in diag
                 else float("nan"),
@@ -549,6 +728,46 @@ def main() -> None:
                 "action_rudder": float(actions[idx, 1].item()),
                 "action_elevon_pitch": float(actions[idx, 2].item()),
                 "action_elevon_roll": float(actions[idx, 3].item()),
+                "action_elevon_pitch_raw": float(diag["action_elevon_pitch_raw"][idx].item())
+                if "action_elevon_pitch_raw" in diag
+                else float("nan"),
+                "action_elevon_roll_raw": float(diag["action_elevon_roll_raw"][idx].item())
+                if "action_elevon_roll_raw" in diag
+                else float("nan"),
+                "exec_action_freq": float(act_cmd[idx, 0].item()),
+                "exec_action_rudder": float(act_cmd[idx, 1].item()),
+                "exec_action_elevon_pitch": float(act_cmd[idx, 2].item()),
+                "exec_action_elevon_roll": float(act_cmd[idx, 3].item()),
+                "exec_freq_hz": float(exec_freq_hz[idx].item()),
+                "exec_rudder_deg": float(torch.rad2deg(exec_rudder_rad[idx]).item()),
+                "exec_left_elevon_deg": float(torch.rad2deg(exec_left_elevon_rad[idx]).item()),
+                "exec_right_elevon_deg": float(torch.rad2deg(exec_right_elevon_rad[idx]).item()),
+                "v_air_b_x": float(v_air_b[idx, 0].item()),
+                "v_air_b_y": float(v_air_b[idx, 1].item()),
+                "v_air_b_z": float(v_air_b[idx, 2].item()),
+                "w_b_x": float(ang_vel_b[idx, 0].item()),
+                "w_b_y": float(ang_vel_b[idx, 1].item()),
+                "w_b_z": float(ang_vel_b[idx, 2].item()),
+                "f_w_sum_b_x": float(wing_force_b[idx, 0].item()),
+                "f_w_sum_b_y": float(wing_force_b[idx, 1].item()),
+                "f_w_sum_b_z": float(wing_force_b[idx, 2].item()),
+                "f_tail_b_x": float(tail_force_b[idx, 0].item()),
+                "f_tail_b_y": float(tail_force_b[idx, 1].item()),
+                "f_tail_b_z": float(tail_force_b[idx, 2].item()),
+                "f_drag_b_x": float(drag_force_b[idx, 0].item()),
+                "f_drag_b_y": float(drag_force_b[idx, 1].item()),
+                "f_drag_b_z": float(drag_force_b[idx, 2].item()),
+                "f_total_b_x": float(total_force_b[idx, 0].item()),
+                "f_total_b_y": float(total_force_b[idx, 1].item()),
+                "f_total_b_z": float(total_force_b[idx, 2].item()),
+                "tau_total_b_x": float(total_torque_b[idx, 0].item()),
+                "tau_total_b_y": float(total_torque_b[idx, 1].item()),
+                "tau_total_b_z": float(total_torque_b[idx, 2].item()),
+                "f_w_sum_w_z": float(wing_force_w[idx, 2].item()),
+                "f_tail_w_z": float(tail_force_w[idx, 2].item()),
+                "f_total_w_z": float(total_force_w[idx, 2].item()),
+                "mass_total_kg": float(mass_total[idx].item()),
+                "vertical_support_ratio": float(support_ratio[idx].item()),
                 "reward": float(rewards[idx].item()),
                 "done": float(done[idx].item()),
             }
@@ -625,6 +844,34 @@ def main() -> None:
         "climb_delta_m": float(args.climb_delta_m),
         "path_manager_max_roll_deg": float(args.path_manager_max_roll_deg),
         "path_manager_max_flight_path_angle_deg": float(args.path_manager_max_flight_path_angle_deg),
+        "teacher_tecs_use_load_factor_compensation": bool(
+            getattr(env_cfg, "teacher_use_tecs_load_factor_compensation", False)
+        ),
+        "teacher_tecs_roll_throttle_compensation": float(
+            getattr(env_cfg, "teacher_tecs_roll_throttle_compensation", 0.0)
+        ),
+        "teacher_tecs_load_factor_clamp_max": float(getattr(env_cfg, "teacher_tecs_load_factor_clamp_max", 2.0)),
+        "teacher_tecs_load_factor_use_roll_sp": bool(getattr(env_cfg, "teacher_tecs_load_factor_use_roll_sp", True)),
+        "teacher_tecs_load_factor_pitch_compensation_gain": float(
+            getattr(env_cfg, "teacher_tecs_load_factor_pitch_compensation_gain", 0.0)
+        ),
+        "teacher_use_tecs_bank_aware_speed_sp": bool(getattr(env_cfg, "teacher_use_tecs_bank_aware_speed_sp", False)),
+        "teacher_tecs_bank_aware_speed_scale": float(getattr(env_cfg, "teacher_tecs_bank_aware_speed_scale", 0.0)),
+        "teacher_tecs_bank_aware_speed_clamp_mps": float(
+            getattr(env_cfg, "teacher_tecs_bank_aware_speed_clamp_mps", 0.0)
+        ),
+        "teacher_use_tecs_bank_aware_min_airspeed": bool(
+            getattr(env_cfg, "teacher_use_tecs_bank_aware_min_airspeed", False)
+        ),
+        "teacher_tecs_bank_aware_min_airspeed_mps": float(
+            getattr(env_cfg, "teacher_tecs_bank_aware_min_airspeed_mps", 0.0)
+        ),
+        "teacher_tecs_bank_aware_min_airspeed_scale": float(
+            getattr(env_cfg, "teacher_tecs_bank_aware_min_airspeed_scale", 0.0)
+        ),
+        "teacher_tecs_bank_aware_min_airspeed_clamp_mps": float(
+            getattr(env_cfg, "teacher_tecs_bank_aware_min_airspeed_clamp_mps", 0.0)
+        ),
         "total_path_length_m": float(total_path_length_m),
         "mission_num_segments_min": int(args.mission_num_segments_min),
         "mission_num_segments_max": int(args.mission_num_segments_max),
@@ -644,6 +891,19 @@ def main() -> None:
         "elevon_trim_deg": float(getattr(env_cfg, "elevon_trim_deg", 0.0)),
         "elevon_pitch_mix": float(getattr(env_cfg, "elevon_pitch_mix", 1.0)),
         "elevon_roll_mix": float(getattr(env_cfg, "elevon_roll_mix", 1.0)),
+        "tail_horizontal_tail_incidence_bias_deg": float(
+            getattr(env_cfg, "tail_horizontal_tail_incidence_bias_deg", 0.0)
+        ),
+        "tail_fixed_horizontal_effectiveness": float(getattr(env_cfg, "tail_fixed_horizontal_effectiveness", 1.0)),
+        "tail_elevon_effectiveness": float(getattr(env_cfg, "tail_elevon_effectiveness", 1.0)),
+        "tail_elevon_alpha_limit_deg": float(getattr(env_cfg, "tail_elevon_alpha_limit_deg", 25.0)),
+        "tail_horizontal_tail_q_scale": float(getattr(env_cfg, "tail_horizontal_tail_q_scale", 1.0)),
+        "base_body_com_override_x_m": (
+            None
+            if getattr(env_cfg, "base_body_com_override_x_m", None) is None
+            else float(getattr(env_cfg, "base_body_com_override_x_m"))
+        ),
+        "runtime_base_body_com_x_m": runtime_base_body_com_x_m,
         "mean_abs_lateral_error_m": _mean(abs_lateral_hist),
         "p95_abs_lateral_error_m": _quantile(abs_lateral_hist, 0.95),
         "max_abs_lateral_error_m": max(abs_lateral_hist) if abs_lateral_hist else float("nan"),

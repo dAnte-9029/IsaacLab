@@ -68,7 +68,10 @@ class PX4LikeStraightLineControllerCfg:
     tecs_altitude_filter_tau_s: float = 0.3
     tecs_altitude_rate_filter_tau_s: float = 0.2
     tecs_pitch_sp_filter_tau_s: float = 0.35
+    tecs_pitch_sp_filter_tau_capture_s: float = 0.08
     tecs_pitch_sp_rate_limit_deg_s: float = 20.0
+    tecs_pitch_sp_rate_limit_capture_deg_s: float = 45.0
+    load_factor_pitch_compensation_gain: float = 0.75
     tecs_throttle_sp_filter_tau_s: float = 0.25
     tecs_altitude_hold_error_band_m: float = 0.25
     tecs_altitude_capture_error_m: float = 0.8
@@ -77,9 +80,22 @@ class PX4LikeStraightLineControllerCfg:
     tecs_pitch_speed_weight_capture: float = 0.35
     tecs_capture_extra_climb_rate_mps: float = 0.7
     tecs_capture_extra_sink_rate_mps: float = 0.2
+    use_tecs_load_factor_compensation: bool = True
+    tecs_roll_throttle_compensation: float = 0.0
+    tecs_load_factor_clamp_max: float = 2.0
+    tecs_load_factor_use_roll_sp: bool = True
+    use_tecs_bank_aware_speed_sp: bool = False
+    tecs_bank_aware_speed_scale: float = 1.0
+    tecs_bank_aware_speed_clamp_mps: float = 2.0
+    use_tecs_bank_aware_min_airspeed: bool = False
+    tecs_bank_aware_min_airspeed_mps: float = 8.0
+    tecs_bank_aware_min_airspeed_scale: float = 1.0
+    tecs_bank_aware_min_airspeed_clamp_mps: float = 2.0
 
     inner_pitch_lpf_tau_s: float = 0.12
     inner_pitch_rate_lpf_tau_s: float = 0.1
+    inner_pitch_tc_s: float = 0.35
+    inner_pitch_rate_max_deg_s: float = 120.0
     inner_elevon_pitch_rate_limit_per_s: float = 2.0
     inner_elevon_roll_rate_limit_per_s: float = 6.0
     inner_pitch_ki: float = 0.8
@@ -155,7 +171,10 @@ class PX4LikeStraightLineController:
                 altitude_filter_tau_s=float(cfg.tecs_altitude_filter_tau_s),
                 altitude_rate_filter_tau_s=float(cfg.tecs_altitude_rate_filter_tau_s),
                 pitch_sp_filter_tau_s=float(cfg.tecs_pitch_sp_filter_tau_s),
+                pitch_sp_filter_tau_capture_s=float(cfg.tecs_pitch_sp_filter_tau_capture_s),
                 pitch_sp_rate_limit_deg_s=float(cfg.tecs_pitch_sp_rate_limit_deg_s),
+                pitch_sp_rate_limit_capture_deg_s=float(cfg.tecs_pitch_sp_rate_limit_capture_deg_s),
+                load_factor_pitch_compensation_gain=float(cfg.load_factor_pitch_compensation_gain),
                 throttle_sp_filter_tau_s=float(cfg.tecs_throttle_sp_filter_tau_s),
                 altitude_hold_error_band_m=float(cfg.tecs_altitude_hold_error_band_m),
                 altitude_capture_error_m=float(cfg.tecs_altitude_capture_error_m),
@@ -192,6 +211,54 @@ class PX4LikeStraightLineController:
         self._action_elevon_pitch_prev = None
         self._action_elevon_roll_prev = None
         self._action_elevon_pitch_integ = None
+
+    def _resolve_tecs_turn_inputs(self, *, airspeed: Tensor, roll: Tensor, roll_sp: Tensor) -> dict[str, Tensor]:
+        """Return the bank-aware TECS inputs shared by straight/loiter/path tracking."""
+        if bool(self.cfg.use_tecs_load_factor_compensation):
+            bank_for_load = roll_sp if bool(self.cfg.tecs_load_factor_use_roll_sp) else roll
+            load_factor = 1.0 / torch.clamp(torch.cos(bank_for_load), min=1.0e-3)
+            load_factor = torch.clamp(load_factor, min=1.0, max=float(self.cfg.tecs_load_factor_clamp_max))
+            load_factor_correction = torch.full_like(load_factor, float(self.cfg.tecs_roll_throttle_compensation))
+        else:
+            load_factor = torch.ones_like(airspeed)
+            load_factor_correction = torch.zeros_like(airspeed)
+
+        speed_sp_cmd = torch.full_like(airspeed, float(self.cfg.speed_sp_mps))
+        if bool(self.cfg.use_tecs_bank_aware_speed_sp):
+            bank_speed_scale = max(float(self.cfg.tecs_bank_aware_speed_scale), 0.0)
+            bank_speed_delta = speed_sp_cmd * (torch.sqrt(load_factor) - 1.0) * bank_speed_scale
+            bank_speed_delta = torch.clamp(
+                bank_speed_delta,
+                min=0.0,
+                max=max(float(self.cfg.tecs_bank_aware_speed_clamp_mps), 0.0),
+            )
+            speed_sp_cmd = speed_sp_cmd + bank_speed_delta
+        else:
+            bank_speed_delta = torch.zeros_like(airspeed)
+
+        if bool(self.cfg.use_tecs_bank_aware_min_airspeed):
+            bank_min_airspeed = torch.full_like(airspeed, max(float(self.cfg.tecs_bank_aware_min_airspeed_mps), 0.0))
+            bank_min_scale = max(float(self.cfg.tecs_bank_aware_min_airspeed_scale), 0.0)
+            bank_min_delta = bank_min_airspeed * (torch.sqrt(load_factor) - 1.0) * bank_min_scale
+            bank_min_delta = torch.clamp(
+                bank_min_delta,
+                min=0.0,
+                max=max(float(self.cfg.tecs_bank_aware_min_airspeed_clamp_mps), 0.0),
+            )
+            bank_min_airspeed = bank_min_airspeed + bank_min_delta
+            speed_sp_cmd = torch.maximum(speed_sp_cmd, bank_min_airspeed)
+        else:
+            bank_min_delta = torch.zeros_like(airspeed)
+            bank_min_airspeed = torch.zeros_like(airspeed)
+
+        return {
+            "load_factor": load_factor,
+            "load_factor_correction": load_factor_correction,
+            "speed_sp_cmd": speed_sp_cmd,
+            "bank_speed_delta": bank_speed_delta,
+            "bank_min_airspeed": bank_min_airspeed,
+            "bank_min_delta": bank_min_delta,
+        }
 
     def compute_actions(
         self,
@@ -293,19 +360,27 @@ class PX4LikeStraightLineController:
 
         height_err = float(self.cfg.height_sp_m) - pos_local[:, 2]
         if bool(self.cfg.enable_tecs):
+            tecs_turn = self._resolve_tecs_turn_inputs(airspeed=airspeed, roll=roll, roll_sp=roll_sp)
             pitch_sp, throttle_sp, tecs_diag = self._tecs.update(
                 dt=float(self.cfg.control_dt_s),
                 altitude=pos_local[:, 2],
                 altitude_rate=ground_vel_local[:, 2],
                 tas=airspeed,
                 height_sp_m=float(self.cfg.height_sp_m),
-                speed_sp_mps=float(self.cfg.speed_sp_mps),
+                speed_sp_mps=tecs_turn["speed_sp_cmd"],
+                load_factor=tecs_turn["load_factor"],
+                load_factor_correction=tecs_turn["load_factor_correction"],
             )
             freq_hz = float(self.cfg.min_flap_hz) + throttle_sp * (
                 float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz)
             )
         else:
             tecs_diag = {}
+            tecs_turn = {
+                "bank_speed_delta": torch.zeros_like(airspeed),
+                "bank_min_airspeed": torch.zeros_like(airspeed),
+                "bank_min_delta": torch.zeros_like(airspeed),
+            }
             pitch_trim = -math.radians(float(self.cfg.pitch_trim_deg))
             pitch_sp = (
                 pitch_trim
@@ -332,7 +407,13 @@ class PX4LikeStraightLineController:
             freq_hz = torch.clamp(freq_hz, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
 
         pitch_err = _wrap_pi(pitch_sp - pitch_meas_for_ctrl)
-        pitch_pd = float(self.cfg.pitch_kp) * pitch_err - float(self.cfg.pitch_kd) * pitch_rate_for_ctrl
+        pitch_tc = max(float(self.cfg.inner_pitch_tc_s), 1.0e-3)
+        pitch_rate_sp = torch.clamp(
+            pitch_err / pitch_tc,
+            min=-math.radians(float(self.cfg.inner_pitch_rate_max_deg_s)),
+            max=math.radians(float(self.cfg.inner_pitch_rate_max_deg_s)),
+        )
+        pitch_pd = float(self.cfg.pitch_kp) * pitch_err + float(self.cfg.pitch_kd) * (pitch_rate_sp - pitch_rate_for_ctrl)
         ki = float(self.cfg.inner_pitch_ki)
         if ki > 0.0:
             leak = max(float(self.cfg.inner_pitch_integrator_leak_per_s), 0.0)
@@ -398,6 +479,7 @@ class PX4LikeStraightLineController:
             "closest_y": closest_point[:, 1],
             "pitch_meas_filt": pitch_meas_for_ctrl,
             "pitch_rate_filt": pitch_rate_for_ctrl,
+            "pitch_rate_sp": pitch_rate_sp,
             "pitch_err_filt": pitch_err,
             "wind_x": wind_xy[:, 0],
             "wind_y": wind_xy[:, 1],
@@ -405,6 +487,9 @@ class PX4LikeStraightLineController:
             "action_elevon_pitch_raw": action_elevon_pitch_raw,
             "action_elevon_pitch_integ": self._action_elevon_pitch_integ,
             "action_elevon_roll_raw": action_roll_raw,
+            "tecs_bank_aware_speed_delta_mps": tecs_turn["bank_speed_delta"],
+            "tecs_bank_aware_min_airspeed_mps": tecs_turn["bank_min_airspeed"],
+            "tecs_bank_aware_min_airspeed_delta_mps": tecs_turn["bank_min_delta"],
         }
         diag.update(tecs_diag)
         return actions, diag

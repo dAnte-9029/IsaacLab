@@ -205,6 +205,214 @@ def test_path_tracking_env_defaults_disable_action_filtering() -> None:
     assert found_fields == expected_fields
 
 
+def test_path_tracking_env_exposes_teacher_tecs_load_factor_defaults() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "path_tracking_env.py"
+        ).read_text()
+    )
+
+    expected_fields = {
+        "teacher_use_tecs_load_factor_compensation": True,
+        "teacher_tecs_roll_throttle_compensation": 30.0,
+        "teacher_tecs_load_factor_clamp_max": 2.0,
+        "teacher_tecs_load_factor_use_roll_sp": True,
+        "teacher_tecs_load_factor_pitch_compensation_gain": 0.75,
+        "teacher_use_tecs_bank_aware_speed_sp": True,
+        "teacher_tecs_bank_aware_speed_scale": 1.0,
+        "teacher_tecs_bank_aware_speed_clamp_mps": 2.0,
+        "teacher_use_tecs_bank_aware_min_airspeed": True,
+        "teacher_tecs_bank_aware_min_airspeed_mps": 8.0,
+        "teacher_tecs_bank_aware_min_airspeed_scale": 1.0,
+        "teacher_tecs_bank_aware_min_airspeed_clamp_mps": 2.0,
+    }
+    found_fields: dict[str, bool | float] = {}
+
+    for node in ast.walk(module):
+        if not isinstance(node, ast.ClassDef) or node.name != "FlappingBotPathTrackingEnvCfg":
+            continue
+        for item in node.body:
+            if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+                continue
+            field_name = item.target.id
+            if field_name not in expected_fields:
+                continue
+            assert isinstance(item.value, ast.Constant)
+            found_fields[field_name] = item.value.value
+        break
+
+    assert found_fields == expected_fields
+
+
+def test_path_tracking_env_inherits_tail_aero_compatibility_defaults() -> None:
+    cfg = FlappingBotPathTrackingEnvCfg()
+
+    assert cfg.tail_horizontal_tail_incidence_bias_deg == 0.0
+    assert cfg.tail_fixed_horizontal_effectiveness == 0.5
+    assert cfg.tail_elevon_effectiveness == 1.2
+    assert cfg.tail_elevon_alpha_limit_deg == 25.0
+    assert cfg.tail_horizontal_tail_q_scale == 1.0
+    assert cfg.base_body_com_override_x_m == -0.10
+
+
+def test_path_tracking_env_inherits_retuned_reset_trim_defaults() -> None:
+    cfg = FlappingBotPathTrackingEnvCfg()
+
+    assert cfg.reset_pitch_deg == 4.0
+    assert cfg.reset_flap_hz == 3.4
+    assert cfg.reset_elevon_pitch_deg == -18.0
+
+
+def test_straight_flight_env_uses_root_com_for_wing_wrench_reference() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "straight_flight_env.py"
+        ).read_text()
+    )
+
+    target = None
+    for node in ast.walk(module):
+        if isinstance(node, ast.FunctionDef) and node.name == "_compute_wing_delaurier_wrench":
+            target = node
+            break
+
+    assert target is not None
+    assert any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "root_com_pos_w"
+        for node in ast.walk(target)
+    )
+
+
+def test_straight_flight_env_uses_wing_equivalent_ac_application_point_cache() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "straight_flight_env.py"
+        ).read_text()
+    )
+
+    target = None
+    for node in ast.walk(module):
+        if isinstance(node, ast.FunctionDef) and node.name == "_compute_wing_delaurier_wrench":
+            target = node
+            break
+
+    assert target is not None
+    assert any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "_wing_application_point_link"
+        for node in ast.walk(target)
+    )
+
+
+def test_straight_flight_env_passes_base_com_pos_to_tail_wrench() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "straight_flight_env.py"
+        ).read_text()
+    )
+
+    found_tail_call = False
+    found_base_com_kw = False
+    for node in ast.walk(module):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Attribute) or node.func.attr != "compute_wrench":
+            continue
+        found_tail_call = True
+        if any(keyword.arg == "base_com_pos_b" for keyword in node.keywords):
+            found_base_com_kw = True
+            break
+
+    assert found_tail_call
+    assert found_base_com_kw
+
+
+def test_path_tracking_teacher_passes_tecs_load_factor_cfg_to_controller() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "path_tracking_env.py"
+        ).read_text()
+    )
+
+    def _unwrap_self_cfg_attr(node: ast.AST) -> str | None:
+        current = node
+        while isinstance(current, ast.Call) and len(current.args) == 1 and isinstance(current.func, ast.Name):
+            if current.func.id not in {"float", "bool"}:
+                break
+            current = current.args[0]
+        if not isinstance(current, ast.Attribute) or current.attr.startswith("_"):
+            return None
+        if not isinstance(current.value, ast.Attribute) or current.value.attr != "cfg":
+            return None
+        if not isinstance(current.value.value, ast.Name) or current.value.value.id != "self":
+            return None
+        return current.attr
+
+    controller_cfg_call = None
+    for node in ast.walk(module):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "PX4LikePathTrackingControllerCfg":
+            controller_cfg_call = node
+            break
+
+    assert controller_cfg_call is not None
+
+    expected_keywords = {
+        "use_tecs_load_factor_compensation": "teacher_use_tecs_load_factor_compensation",
+        "tecs_roll_throttle_compensation": "teacher_tecs_roll_throttle_compensation",
+        "tecs_load_factor_clamp_max": "teacher_tecs_load_factor_clamp_max",
+        "tecs_load_factor_use_roll_sp": "teacher_tecs_load_factor_use_roll_sp",
+        "load_factor_pitch_compensation_gain": "teacher_tecs_load_factor_pitch_compensation_gain",
+        "use_tecs_bank_aware_speed_sp": "teacher_use_tecs_bank_aware_speed_sp",
+        "tecs_bank_aware_speed_scale": "teacher_tecs_bank_aware_speed_scale",
+        "tecs_bank_aware_speed_clamp_mps": "teacher_tecs_bank_aware_speed_clamp_mps",
+        "use_tecs_bank_aware_min_airspeed": "teacher_use_tecs_bank_aware_min_airspeed",
+        "tecs_bank_aware_min_airspeed_mps": "teacher_tecs_bank_aware_min_airspeed_mps",
+        "tecs_bank_aware_min_airspeed_scale": "teacher_tecs_bank_aware_min_airspeed_scale",
+        "tecs_bank_aware_min_airspeed_clamp_mps": "teacher_tecs_bank_aware_min_airspeed_clamp_mps",
+    }
+    found_keywords: dict[str, str] = {}
+
+    for kw in controller_cfg_call.keywords:
+        if kw.arg not in expected_keywords:
+            continue
+        attr_name = _unwrap_self_cfg_attr(kw.value)
+        assert attr_name is not None
+        found_keywords[kw.arg] = attr_name
+
+    assert found_keywords == expected_keywords
+
+
 def test_path_tracking_teacher_normalizes_initial_elevon_action_with_env_limit() -> None:
     module = ast.parse(
         (

@@ -145,6 +145,16 @@ except ModuleNotFoundError as exc:
     class FlappingBotPathTrackingEnvCfg:
         """Headless fallback config placeholder for path-tracking tests."""
 
+        tail_horizontal_tail_incidence_bias_deg: float = 0.0
+        tail_fixed_horizontal_effectiveness: float = 0.5
+        tail_elevon_effectiveness: float = 1.2
+        tail_elevon_alpha_limit_deg: float = 25.0
+        tail_horizontal_tail_q_scale: float = 1.0
+        base_body_com_override_x_m: float | None = -0.10
+        reset_pitch_deg: float = 4.0
+        reset_flap_hz: float = 3.4
+        reset_elevon_pitch_deg: float = -18.0
+
 
     class FlappingBotPathTrackingWeakTeacherRLEnvCfg(FlappingBotPathTrackingEnvCfg):
         """Headless fallback weak-teacher config placeholder."""
@@ -187,6 +197,31 @@ else:
         curve_teacher_delta_scale: float = 1.0
         curve_teacher_curvature_ref_m_inv: float = 0.05
         loiter_teacher_delta_scale: float = 1.0
+        teacher_use_tecs_load_factor_compensation: bool = True
+        # Keep this in the same order of magnitude as PX4's FW_T_RLL2THR.
+        # Smaller single-digit gains were effectively neutral in this TECS scaling.
+        teacher_tecs_roll_throttle_compensation: float = 30.0
+        teacher_tecs_load_factor_clamp_max: float = 2.0
+        teacher_tecs_load_factor_use_roll_sp: bool = True
+        teacher_tecs_load_factor_pitch_compensation_gain: float = 0.75
+        teacher_use_tecs_bank_aware_speed_sp: bool = True
+        teacher_tecs_bank_aware_speed_scale: float = 1.0
+        teacher_tecs_bank_aware_speed_clamp_mps: float = 2.0
+        # Heuristic maneuver-speed floor for turns/loiter: this is above straight-flight cruise
+        # on purpose, so TECS carries more kinetic energy before the vehicle drops into recovery.
+        teacher_use_tecs_bank_aware_min_airspeed: bool = True
+        teacher_tecs_bank_aware_min_airspeed_mps: float = 8.0
+        teacher_tecs_bank_aware_min_airspeed_scale: float = 1.0
+        teacher_tecs_bank_aware_min_airspeed_clamp_mps: float = 2.0
+        tail_horizontal_tail_incidence_bias_deg: float = 0.0
+        tail_fixed_horizontal_effectiveness: float = 0.5
+        tail_elevon_effectiveness: float = 1.2
+        tail_elevon_alpha_limit_deg: float = 25.0
+        tail_horizontal_tail_q_scale: float = 1.0
+        base_body_com_override_x_m: float | None = -0.10
+        reset_pitch_deg: float = 4.0
+        reset_flap_hz: float = 3.4
+        reset_elevon_pitch_deg: float = -18.0
 
         wind_enabled: bool = False
         wind_xy_mps: tuple[float, float] = (0.0, 0.0)
@@ -434,6 +469,24 @@ else:
                         max_flap_hz=float(self.cfg.max_flap_hz),
                         enable_tecs=True,
                         speed_sp_mps=float(self.cfg.vx_cmd),
+                        use_tecs_load_factor_compensation=bool(
+                            self.cfg.teacher_use_tecs_load_factor_compensation
+                        ),
+                        tecs_roll_throttle_compensation=float(self.cfg.teacher_tecs_roll_throttle_compensation),
+                        tecs_load_factor_clamp_max=float(self.cfg.teacher_tecs_load_factor_clamp_max),
+                        tecs_load_factor_use_roll_sp=bool(self.cfg.teacher_tecs_load_factor_use_roll_sp),
+                        load_factor_pitch_compensation_gain=float(
+                            self.cfg.teacher_tecs_load_factor_pitch_compensation_gain
+                        ),
+                        use_tecs_bank_aware_speed_sp=bool(self.cfg.teacher_use_tecs_bank_aware_speed_sp),
+                        tecs_bank_aware_speed_scale=float(self.cfg.teacher_tecs_bank_aware_speed_scale),
+                        tecs_bank_aware_speed_clamp_mps=float(self.cfg.teacher_tecs_bank_aware_speed_clamp_mps),
+                        use_tecs_bank_aware_min_airspeed=bool(self.cfg.teacher_use_tecs_bank_aware_min_airspeed),
+                        tecs_bank_aware_min_airspeed_mps=float(self.cfg.teacher_tecs_bank_aware_min_airspeed_mps),
+                        tecs_bank_aware_min_airspeed_scale=float(self.cfg.teacher_tecs_bank_aware_min_airspeed_scale),
+                        tecs_bank_aware_min_airspeed_clamp_mps=float(
+                            self.cfg.teacher_tecs_bank_aware_min_airspeed_clamp_mps
+                        ),
                         initial_elevon_pitch_action=float(self.cfg.reset_elevon_pitch_deg)
                         / max(float(self.cfg.elevon_max_deg), 1.0e-6),
                         initial_elevon_roll_action=float(self.cfg.reset_elevon_roll_deg)

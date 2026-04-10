@@ -134,19 +134,27 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
 
         height_err = float(self.cfg.height_sp_m) - pos_local[:, 2]
         if bool(self.cfg.enable_tecs):
+            tecs_turn = self._resolve_tecs_turn_inputs(airspeed=airspeed, roll=roll, roll_sp=roll_sp)
             pitch_sp, throttle_sp, tecs_diag = self._tecs.update(
                 dt=float(self.cfg.control_dt_s),
                 altitude=pos_local[:, 2],
                 altitude_rate=ground_vel_local[:, 2],
                 tas=airspeed,
                 height_sp_m=float(self.cfg.height_sp_m),
-                speed_sp_mps=float(self.cfg.speed_sp_mps),
+                speed_sp_mps=tecs_turn["speed_sp_cmd"],
+                load_factor=tecs_turn["load_factor"],
+                load_factor_correction=tecs_turn["load_factor_correction"],
             )
             freq_hz = float(self.cfg.min_flap_hz) + throttle_sp * (
                 float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz)
             )
         else:
             tecs_diag = {}
+            tecs_turn = {
+                "bank_speed_delta": torch.zeros_like(airspeed),
+                "bank_min_airspeed": torch.zeros_like(airspeed),
+                "bank_min_delta": torch.zeros_like(airspeed),
+            }
             pitch_trim = -math.radians(float(self.cfg.pitch_trim_deg))
             pitch_sp = (
                 pitch_trim
@@ -173,7 +181,13 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
             freq_hz = torch.clamp(freq_hz, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
 
         pitch_err = _wrap_pi(pitch_sp - pitch_meas_for_ctrl)
-        pitch_pd = float(self.cfg.pitch_kp) * pitch_err - float(self.cfg.pitch_kd) * pitch_rate_for_ctrl
+        pitch_tc = max(float(self.cfg.inner_pitch_tc_s), 1.0e-3)
+        pitch_rate_sp = torch.clamp(
+            pitch_err / pitch_tc,
+            min=-math.radians(float(self.cfg.inner_pitch_rate_max_deg_s)),
+            max=math.radians(float(self.cfg.inner_pitch_rate_max_deg_s)),
+        )
+        pitch_pd = float(self.cfg.pitch_kp) * pitch_err + float(self.cfg.pitch_kd) * (pitch_rate_sp - pitch_rate_for_ctrl)
         ki = float(self.cfg.inner_pitch_ki)
         if ki > 0.0:
             leak = max(float(self.cfg.inner_pitch_integrator_leak_per_s), 0.0)
@@ -237,6 +251,7 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
             "closest_y": closest_point[:, 1],
             "pitch_meas_filt": pitch_meas_for_ctrl,
             "pitch_rate_filt": pitch_rate_for_ctrl,
+            "pitch_rate_sp": pitch_rate_sp,
             "pitch_err_filt": pitch_err,
             "wind_x": wind_xy[:, 0],
             "wind_y": wind_xy[:, 1],
@@ -245,6 +260,9 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
             "action_elevon_pitch_integ": self._action_elevon_pitch_integ,
             "action_elevon_roll_raw": action_roll_raw,
             "radial_error_m": radial_error,
+            "tecs_bank_aware_speed_delta_mps": tecs_turn["bank_speed_delta"],
+            "tecs_bank_aware_min_airspeed_mps": tecs_turn["bank_min_airspeed"],
+            "tecs_bank_aware_min_airspeed_delta_mps": tecs_turn["bank_min_delta"],
         }
         diag.update(tecs_diag)
         return actions, diag

@@ -20,11 +20,6 @@ Tensor = torch.Tensor
 class PX4LikePathTrackingControllerCfg(PX4LikeStraightLineControllerCfg):
     """Configuration for the generic path-tracking controller."""
 
-    use_tecs_load_factor_compensation: bool = True
-    tecs_roll_throttle_compensation: float = 0.0
-    tecs_load_factor_clamp_max: float = 2.0
-    tecs_load_factor_use_roll_sp: bool = True
-
 
 class PX4LikePathTrackingController(PX4LikeStraightLineController):
     """Compute actions from a unified path query."""
@@ -138,32 +133,27 @@ class PX4LikePathTrackingController(PX4LikeStraightLineController):
         self._action_elevon_roll_prev = action_roll
 
         if bool(self.cfg.enable_tecs):
-            if bool(self.cfg.use_tecs_load_factor_compensation):
-                bank_for_load = roll_sp if bool(self.cfg.tecs_load_factor_use_roll_sp) else roll
-                load_factor = 1.0 / torch.clamp(torch.cos(bank_for_load), min=1.0e-3)
-                load_factor = torch.clamp(load_factor, min=1.0, max=float(self.cfg.tecs_load_factor_clamp_max))
-                load_factor_correction = torch.full_like(
-                    load_factor, float(self.cfg.tecs_roll_throttle_compensation)
-                )
-            else:
-                load_factor = torch.ones_like(roll_sp)
-                load_factor_correction = torch.zeros_like(roll_sp)
-
+            tecs_turn = self._resolve_tecs_turn_inputs(airspeed=airspeed, roll=roll, roll_sp=roll_sp)
             pitch_sp, throttle_sp, tecs_diag = self._tecs.update(
                 dt=float(self.cfg.control_dt_s),
                 altitude=pos_local[:, 2],
                 altitude_rate=ground_vel_local[:, 2],
                 tas=airspeed,
                 height_sp_m=height_sp_m,
-                speed_sp_mps=float(self.cfg.speed_sp_mps),
-                load_factor=load_factor,
-                load_factor_correction=load_factor_correction,
+                speed_sp_mps=tecs_turn["speed_sp_cmd"],
+                load_factor=tecs_turn["load_factor"],
+                load_factor_correction=tecs_turn["load_factor_correction"],
             )
             freq_hz = float(self.cfg.min_flap_hz) + throttle_sp * (
                 float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz)
             )
         else:
             tecs_diag = {}
+            tecs_turn = {
+                "bank_speed_delta": torch.zeros_like(airspeed),
+                "bank_min_airspeed": torch.zeros_like(airspeed),
+                "bank_min_delta": torch.zeros_like(airspeed),
+            }
             height_err = height_sp_m - pos_local[:, 2]
             pitch_trim = -math.radians(float(self.cfg.pitch_trim_deg))
             pitch_sp = (
@@ -191,7 +181,13 @@ class PX4LikePathTrackingController(PX4LikeStraightLineController):
             freq_hz = torch.clamp(freq_hz, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
 
         pitch_err = _wrap_pi(pitch_sp - pitch_meas_for_ctrl)
-        pitch_pd = float(self.cfg.pitch_kp) * pitch_err - float(self.cfg.pitch_kd) * pitch_rate_for_ctrl
+        pitch_tc = max(float(self.cfg.inner_pitch_tc_s), 1.0e-3)
+        pitch_rate_sp = torch.clamp(
+            pitch_err / pitch_tc,
+            min=-math.radians(float(self.cfg.inner_pitch_rate_max_deg_s)),
+            max=math.radians(float(self.cfg.inner_pitch_rate_max_deg_s)),
+        )
+        pitch_pd = float(self.cfg.pitch_kp) * pitch_err + float(self.cfg.pitch_kd) * (pitch_rate_sp - pitch_rate_for_ctrl)
         ki = float(self.cfg.inner_pitch_ki)
         if ki > 0.0:
             leak = max(float(self.cfg.inner_pitch_integrator_leak_per_s), 0.0)
@@ -246,9 +242,19 @@ class PX4LikePathTrackingController(PX4LikeStraightLineController):
             "roll_sp": roll_sp,
             "pitch_sp": pitch_sp,
             "freq_hz": freq_hz,
+            "pitch_meas_filt": pitch_meas_for_ctrl,
+            "pitch_rate_filt": pitch_rate_for_ctrl,
+            "pitch_rate_sp": pitch_rate_sp,
+            "pitch_err_filt": pitch_err,
+            "action_elevon_pitch_raw": action_elevon_pitch_raw,
+            "action_elevon_pitch_integ": self._action_elevon_pitch_integ,
+            "action_elevon_roll_raw": action_roll_raw,
             "closest_point_xyz": closest_point_xyz,
             "height_sp_m": height_sp_m,
             "curvature_m_inv": curvature,
+            "tecs_bank_aware_speed_delta_mps": tecs_turn["bank_speed_delta"],
+            "tecs_bank_aware_min_airspeed_mps": tecs_turn["bank_min_airspeed"],
+            "tecs_bank_aware_min_airspeed_delta_mps": tecs_turn["bank_min_delta"],
         }
         diag.update(tecs_diag)
         return actions, diag

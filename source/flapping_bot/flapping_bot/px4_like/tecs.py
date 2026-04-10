@@ -71,7 +71,10 @@ class PX4LikeTECSCfg:
     altitude_rate_filter_tau_s: float = 0.2
 
     pitch_sp_filter_tau_s: float = 0.35
+    pitch_sp_filter_tau_capture_s: float = 0.08
     pitch_sp_rate_limit_deg_s: float = 20.0
+    pitch_sp_rate_limit_capture_deg_s: float = 45.0
+    load_factor_pitch_compensation_gain: float = 0.75
     throttle_sp_filter_tau_s: float = 0.25
     altitude_hold_error_band_m: float = 0.25
     altitude_capture_error_m: float = 0.8
@@ -304,15 +307,28 @@ class PX4LikeTECS:
         self._pitch_integ = self._pitch_integ + pitch_integ_input * dt
 
         seb_rate_corr = seb_rate_err * float(self.cfg.pitch_damping_gain) + float(self.cfg.seb_rate_ff) * seb_rate_sp
-        pitch_term = seb_rate_corr / torch.clamp(climb_to_seb, min=1.0e-3) + self._pitch_integ
+        load_factor_pitch_bias = torch.clamp(load_factor_t - 1.0, min=0.0) * float(
+            self.cfg.load_factor_pitch_compensation_gain
+        )
+        pitch_term = seb_rate_corr / torch.clamp(climb_to_seb, min=1.0e-3) + self._pitch_integ + load_factor_pitch_bias
         pitch_sp_cmd = torch.clamp(pitch_trim - pitch_term, min=pitch_min, max=pitch_max)
         prev_pitch_sp = self._pitch_sp.clone()
-        if float(self.cfg.pitch_sp_filter_tau_s) > 0.0:
-            alpha_pitch_sp = dt / (float(self.cfg.pitch_sp_filter_tau_s) + dt)
-            alpha_pitch_sp = min(max(alpha_pitch_sp, 0.0), 1.0)
-            pitch_sp_cmd = prev_pitch_sp + alpha_pitch_sp * (pitch_sp_cmd - prev_pitch_sp)
-        if float(self.cfg.pitch_sp_rate_limit_deg_s) > 0.0:
-            pitch_delta_max = math.radians(float(self.cfg.pitch_sp_rate_limit_deg_s)) * dt
+        pitch_sp_filter_tau = max(float(self.cfg.pitch_sp_filter_tau_s), 0.0)
+        pitch_sp_filter_tau_capture = max(float(self.cfg.pitch_sp_filter_tau_capture_s), 0.0)
+        pitch_sp_filter_tau_eff = pitch_sp_filter_tau + capture_blend * (
+            pitch_sp_filter_tau_capture - pitch_sp_filter_tau
+        )
+        alpha_pitch_sp = dt / (pitch_sp_filter_tau_eff + dt)
+        alpha_pitch_sp = torch.clamp(alpha_pitch_sp, min=0.0, max=1.0)
+        pitch_sp_cmd = prev_pitch_sp + alpha_pitch_sp * (pitch_sp_cmd - prev_pitch_sp)
+
+        pitch_sp_rate_limit = max(float(self.cfg.pitch_sp_rate_limit_deg_s), 0.0)
+        pitch_sp_rate_limit_capture = max(float(self.cfg.pitch_sp_rate_limit_capture_deg_s), 0.0)
+        pitch_sp_rate_limit_eff = pitch_sp_rate_limit + capture_blend * (
+            pitch_sp_rate_limit_capture - pitch_sp_rate_limit
+        )
+        if torch.any(pitch_sp_rate_limit_eff > 0.0):
+            pitch_delta_max = torch.deg2rad(pitch_sp_rate_limit_eff) * dt
             pitch_sp_cmd = torch.clamp(
                 pitch_sp_cmd,
                 min=prev_pitch_sp - pitch_delta_max,
@@ -408,6 +424,7 @@ class PX4LikeTECS:
             "tecs_load_factor": load_factor_t,
             "tecs_load_factor_correction": load_factor_correction_t,
             "tecs_load_factor_energy_bias": ste_rate_load_factor_bias,
+            "tecs_load_factor_pitch_bias": load_factor_pitch_bias,
             "tecs_ste_rate_est": self._ste_rate_est,
             "tecs_seb_rate_sp": seb_rate_sp,
             "tecs_seb_rate_est": seb_rate_est,

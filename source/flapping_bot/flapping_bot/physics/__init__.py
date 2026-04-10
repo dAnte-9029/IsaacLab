@@ -13,6 +13,7 @@ from .qsm_wang2016 import (
 from .qsm_delaurier1993 import DeLaurierParams, compute_aero_wrench_delaurier1993
 from .tail_aero import TailAeroCfg, TailAeroModel, TailSurfaceCfg
 from .tail_geometry import PlaceholderValue, TailGeometry, TailSurfaceGeometry, load_tail_geometry_from_urdf
+from .wing_equivalent_ac import compute_area_weighted_quarter_chord_link_points
 from .wing_geom_csv import WingGeomCsvInfo, build_wing_geometry_from_csv, infer_span_from_x_mid, load_wing_geom_csv
 from .virtual_twist import VirtualTwistCfg, VirtualTwistState, solve_quasi_static_eta_tip, step_virtual_twist
 
@@ -36,6 +37,7 @@ __all__ = [
     "TailSurfaceGeometry",
     "TailGeometry",
     "load_tail_geometry_from_urdf",
+    "compute_area_weighted_quarter_chord_link_points",
     "WingGeomCsvInfo",
     "load_wing_geom_csv",
     "infer_span_from_x_mid",

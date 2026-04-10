@@ -65,3 +65,24 @@ def test_straight_flight_env_exposes_near_physical_elevon_authority() -> None:
     assign = _find_ann_assign(class_node, "elevon_max_deg")
     assert isinstance(assign.value, ast.Constant)
     assert float(assign.value.value) >= 40.5
+
+
+def test_straight_flight_env_exposes_tail_aero_compatibility_fields() -> None:
+    module = _load_module()
+    class_node = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+
+    expected_fields = {
+        "tail_horizontal_tail_incidence_bias_deg": 0.0,
+        "tail_fixed_horizontal_effectiveness": 0.5,
+        "tail_elevon_effectiveness": 1.2,
+        "tail_elevon_alpha_limit_deg": 25.0,
+        "tail_horizontal_tail_q_scale": 1.0,
+    }
+
+    found_fields: dict[str, float] = {}
+    for field_name in expected_fields:
+        assign = _find_ann_assign(class_node, field_name)
+        assert isinstance(assign.value, ast.Constant)
+        found_fields[field_name] = float(assign.value.value)
+
+    assert found_fields == expected_fields
