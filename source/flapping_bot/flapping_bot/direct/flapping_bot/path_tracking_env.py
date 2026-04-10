@@ -151,8 +151,8 @@ except ModuleNotFoundError as exc:
         tail_elevon_alpha_limit_deg: float = 25.0
         tail_horizontal_tail_q_scale: float = 1.0
         base_body_com_override_x_m: float | None = -0.10
-        reset_pitch_deg: float = 4.0
-        reset_flap_hz: float = 3.4
+        reset_pitch_deg: float = 8.0
+        reset_flap_hz: float = 4.0
         reset_elevon_pitch_deg: float = -18.0
 
 
@@ -205,7 +205,7 @@ else:
         teacher_tecs_load_factor_use_roll_sp: bool = True
         teacher_tecs_load_factor_pitch_compensation_gain: float = 0.75
         teacher_pitch_kp: float = 2.5
-        teacher_inner_pitch_ki: float = 0.9
+        teacher_inner_pitch_ki: float = 1.0
         teacher_use_tecs_bank_aware_speed_sp: bool = True
         teacher_tecs_bank_aware_speed_scale: float = 1.0
         teacher_tecs_bank_aware_speed_clamp_mps: float = 2.0
@@ -221,8 +221,8 @@ else:
         tail_elevon_alpha_limit_deg: float = 25.0
         tail_horizontal_tail_q_scale: float = 1.0
         base_body_com_override_x_m: float | None = -0.10
-        reset_pitch_deg: float = 4.0
-        reset_flap_hz: float = 3.4
+        reset_pitch_deg: float = 8.0
+        reset_flap_hz: float = 4.0
         reset_elevon_pitch_deg: float = -18.0
 
         wind_enabled: bool = False

@@ -225,7 +225,7 @@ def test_path_tracking_env_exposes_teacher_tecs_load_factor_defaults() -> None:
         "teacher_tecs_load_factor_use_roll_sp": True,
         "teacher_tecs_load_factor_pitch_compensation_gain": 0.75,
         "teacher_pitch_kp": 2.5,
-        "teacher_inner_pitch_ki": 0.9,
+        "teacher_inner_pitch_ki": 1.0,
         "teacher_use_tecs_bank_aware_speed_sp": True,
         "teacher_tecs_bank_aware_speed_scale": 1.0,
         "teacher_tecs_bank_aware_speed_clamp_mps": 2.0,
@@ -266,8 +266,8 @@ def test_path_tracking_env_inherits_tail_aero_compatibility_defaults() -> None:
 def test_path_tracking_env_inherits_retuned_reset_trim_defaults() -> None:
     cfg = FlappingBotPathTrackingEnvCfg()
 
-    assert cfg.reset_pitch_deg == 4.0
-    assert cfg.reset_flap_hz == 3.4
+    assert cfg.reset_pitch_deg == 8.0
+    assert cfg.reset_flap_hz == 4.0
     assert cfg.reset_elevon_pitch_deg == -18.0
 
 

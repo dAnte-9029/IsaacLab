@@ -121,8 +121,8 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
 
     # reset pose / initial conditions
     # Note: for x-forward, y-left, z-up, a negative rotation about +Y corresponds to a nose-up pitch.
-    reset_pitch_deg: float = 4.0
-    reset_flap_hz: float = 3.4
+    reset_pitch_deg: float = 8.0
+    reset_flap_hz: float = 4.0
     # A small negative elevon pitch command helps counter the default wing pitching moment in open-loop rollouts.
     reset_elevon_pitch_deg: float = -18.0
     reset_rudder_deg: float = 0.0
