@@ -98,7 +98,7 @@ class PX4LikeStraightLineControllerCfg:
     inner_pitch_rate_max_deg_s: float = 120.0
     inner_elevon_pitch_rate_limit_per_s: float = 2.0
     inner_elevon_roll_rate_limit_per_s: float = 6.0
-    inner_pitch_ki: float = 0.8
+    inner_pitch_ki: float = 0.9
     inner_pitch_integrator_limit: float = 0.6
     inner_pitch_integrator_leak_per_s: float = 0.04
     initial_elevon_pitch_action: float = 0.0

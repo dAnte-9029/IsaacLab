@@ -138,6 +138,10 @@ def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
         [
             "--phase",
             "level_turn",
+            "--teacher_pitch_kp",
+            "2.8",
+            "--teacher_inner_pitch_ki",
+            "1.0",
             "--teacher_tecs_roll_throttle_compensation",
             "2.5",
             "--teacher_tecs_load_factor_clamp_max",
@@ -161,6 +165,8 @@ def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
         ]
     )
 
+    assert args.teacher_pitch_kp == pytest.approx(2.8)
+    assert args.teacher_inner_pitch_ki == pytest.approx(1.0)
     assert args.teacher_tecs_roll_throttle_compensation == pytest.approx(2.5)
     assert args.teacher_tecs_load_factor_clamp_max == pytest.approx(3.0)
     assert args.teacher_tecs_load_factor_pitch_compensation_gain == pytest.approx(0.4)
@@ -274,6 +280,8 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
         teacher_tecs_load_factor_clamp_max=2.0,
         teacher_tecs_load_factor_use_roll_sp=True,
         teacher_tecs_load_factor_pitch_compensation_gain=0.75,
+        teacher_pitch_kp=2.5,
+        teacher_inner_pitch_ki=0.9,
         teacher_use_tecs_bank_aware_speed_sp=False,
         teacher_tecs_bank_aware_speed_scale=0.0,
         teacher_tecs_bank_aware_speed_clamp_mps=0.0,
@@ -319,6 +327,8 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
         teacher_tecs_load_factor_clamp_max=3.0,
         teacher_tecs_load_factor_use_roll_sp=False,
         teacher_tecs_load_factor_pitch_compensation_gain=0.4,
+        teacher_pitch_kp=2.8,
+        teacher_inner_pitch_ki=1.0,
         teacher_use_tecs_bank_aware_speed_sp=True,
         teacher_tecs_bank_aware_speed_scale=0.75,
         teacher_tecs_bank_aware_speed_clamp_mps=1.5,
@@ -338,6 +348,8 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
     assert configured_env_cfg.teacher_tecs_load_factor_clamp_max == pytest.approx(3.0)
     assert configured_env_cfg.teacher_tecs_load_factor_use_roll_sp is False
     assert configured_env_cfg.teacher_tecs_load_factor_pitch_compensation_gain == pytest.approx(0.4)
+    assert configured_env_cfg.teacher_pitch_kp == pytest.approx(2.8)
+    assert configured_env_cfg.teacher_inner_pitch_ki == pytest.approx(1.0)
     assert configured_env_cfg.teacher_use_tecs_bank_aware_speed_sp is True
     assert configured_env_cfg.teacher_tecs_bank_aware_speed_scale == pytest.approx(0.75)
     assert configured_env_cfg.teacher_tecs_bank_aware_speed_clamp_mps == pytest.approx(1.5)
@@ -421,6 +433,8 @@ def test_configure_env_applies_tail_aero_compatibility_overrides(monkeypatch: py
         teacher_tecs_load_factor_clamp_max=None,
         teacher_tecs_load_factor_use_roll_sp=None,
         teacher_tecs_load_factor_pitch_compensation_gain=None,
+        teacher_pitch_kp=None,
+        teacher_inner_pitch_ki=None,
         teacher_use_tecs_bank_aware_speed_sp=None,
         teacher_tecs_bank_aware_speed_scale=None,
         teacher_tecs_bank_aware_speed_clamp_mps=None,
@@ -523,6 +537,8 @@ def test_configure_env_preserves_default_base_body_com_without_cli_override(
         teacher_tecs_load_factor_clamp_max=None,
         teacher_tecs_load_factor_use_roll_sp=None,
         teacher_tecs_load_factor_pitch_compensation_gain=None,
+        teacher_pitch_kp=None,
+        teacher_inner_pitch_ki=None,
         teacher_use_tecs_bank_aware_speed_sp=None,
         teacher_tecs_bank_aware_speed_scale=None,
         teacher_tecs_bank_aware_speed_clamp_mps=None,
@@ -615,6 +631,8 @@ def test_configure_env_applies_reset_trim_overrides(monkeypatch: pytest.MonkeyPa
         teacher_tecs_load_factor_clamp_max=None,
         teacher_tecs_load_factor_use_roll_sp=None,
         teacher_tecs_load_factor_pitch_compensation_gain=None,
+        teacher_pitch_kp=None,
+        teacher_inner_pitch_ki=None,
         teacher_use_tecs_bank_aware_speed_sp=None,
         teacher_tecs_bank_aware_speed_scale=None,
         teacher_tecs_bank_aware_speed_clamp_mps=None,

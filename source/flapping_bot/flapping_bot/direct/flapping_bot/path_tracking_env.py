@@ -204,6 +204,8 @@ else:
         teacher_tecs_load_factor_clamp_max: float = 2.0
         teacher_tecs_load_factor_use_roll_sp: bool = True
         teacher_tecs_load_factor_pitch_compensation_gain: float = 0.75
+        teacher_pitch_kp: float = 2.5
+        teacher_inner_pitch_ki: float = 0.9
         teacher_use_tecs_bank_aware_speed_sp: bool = True
         teacher_tecs_bank_aware_speed_scale: float = 1.0
         teacher_tecs_bank_aware_speed_clamp_mps: float = 2.0
@@ -478,6 +480,8 @@ else:
                         load_factor_pitch_compensation_gain=float(
                             self.cfg.teacher_tecs_load_factor_pitch_compensation_gain
                         ),
+                        pitch_kp=float(self.cfg.teacher_pitch_kp),
+                        inner_pitch_ki=float(self.cfg.teacher_inner_pitch_ki),
                         use_tecs_bank_aware_speed_sp=bool(self.cfg.teacher_use_tecs_bank_aware_speed_sp),
                         tecs_bank_aware_speed_scale=float(self.cfg.teacher_tecs_bank_aware_speed_scale),
                         tecs_bank_aware_speed_clamp_mps=float(self.cfg.teacher_tecs_bank_aware_speed_clamp_mps),

@@ -165,6 +165,8 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument("--teacher_tecs_load_factor_pitch_compensation_gain", type=float, default=None)
+    parser.add_argument("--teacher_pitch_kp", type=float, default=None)
+    parser.add_argument("--teacher_inner_pitch_ki", type=float, default=None)
     parser.add_argument(
         "--teacher_use_tecs_bank_aware_speed_sp",
         action=argparse.BooleanOptionalAction,
@@ -361,6 +363,10 @@ def _configure_env(args: argparse.Namespace):
         env_cfg.teacher_tecs_load_factor_pitch_compensation_gain = float(
             args.teacher_tecs_load_factor_pitch_compensation_gain
         )
+    if hasattr(env_cfg, "teacher_pitch_kp") and args.teacher_pitch_kp is not None:
+        env_cfg.teacher_pitch_kp = float(args.teacher_pitch_kp)
+    if hasattr(env_cfg, "teacher_inner_pitch_ki") and args.teacher_inner_pitch_ki is not None:
+        env_cfg.teacher_inner_pitch_ki = float(args.teacher_inner_pitch_ki)
     if hasattr(env_cfg, "teacher_use_tecs_bank_aware_speed_sp") and args.teacher_use_tecs_bank_aware_speed_sp is not None:
         env_cfg.teacher_use_tecs_bank_aware_speed_sp = bool(args.teacher_use_tecs_bank_aware_speed_sp)
     if hasattr(env_cfg, "teacher_tecs_bank_aware_speed_scale") and args.teacher_tecs_bank_aware_speed_scale is not None:
@@ -855,6 +861,8 @@ def main() -> None:
         "teacher_tecs_load_factor_pitch_compensation_gain": float(
             getattr(env_cfg, "teacher_tecs_load_factor_pitch_compensation_gain", 0.0)
         ),
+        "teacher_pitch_kp": float(getattr(env_cfg, "teacher_pitch_kp", 0.0)),
+        "teacher_inner_pitch_ki": float(getattr(env_cfg, "teacher_inner_pitch_ki", 0.0)),
         "teacher_use_tecs_bank_aware_speed_sp": bool(getattr(env_cfg, "teacher_use_tecs_bank_aware_speed_sp", False)),
         "teacher_tecs_bank_aware_speed_scale": float(getattr(env_cfg, "teacher_tecs_bank_aware_speed_scale", 0.0)),
         "teacher_tecs_bank_aware_speed_clamp_mps": float(
