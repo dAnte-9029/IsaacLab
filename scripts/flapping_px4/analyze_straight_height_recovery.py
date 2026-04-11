@@ -9,6 +9,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Analyze straight height recovery from trajectory_env0.csv.")
@@ -21,6 +23,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sustain_time_s", type=float, default=1.0)
     parser.add_argument("--freq_sat_hz", type=float, default=4.99)
     parser.add_argument("--action_sat_abs", type=float, default=0.98)
+    parser.add_argument("--cycle_mean_window_s", type=float, default=0.25)
+    parser.add_argument("--chatter_low_hz", type=float, default=4.0)
+    parser.add_argument("--chatter_high_hz", type=float, default=8.0)
     return parser.parse_args()
 
 
@@ -61,6 +66,92 @@ def _mean(values: list[float]) -> float:
     if not finite:
         return float("nan")
     return sum(finite) / len(finite)
+
+
+def _finite_series(rows: list[dict[str, float]], key: str) -> list[float]:
+    return [_get(row, key) for row in rows]
+
+
+def _first_finite(row: dict[str, float], keys: tuple[str, ...]) -> float:
+    for key in keys:
+        value = _get(row, key)
+        if math.isfinite(value):
+            return value
+    return float("nan")
+
+
+def _sample_dt_s(rows: list[dict[str, float]]) -> float:
+    times = [_get(row, "t") for row in rows]
+    finite_times = [time for time in times if math.isfinite(time)]
+    if len(finite_times) < 2:
+        return float("nan")
+    diffs = [end - start for start, end in zip(finite_times[:-1], finite_times[1:]) if end > start]
+    if not diffs:
+        return float("nan")
+    return float(np.median(np.asarray(diffs, dtype=float)))
+
+
+def _cycle_mean_min_after(
+    rows: list[dict[str, float]],
+    *,
+    key: str,
+    start_time_s: float,
+    window_s: float,
+) -> tuple[float, float]:
+    dt_s = _sample_dt_s(rows)
+    if not math.isfinite(dt_s) or dt_s <= 0.0:
+        return float("nan"), float("nan")
+
+    window_samples = max(int(round(float(window_s) / dt_s)), 1)
+    if window_samples % 2 == 0:
+        window_samples += 1
+
+    times = np.asarray(_finite_series(rows, "t"), dtype=float)
+    values = np.asarray(_finite_series(rows, key), dtype=float)
+    finite = np.isfinite(times) & np.isfinite(values)
+    if not finite.any():
+        return float("nan"), float("nan")
+
+    kernel = np.ones(window_samples, dtype=float)
+    values_zeroed = np.where(finite, values, 0.0)
+    weights = np.convolve(finite.astype(float), kernel, mode="same")
+    sums = np.convolve(values_zeroed, kernel, mode="same")
+    smoothed = np.divide(sums, weights, out=np.full_like(sums, np.nan, dtype=float), where=weights > 0.0)
+
+    candidates = np.where((times >= float(start_time_s)) & np.isfinite(smoothed))[0]
+    if candidates.size == 0:
+        return float("nan"), float("nan")
+    min_local = candidates[int(np.argmin(smoothed[candidates]))]
+    return float(smoothed[min_local]), float(times[min_local])
+
+
+def _band_limited_rms(
+    rows: list[dict[str, float]],
+    *,
+    keys: tuple[str, ...],
+    low_hz: float,
+    high_hz: float,
+) -> float:
+    dt_s = _sample_dt_s(rows)
+    if not math.isfinite(dt_s) or dt_s <= 0.0:
+        return float("nan")
+
+    values = np.asarray([_first_finite(row, keys) for row in rows], dtype=float)
+    finite = np.isfinite(values)
+    if finite.sum() < 4:
+        return float("nan")
+
+    # Fill rare missing samples with the mean so the FFT stays deterministic.
+    mean_value = float(np.mean(values[finite]))
+    signal = np.where(finite, values, mean_value) - mean_value
+    spectrum = np.fft.rfft(signal)
+    freqs = np.fft.rfftfreq(signal.size, d=dt_s)
+    band_mask = (freqs >= float(low_hz)) & (freqs <= float(high_hz))
+    if not band_mask.any():
+        return float("nan")
+    band_spectrum = np.where(band_mask, spectrum, 0.0)
+    band_signal = np.fft.irfft(band_spectrum, n=signal.size)
+    return float(np.sqrt(np.mean(np.square(band_signal))))
 
 
 def _distance(row: dict[str, float]) -> float:
@@ -141,6 +232,9 @@ def compute_metrics(
     sustain_time_s: float,
     freq_sat_hz: float,
     action_sat_abs: float,
+    cycle_mean_window_s: float = 0.25,
+    chatter_low_hz: float = 4.0,
+    chatter_high_hz: float = 8.0,
 ) -> dict[str, Any]:
     height_errors = [_get(row, "height_error_m") for row in rows]
     valid_indices = [idx for idx, value in enumerate(height_errors) if math.isfinite(value)]
@@ -161,6 +255,16 @@ def compute_metrics(
     )
     zero_cross_idx = _find_cross_zero_after_min(rows, min_idx)
     recovery_rows = rows[recovery_idx:] if recovery_idx is not None else []
+    post5_rows = [row for row in rows if _get(row, "t") >= 5.0]
+    post5_lateral_values = [_get(row, "lateral_error_m") for row in post5_rows]
+    post5_lateral_finite = [value for value in post5_lateral_values if math.isfinite(value)]
+    post5_final_lateral_error = post5_lateral_finite[-1] if post5_lateral_finite else float("nan")
+    min_cycle_mean_after_4s, time_at_min_cycle_mean_after_4s = _cycle_mean_min_after(
+        rows,
+        key="height_error_m",
+        start_time_s=4.0,
+        window_s=float(cycle_mean_window_s),
+    )
 
     distances = [_distance(row) for row in rows]
     distance_at_min = distances[min_idx]
@@ -193,6 +297,8 @@ def compute_metrics(
         "distance_to_abs_0p05_after_min_m": distance_to_recovery,
         "time_to_cross_zero_after_min_s": _delta_metric(rows, start_idx=min_idx, end_idx=zero_cross_idx, key="t"),
         "distance_to_cross_zero_after_min_m": distance_to_zero,
+        "min_cycle_mean_height_error_after_4s_m": min_cycle_mean_after_4s,
+        "time_at_min_cycle_mean_height_error_after_4s_s": time_at_min_cycle_mean_after_4s,
         "mean_abs_height_error_after_recovery_m": _mean([abs(_get(row, "height_error_m")) for row in recovery_rows]),
         "max_positive_height_error_after_recovery_m": max(
             (_get(row, "height_error_m") for row in recovery_rows), default=float("nan")
@@ -209,9 +315,33 @@ def compute_metrics(
         "min_airspeed_mps": min((_get(row, "airspeed") for row in rows), default=float("nan")),
         "mean_tecs_pitch_sp_deg_first5s": _mean([_get(rows[idx], "tecs_pitch_sp_deg") for idx in first5_indices]),
         "mean_pitch_sp_deg_first5s": _mean([_get(rows[idx], "pitch_sp_deg") for idx in first5_indices]),
+        "post5_mean_lateral_error_m": _mean(post5_lateral_values),
+        "post5_final_lateral_error_m": post5_final_lateral_error,
+        "post5_mean_abs_lateral_error_m": _mean([abs(value) for value in post5_lateral_values]),
+        "elevon_pitch_chatter_rms_4to8hz": _band_limited_rms(
+            rows,
+            keys=("exec_action_elevon_pitch", "action_elevon_pitch"),
+            low_hz=float(chatter_low_hz),
+            high_hz=float(chatter_high_hz),
+        ),
+        "rudder_chatter_rms_4to8hz": _band_limited_rms(
+            rows,
+            keys=("exec_action_rudder", "action_rudder", "rudder"),
+            low_hz=float(chatter_low_hz),
+            high_hz=float(chatter_high_hz),
+        ),
+        "elevon_roll_chatter_rms_4to8hz": _band_limited_rms(
+            rows,
+            keys=("exec_action_elevon_roll", "action_elevon_roll", "elevon_roll"),
+            low_hz=float(chatter_low_hz),
+            high_hz=float(chatter_high_hz),
+        ),
         "height_band_m": float(height_band_m),
         "sustain_band_m": float(sustain_band_m),
         "sustain_time_s": float(sustain_time_s),
+        "cycle_mean_window_s": float(cycle_mean_window_s),
+        "chatter_low_hz": float(chatter_low_hz),
+        "chatter_high_hz": float(chatter_high_hz),
     }
     return {key: _jsonable(value) for key, value in metrics.items()}
 
@@ -239,6 +369,9 @@ def main() -> None:
         sustain_time_s=float(args.sustain_time_s),
         freq_sat_hz=float(args.freq_sat_hz),
         action_sat_abs=float(args.action_sat_abs),
+        cycle_mean_window_s=float(args.cycle_mean_window_s),
+        chatter_low_hz=float(args.chatter_low_hz),
+        chatter_high_hz=float(args.chatter_high_hz),
     )
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(metrics, indent=2, sort_keys=True) + "\n")
