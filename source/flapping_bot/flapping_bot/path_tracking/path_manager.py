@@ -121,6 +121,7 @@ class PathManager:
     _SCORE_TIE_ABS_TOL = 1.0e-9
     _CLOSED_LOOP_ENTRY_PROGRESS_TOL_RAD = 0.1
     _CLOSED_LOOP_BOUNDARY_TOL_RAD = 1.0e-9
+    _CLOSED_LOOP_PROGRESS_TIE_TOL_RAD = 1.0e-6
     _TRANSITION_LOOKAHEAD_SEGMENTS = 1
     _MIN_TRANSITION_WINDOW_M = 2.5
     _TRANSITION_WINDOW_TIME_S = 0.5
@@ -372,13 +373,34 @@ class PathManager:
             0.0,
             total_sweep_rad,
         )
-        if (
-            total_sweep_rad >= 2.0 * math.pi - 1.0e-9
-            and target_progress_rad <= self._CLOSED_LOOP_ENTRY_PROGRESS_TOL_RAD
-            and self._CLOSED_LOOP_BOUNDARY_TOL_RAD < base_delta_rad < min(math.pi, total_sweep_rad)
-        ):
-            delta_rad = base_delta_rad
-        else:
+        delta_rad: float | None = None
+        if total_sweep_rad >= 2.0 * math.pi - 1.0e-9:
+            loop_angle_rad = 2.0 * math.pi
+            boundary_index = int(round(target_progress_rad / loop_angle_rad))
+            boundary_progress_rad = _clamp(boundary_index * loop_angle_rad, 0.0, total_sweep_rad)
+            if (
+                math.isclose(
+                    target_progress_rad,
+                    boundary_progress_rad,
+                    rel_tol=0.0,
+                    abs_tol=self._CLOSED_LOOP_PROGRESS_TIE_TOL_RAD,
+                )
+                and boundary_progress_rad < total_sweep_rad - self._CLOSED_LOOP_BOUNDARY_TOL_RAD
+                and self._CLOSED_LOOP_BOUNDARY_TOL_RAD < base_delta_rad < min(math.pi, total_sweep_rad)
+            ):
+                # When the previous query landed exactly on a completed-loop boundary, prefer
+                # the forward-unwrapped candidate for the same physical angle instead of sticking
+                # to the boundary point on the earlier lap.
+                forward_candidate_rad = boundary_progress_rad + base_delta_rad
+                if forward_candidate_rad <= total_sweep_rad + self._CLOSED_LOOP_BOUNDARY_TOL_RAD:
+                    delta_rad = forward_candidate_rad
+            if (
+                delta_rad is None
+                and target_progress_rad <= self._CLOSED_LOOP_ENTRY_PROGRESS_TOL_RAD
+                and self._CLOSED_LOOP_BOUNDARY_TOL_RAD < base_delta_rad < min(math.pi, total_sweep_rad)
+            ):
+                delta_rad = base_delta_rad
+        if delta_rad is None:
             delta_rad = min(delta_candidates_rad, key=lambda value: (abs(value - target_progress_rad), -value))
         angle_on_path_rad = segment.start_angle_rad + segment.turn_direction * delta_rad
         closest_xy = (

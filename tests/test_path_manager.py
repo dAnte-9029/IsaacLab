@@ -323,6 +323,29 @@ def test_path_manager_repeated_loiter_boundary_stays_on_adjacent_loop() -> None:
     assert query.progress_s == pytest.approx(127.59659974844565, abs=0.75)
 
 
+def test_path_manager_multiturn_loiter_advances_past_full_loop_boundary() -> None:
+    mission = Mission(segments=[MissionSegment(kind="loiter", altitude_changes=False)])
+    manager = PathManager(
+        PathManagerCfg(
+            max_roll_deg=35.0,
+            max_flight_path_angle_deg=10.0,
+            loiter_radius_m=20.0,
+            loiter_turns=1.5,
+            initial_altitude_m=10.0,
+        ),
+        mission,
+    )
+
+    one_loop_progress_s = 2.0 * math.pi * 20.0
+    manager._last_progress_s = one_loop_progress_s
+
+    position_xyz = manager.sample(one_loop_progress_s + 0.5)
+    query = manager.query(position_xy=position_xyz[:2], altitude_m=10.0, speed_mps=7.0)
+
+    assert query.progress_s > one_loop_progress_s
+    assert query.progress_s == pytest.approx(one_loop_progress_s + 0.5, abs=0.25)
+
+
 def test_path_manager_supports_explicit_climb_and_descent_segments():
     climb_mission = Mission(segments=[MissionSegment(kind="straight", altitude_changes=True, altitude_direction=1)])
     descent_mission = Mission(segments=[MissionSegment(kind="straight", altitude_changes=True, altitude_direction=-1)])

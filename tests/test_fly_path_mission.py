@@ -93,6 +93,23 @@ def test_ensure_episode_horizon_extends_env_timeout() -> None:
     assert env.unwrapped.cfg.episode_length_s >= 2.5
 
 
+def test_ensure_episode_horizon_extends_path_specific_horizon_steps() -> None:
+    class DummyEnv:
+        def __init__(self):
+            self.unwrapped = self
+            self.cfg = SimpleNamespace(episode_length_s=1.0)
+            self._path_episode_horizon_steps = torch.tensor([30], dtype=torch.long)
+
+        @property
+        def max_episode_length(self) -> int:
+            return int(self.cfg.episode_length_s / 0.01)
+
+    env = DummyEnv()
+    ensure_episode_horizon(env, effective_steps=250, env_step_dt=0.01)
+
+    assert int(env.unwrapped._path_episode_horizon_steps[0].item()) >= 251
+
+
 def test_build_random_mission_is_deterministic_for_seed() -> None:
     mission_a = build_random_mission(
         seed=17,
@@ -846,6 +863,127 @@ def test_configure_env_applies_reset_trim_overrides(monkeypatch: pytest.MonkeyPa
     assert configured_env_cfg.reset_elevon_pitch_deg == pytest.approx(-14.0)
     assert configured_env_cfg.reset_forward_speed_mps == pytest.approx(8.1)
     assert env_step_dt == pytest.approx((1.0 / 240.0) * 2.0)
+
+
+def test_configure_env_unlocks_rollout_specific_path_caps(monkeypatch: pytest.MonkeyPatch) -> None:
+    env_cfg = SimpleNamespace(
+        randomize_commands=True,
+        height_cmd=0.0,
+        action_space=0,
+        act_lpf_tau_s=0.1,
+        act_rate_limit_per_s=2.0,
+        sim=SimpleNamespace(dt=1.0 / 240.0),
+        decimation=2,
+        episode_length_s=18.0,
+        completion_ratio=0.98,
+        path_episode_max_s=36.0,
+        teacher_guidance_enabled=False,
+        teacher_guidance_delta_init=0.2,
+        teacher_guidance_delta_final=2.0,
+        teacher_guidance_schedule_steps=(0, 1),
+        teacher_guidance_schedule_deltas=(0.1, 0.2),
+        teacher_guidance_disable_after_steps=100,
+        wind_enabled=False,
+        randomize_wind=True,
+        wind_xy_mps=(0.0, 0.0),
+        wind_x_range_mps=(0.0, 0.0),
+        wind_y_range_mps=(0.0, 0.0),
+        wind_ou_enabled=False,
+        wind_ou_tau_s=2.0,
+        wind_ou_sigma_xy_mps=(0.0, 0.0),
+        wind_ou_clip_to_range=False,
+        path_manager_max_roll_deg=35.0,
+        path_manager_max_flight_path_angle_deg=10.0,
+    )
+
+    parse_cfg_mod = ModuleType("isaaclab_tasks.utils.parse_cfg")
+    parse_cfg_mod.parse_env_cfg = lambda *args, **kwargs: env_cfg
+    monkeypatch.setitem(sys.modules, "isaaclab_tasks", ModuleType("isaaclab_tasks"))
+    monkeypatch.setitem(sys.modules, "isaaclab_tasks.utils", ModuleType("isaaclab_tasks.utils"))
+    monkeypatch.setitem(sys.modules, "isaaclab_tasks.utils.parse_cfg", parse_cfg_mod)
+
+    captured: dict[str, object] = {}
+
+    def _fake_make(task: str, cfg):
+        captured["task"] = task
+        captured["cfg"] = cfg
+        return "dummy-env"
+
+    monkeypatch.setattr(gym, "make", _fake_make)
+
+    args = SimpleNamespace(
+        task="Isaac-FlappingBot-PathTracking-DeLaurier-Direct-v0",
+        device="cpu",
+        num_envs=1,
+        height_sp=10.0,
+        steps=4200,
+        episode_length_s=None,
+        wind_x_mps=0.0,
+        wind_y_mps=0.0,
+        wind_ou=False,
+        wind_ou_tau_s=2.0,
+        wind_ou_sigma_x_mps=0.0,
+        wind_ou_sigma_y_mps=0.0,
+        wind_ou_clip_to_range=False,
+        path_manager_max_roll_deg=35.0,
+        path_manager_max_flight_path_angle_deg=10.0,
+        teacher_use_tecs_load_factor_compensation=None,
+        teacher_tecs_roll_throttle_compensation=None,
+        teacher_tecs_load_factor_clamp_max=None,
+        teacher_tecs_load_factor_use_roll_sp=None,
+        teacher_tecs_load_factor_pitch_compensation_gain=None,
+        teacher_pitch_kp=None,
+        teacher_roll_kp=None,
+        teacher_roll_kd=None,
+        teacher_max_roll_deg=None,
+        teacher_guidance_period_s=None,
+        teacher_guidance_damping=None,
+        teacher_guidance_roll_time_const_s=None,
+        teacher_heading_p_gain=None,
+        teacher_inner_pitch_ki=None,
+        teacher_inner_pitch_cycle_mean_enabled=None,
+        teacher_inner_pitch_cycle_mean_tau_s=None,
+        teacher_inner_pitch_rate_cycle_mean_tau_s=None,
+        teacher_use_tecs_bank_aware_speed_sp=None,
+        teacher_tecs_bank_aware_speed_scale=None,
+        teacher_tecs_bank_aware_speed_clamp_mps=None,
+        teacher_use_tecs_bank_aware_min_airspeed=None,
+        teacher_tecs_bank_aware_min_airspeed_mps=None,
+        teacher_tecs_bank_aware_min_airspeed_scale=None,
+        teacher_tecs_bank_aware_min_airspeed_clamp_mps=None,
+        teacher_tecs_altitude_hold_error_band_m=None,
+        teacher_tecs_altitude_capture_error_m=None,
+        teacher_tecs_altitude_capture_time_const_s=None,
+        teacher_tecs_altitude_capture_release_error_m=None,
+        teacher_tecs_altitude_capture_release_time_s=None,
+        teacher_tecs_altitude_capture_persistence_gain=None,
+        teacher_tecs_altitude_error_gain=None,
+        teacher_tecs_pitch_speed_weight=None,
+        teacher_tecs_pitch_speed_weight_capture=None,
+        teacher_tecs_capture_extra_climb_rate_mps=None,
+        teacher_tecs_capture_extra_sink_rate_mps=None,
+        teacher_tecs_pitch_damping_gain=None,
+        tail_horizontal_tail_incidence_bias_deg=None,
+        tail_fixed_horizontal_effectiveness=None,
+        tail_elevon_effectiveness=None,
+        tail_elevon_alpha_limit_deg=None,
+        tail_horizontal_tail_q_scale=None,
+        base_body_com_override_x_m=None,
+        reset_pitch_deg=None,
+        reset_flap_hz=None,
+        reset_elevon_pitch_deg=None,
+        reset_forward_speed_mps=None,
+        path_warmup_enabled=True,
+        path_warmup_straight_length_m=25.0,
+    )
+
+    env, configured_env_cfg, _ = _configure_env(args)
+
+    assert env == "dummy-env"
+    assert captured["task"] == args.task
+    assert captured["cfg"] is configured_env_cfg
+    assert configured_env_cfg.path_episode_max_s == pytest.approx(0.0)
+    assert configured_env_cfg.completion_ratio > 1.0
 
 
 def test_inject_mission_recomputes_path_episode_horizon_for_replaced_mission() -> None:

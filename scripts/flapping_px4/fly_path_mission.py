@@ -329,11 +329,18 @@ def resolve_rollout_status(
 
 def ensure_episode_horizon(env, *, effective_steps: int, env_step_dt: float) -> None:
     """Extend the environment timeout to cover the effective rollout horizon."""
+    import torch
+
     required_steps = max(int(effective_steps) + 1, 1)
     unwrapped = env.unwrapped
     if hasattr(unwrapped, "cfg") and hasattr(unwrapped.cfg, "episode_length_s"):
         required_length_s = float(required_steps) * float(env_step_dt)
         unwrapped.cfg.episode_length_s = max(float(unwrapped.cfg.episode_length_s), required_length_s)
+    if hasattr(unwrapped, "_path_episode_horizon_steps") and getattr(unwrapped, "_path_episode_horizon_steps") is not None:
+        unwrapped._path_episode_horizon_steps = torch.clamp(
+            unwrapped._path_episode_horizon_steps,
+            min=int(required_steps),
+        )
 
 
 def _configure_env(args: argparse.Namespace):
@@ -356,6 +363,14 @@ def _configure_env(args: argparse.Namespace):
         env_cfg.episode_length_s = float(args.episode_length_s)
     else:
         env_cfg.episode_length_s = max(float(env_cfg.episode_length_s), float(args.steps) * env_step_dt + 1.0)
+    if hasattr(env_cfg, "path_episode_max_s"):
+        # This script is an evaluation / debugging rollout, not a training episode:
+        # keep the path-specific timeout uncapped and let the outer script control rollout length.
+        env_cfg.path_episode_max_s = 0.0
+    if hasattr(env_cfg, "completion_ratio"):
+        # Avoid the env sending a "completed -> truncated" signal around the training threshold
+        # before the outer logger reaches its own completion criterion.
+        env_cfg.completion_ratio = max(float(env_cfg.completion_ratio), 1.001)
 
     env_cfg.teacher_guidance_enabled = True
     env_cfg.teacher_guidance_delta_init = 0.0
