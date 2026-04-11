@@ -188,7 +188,21 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--teacher_tecs_load_factor_pitch_compensation_gain", type=float, default=None)
     parser.add_argument("--teacher_pitch_kp", type=float, default=None)
+    parser.add_argument("--teacher_roll_kp", type=float, default=None)
+    parser.add_argument("--teacher_roll_kd", type=float, default=None)
+    parser.add_argument("--teacher_max_roll_deg", type=float, default=None)
+    parser.add_argument("--teacher_guidance_period_s", type=float, default=None)
+    parser.add_argument("--teacher_guidance_damping", type=float, default=None)
+    parser.add_argument("--teacher_guidance_roll_time_const_s", type=float, default=None)
+    parser.add_argument("--teacher_heading_p_gain", type=float, default=None)
     parser.add_argument("--teacher_inner_pitch_ki", type=float, default=None)
+    parser.add_argument(
+        "--teacher_inner_pitch_cycle_mean_enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    parser.add_argument("--teacher_inner_pitch_cycle_mean_tau_s", type=float, default=None)
+    parser.add_argument("--teacher_inner_pitch_rate_cycle_mean_tau_s", type=float, default=None)
     parser.add_argument(
         "--teacher_use_tecs_bank_aware_speed_sp",
         action=argparse.BooleanOptionalAction,
@@ -404,8 +418,37 @@ def _configure_env(args: argparse.Namespace):
         )
     if hasattr(env_cfg, "teacher_pitch_kp") and args.teacher_pitch_kp is not None:
         env_cfg.teacher_pitch_kp = float(args.teacher_pitch_kp)
+    if hasattr(env_cfg, "teacher_roll_kp") and args.teacher_roll_kp is not None:
+        env_cfg.teacher_roll_kp = float(args.teacher_roll_kp)
+    if hasattr(env_cfg, "teacher_roll_kd") and args.teacher_roll_kd is not None:
+        env_cfg.teacher_roll_kd = float(args.teacher_roll_kd)
+    if hasattr(env_cfg, "teacher_max_roll_deg") and args.teacher_max_roll_deg is not None:
+        env_cfg.teacher_max_roll_deg = float(args.teacher_max_roll_deg)
+    if hasattr(env_cfg, "teacher_guidance_period_s") and args.teacher_guidance_period_s is not None:
+        env_cfg.teacher_guidance_period_s = float(args.teacher_guidance_period_s)
+    if hasattr(env_cfg, "teacher_guidance_damping") and args.teacher_guidance_damping is not None:
+        env_cfg.teacher_guidance_damping = float(args.teacher_guidance_damping)
+    if hasattr(env_cfg, "teacher_guidance_roll_time_const_s") and args.teacher_guidance_roll_time_const_s is not None:
+        env_cfg.teacher_guidance_roll_time_const_s = float(args.teacher_guidance_roll_time_const_s)
+    if hasattr(env_cfg, "teacher_heading_p_gain") and args.teacher_heading_p_gain is not None:
+        env_cfg.teacher_heading_p_gain = float(args.teacher_heading_p_gain)
     if hasattr(env_cfg, "teacher_inner_pitch_ki") and args.teacher_inner_pitch_ki is not None:
         env_cfg.teacher_inner_pitch_ki = float(args.teacher_inner_pitch_ki)
+    if (
+        hasattr(env_cfg, "teacher_inner_pitch_cycle_mean_enabled")
+        and args.teacher_inner_pitch_cycle_mean_enabled is not None
+    ):
+        env_cfg.teacher_inner_pitch_cycle_mean_enabled = bool(args.teacher_inner_pitch_cycle_mean_enabled)
+    if (
+        hasattr(env_cfg, "teacher_inner_pitch_cycle_mean_tau_s")
+        and args.teacher_inner_pitch_cycle_mean_tau_s is not None
+    ):
+        env_cfg.teacher_inner_pitch_cycle_mean_tau_s = float(args.teacher_inner_pitch_cycle_mean_tau_s)
+    if (
+        hasattr(env_cfg, "teacher_inner_pitch_rate_cycle_mean_tau_s")
+        and args.teacher_inner_pitch_rate_cycle_mean_tau_s is not None
+    ):
+        env_cfg.teacher_inner_pitch_rate_cycle_mean_tau_s = float(args.teacher_inner_pitch_rate_cycle_mean_tau_s)
     if hasattr(env_cfg, "teacher_use_tecs_bank_aware_speed_sp") and args.teacher_use_tecs_bank_aware_speed_sp is not None:
         env_cfg.teacher_use_tecs_bank_aware_speed_sp = bool(args.teacher_use_tecs_bank_aware_speed_sp)
     if hasattr(env_cfg, "teacher_tecs_bank_aware_speed_scale") and args.teacher_tecs_bank_aware_speed_scale is not None:
@@ -831,6 +874,15 @@ def main() -> None:
                 "heading_sp_deg": float(torch.rad2deg(diag["heading_sp"][idx]).item()),
                 "roll_sp_deg": float(torch.rad2deg(diag["roll_sp"][idx]).item()),
                 "pitch_sp_deg": float(torch.rad2deg(diag["pitch_sp"][idx]).item()),
+                "pitch_meas_filt_deg": float(torch.rad2deg(diag["pitch_meas_filt"][idx]).item())
+                if "pitch_meas_filt" in diag
+                else float("nan"),
+                "pitch_rate_filt_dps": float(torch.rad2deg(diag["pitch_rate_filt"][idx]).item())
+                if "pitch_rate_filt" in diag
+                else float("nan"),
+                "pitch_err_filt_deg": float(torch.rad2deg(diag["pitch_err_filt"][idx]).item())
+                if "pitch_err_filt" in diag
+                else float("nan"),
                 "freq_hz": float(diag["freq_hz"][idx].item()),
                 "tecs_tas_sp": float(diag["tecs_tas_sp"][idx].item()) if "tecs_tas_sp" in diag else float("nan"),
                 "tecs_tas": float(diag["tecs_tas"][idx].item()) if "tecs_tas" in diag else float("nan"),
@@ -1019,7 +1071,23 @@ def main() -> None:
             getattr(env_cfg, "teacher_tecs_load_factor_pitch_compensation_gain", 0.0)
         ),
         "teacher_pitch_kp": float(getattr(env_cfg, "teacher_pitch_kp", 0.0)),
+        "teacher_roll_kp": float(getattr(env_cfg, "teacher_roll_kp", 4.5)),
+        "teacher_roll_kd": float(getattr(env_cfg, "teacher_roll_kd", 0.85)),
+        "teacher_max_roll_deg": float(getattr(env_cfg, "teacher_max_roll_deg", 45.0)),
+        "teacher_guidance_period_s": float(getattr(env_cfg, "teacher_guidance_period_s", 2.2)),
+        "teacher_guidance_damping": float(getattr(env_cfg, "teacher_guidance_damping", 0.7071)),
+        "teacher_guidance_roll_time_const_s": float(getattr(env_cfg, "teacher_guidance_roll_time_const_s", 0.18)),
+        "teacher_heading_p_gain": float(getattr(env_cfg, "teacher_heading_p_gain", 1.8)),
         "teacher_inner_pitch_ki": float(getattr(env_cfg, "teacher_inner_pitch_ki", 0.0)),
+        "teacher_inner_pitch_cycle_mean_enabled": bool(
+            getattr(env_cfg, "teacher_inner_pitch_cycle_mean_enabled", False)
+        ),
+        "teacher_inner_pitch_cycle_mean_tau_s": float(
+            getattr(env_cfg, "teacher_inner_pitch_cycle_mean_tau_s", 0.22)
+        ),
+        "teacher_inner_pitch_rate_cycle_mean_tau_s": float(
+            getattr(env_cfg, "teacher_inner_pitch_rate_cycle_mean_tau_s", 0.18)
+        ),
         "teacher_use_tecs_bank_aware_speed_sp": bool(getattr(env_cfg, "teacher_use_tecs_bank_aware_speed_sp", False)),
         "teacher_tecs_bank_aware_speed_scale": float(getattr(env_cfg, "teacher_tecs_bank_aware_speed_scale", 0.0)),
         "teacher_tecs_bank_aware_speed_clamp_mps": float(

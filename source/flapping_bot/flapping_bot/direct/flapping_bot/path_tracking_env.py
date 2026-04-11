@@ -195,6 +195,16 @@ except ModuleNotFoundError as exc:
         reset_forward_speed_mps: float | None = 8.0
         path_warmup_enabled: bool = False
         path_warmup_straight_length_m: float = 25.0
+        teacher_roll_kp: float = 4.5
+        teacher_roll_kd: float = 0.85
+        teacher_max_roll_deg: float = 45.0
+        teacher_guidance_period_s: float = 2.2
+        teacher_guidance_damping: float = 0.7071
+        teacher_guidance_roll_time_const_s: float = 0.18
+        teacher_heading_p_gain: float = 1.8
+        teacher_inner_pitch_cycle_mean_enabled: bool = True
+        teacher_inner_pitch_cycle_mean_tau_s: float = 0.30
+        teacher_inner_pitch_rate_cycle_mean_tau_s: float = 0.24
         teacher_tecs_altitude_hold_error_band_m: float = 0.05
         teacher_tecs_altitude_capture_error_m: float = 0.8
         teacher_tecs_altitude_capture_time_const_s: float = 0.45
@@ -258,7 +268,17 @@ else:
         teacher_tecs_load_factor_use_roll_sp: bool = True
         teacher_tecs_load_factor_pitch_compensation_gain: float = 0.75
         teacher_pitch_kp: float = 2.5
+        teacher_roll_kp: float = 4.5
+        teacher_roll_kd: float = 0.85
+        teacher_max_roll_deg: float = 45.0
+        teacher_guidance_period_s: float = 2.2
+        teacher_guidance_damping: float = 0.7071
+        teacher_guidance_roll_time_const_s: float = 0.18
+        teacher_heading_p_gain: float = 1.8
         teacher_inner_pitch_ki: float = 1.0
+        teacher_inner_pitch_cycle_mean_enabled: bool = True
+        teacher_inner_pitch_cycle_mean_tau_s: float = 0.30
+        teacher_inner_pitch_rate_cycle_mean_tau_s: float = 0.24
         teacher_use_tecs_bank_aware_speed_sp: bool = True
         teacher_tecs_bank_aware_speed_scale: float = 1.0
         teacher_tecs_bank_aware_speed_clamp_mps: float = 2.0
@@ -551,7 +571,19 @@ else:
                             self.cfg.teacher_tecs_load_factor_pitch_compensation_gain
                         ),
                         pitch_kp=float(self.cfg.teacher_pitch_kp),
+                        roll_kp=float(self.cfg.teacher_roll_kp),
+                        roll_kd=float(self.cfg.teacher_roll_kd),
+                        max_roll_deg=float(self.cfg.teacher_max_roll_deg),
+                        guidance_period_s=float(self.cfg.teacher_guidance_period_s),
+                        guidance_damping=float(self.cfg.teacher_guidance_damping),
+                        guidance_roll_time_const_s=float(self.cfg.teacher_guidance_roll_time_const_s),
+                        heading_p_gain=float(self.cfg.teacher_heading_p_gain),
                         inner_pitch_ki=float(self.cfg.teacher_inner_pitch_ki),
+                        inner_pitch_cycle_mean_enabled=bool(self.cfg.teacher_inner_pitch_cycle_mean_enabled),
+                        inner_pitch_cycle_mean_tau_s=float(self.cfg.teacher_inner_pitch_cycle_mean_tau_s),
+                        inner_pitch_rate_cycle_mean_tau_s=float(
+                            self.cfg.teacher_inner_pitch_rate_cycle_mean_tau_s
+                        ),
                         use_tecs_bank_aware_speed_sp=bool(self.cfg.teacher_use_tecs_bank_aware_speed_sp),
                         tecs_bank_aware_speed_scale=float(self.cfg.teacher_tecs_bank_aware_speed_scale),
                         tecs_bank_aware_speed_clamp_mps=float(self.cfg.teacher_tecs_bank_aware_speed_clamp_mps),

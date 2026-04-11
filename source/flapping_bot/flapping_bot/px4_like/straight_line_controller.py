@@ -38,8 +38,8 @@ class PX4LikeStraightLineControllerCfg:
     max_pitch_up_deg: float = 25.0
     max_pitch_down_deg: float = 20.0
 
-    roll_kp: float = 2.5
-    roll_kd: float = 0.35
+    roll_kp: float = 4.5
+    roll_kd: float = 0.85
     pitch_kp: float = 2.5
     pitch_kd: float = 0.16
     yaw_kp: float = 0.1
@@ -97,6 +97,9 @@ class PX4LikeStraightLineControllerCfg:
 
     inner_pitch_lpf_tau_s: float = 0.12
     inner_pitch_rate_lpf_tau_s: float = 0.1
+    inner_pitch_cycle_mean_enabled: bool = True
+    inner_pitch_cycle_mean_tau_s: float = 0.30
+    inner_pitch_rate_cycle_mean_tau_s: float = 0.24
     inner_pitch_tc_s: float = 0.35
     inner_pitch_rate_max_deg_s: float = 120.0
     inner_elevon_pitch_rate_limit_per_s: float = 2.0
@@ -115,10 +118,10 @@ class PX4LikeStraightLineControllerCfg:
     freq_height_kp_hz_per_m: float = 0.0
     freq_height_rate_kd_hz_per_mps: float = 0.0
 
-    guidance_period_s: float = 6.0
+    guidance_period_s: float = 2.2
     guidance_damping: float = 0.7071
-    guidance_roll_time_const_s: float = 0.25
-    heading_p_gain: float = 0.8885
+    guidance_roll_time_const_s: float = 0.18
+    heading_p_gain: float = 1.8
 
 
 class PX4LikeStraightLineController:
@@ -329,14 +332,24 @@ class PX4LikeStraightLineController:
         assert self._action_elevon_roll_prev is not None
         assert self._action_elevon_pitch_integ is not None
 
-        if float(self.cfg.inner_pitch_lpf_tau_s) > 0.0:
-            alpha_pitch = dt / (float(self.cfg.inner_pitch_lpf_tau_s) + dt)
+        pitch_filter_tau_s = (
+            float(self.cfg.inner_pitch_cycle_mean_tau_s)
+            if bool(self.cfg.inner_pitch_cycle_mean_enabled)
+            else float(self.cfg.inner_pitch_lpf_tau_s)
+        )
+        pitch_rate_filter_tau_s = (
+            float(self.cfg.inner_pitch_rate_cycle_mean_tau_s)
+            if bool(self.cfg.inner_pitch_cycle_mean_enabled)
+            else float(self.cfg.inner_pitch_rate_lpf_tau_s)
+        )
+        if pitch_filter_tau_s > 0.0:
+            alpha_pitch = dt / (pitch_filter_tau_s + dt)
             alpha_pitch = min(max(alpha_pitch, 0.0), 1.0)
             self._pitch_meas_filt = self._pitch_meas_filt + alpha_pitch * (pitch - self._pitch_meas_filt)
         else:
             self._pitch_meas_filt = pitch
-        if float(self.cfg.inner_pitch_rate_lpf_tau_s) > 0.0:
-            alpha_pitch_rate = dt / (float(self.cfg.inner_pitch_rate_lpf_tau_s) + dt)
+        if pitch_rate_filter_tau_s > 0.0:
+            alpha_pitch_rate = dt / (pitch_rate_filter_tau_s + dt)
             alpha_pitch_rate = min(max(alpha_pitch_rate, 0.0), 1.0)
             self._pitch_rate_filt = self._pitch_rate_filt + alpha_pitch_rate * (ang_vel_body[:, 1] - self._pitch_rate_filt)
         else:

@@ -285,6 +285,13 @@ def test_path_tracking_env_inherits_retuned_straight_height_recovery_tecs_defaul
     assert cfg.teacher_tecs_pitch_speed_weight_capture == 0.10
     assert cfg.teacher_tecs_capture_extra_climb_rate_mps == 1.4
     assert cfg.teacher_tecs_pitch_damping_gain == 0.26
+    assert cfg.teacher_guidance_period_s == 2.2
+    assert cfg.teacher_heading_p_gain == 1.8
+    assert cfg.teacher_roll_kp == 4.5
+    assert cfg.teacher_roll_kd == 0.85
+    assert cfg.teacher_inner_pitch_cycle_mean_enabled is True
+    assert cfg.teacher_inner_pitch_cycle_mean_tau_s == 0.30
+    assert cfg.teacher_inner_pitch_rate_cycle_mean_tau_s == 0.24
 
 
 def test_straight_flight_env_uses_root_com_for_wing_wrench_reference() -> None:
@@ -444,7 +451,17 @@ def test_path_tracking_teacher_passes_tecs_load_factor_cfg_to_controller() -> No
         "tecs_load_factor_use_roll_sp": "teacher_tecs_load_factor_use_roll_sp",
         "load_factor_pitch_compensation_gain": "teacher_tecs_load_factor_pitch_compensation_gain",
         "pitch_kp": "teacher_pitch_kp",
+        "roll_kp": "teacher_roll_kp",
+        "roll_kd": "teacher_roll_kd",
+        "max_roll_deg": "teacher_max_roll_deg",
+        "guidance_period_s": "teacher_guidance_period_s",
+        "guidance_damping": "teacher_guidance_damping",
+        "guidance_roll_time_const_s": "teacher_guidance_roll_time_const_s",
+        "heading_p_gain": "teacher_heading_p_gain",
         "inner_pitch_ki": "teacher_inner_pitch_ki",
+        "inner_pitch_cycle_mean_enabled": "teacher_inner_pitch_cycle_mean_enabled",
+        "inner_pitch_cycle_mean_tau_s": "teacher_inner_pitch_cycle_mean_tau_s",
+        "inner_pitch_rate_cycle_mean_tau_s": "teacher_inner_pitch_rate_cycle_mean_tau_s",
         "use_tecs_bank_aware_speed_sp": "teacher_use_tecs_bank_aware_speed_sp",
         "tecs_bank_aware_speed_scale": "teacher_tecs_bank_aware_speed_scale",
         "tecs_bank_aware_speed_clamp_mps": "teacher_tecs_bank_aware_speed_clamp_mps",

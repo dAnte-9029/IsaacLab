@@ -158,8 +158,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max_pitch_up_deg", type=float, default=25.0)
     parser.add_argument("--max_pitch_down_deg", type=float, default=20.0)
     parser.add_argument("--max_roll_deg", type=float, default=45.0)
-    parser.add_argument("--roll_kp", type=float, default=2.5)
-    parser.add_argument("--roll_kd", type=float, default=0.35)
+    parser.add_argument("--roll_kp", type=float, default=4.5)
+    parser.add_argument("--roll_kd", type=float, default=0.85)
     parser.add_argument("--pitch_kp", type=float, default=2.5)
     parser.add_argument("--pitch_kd", type=float, default=0.16)
     parser.add_argument("--yaw_kp", type=float, default=0.1)
@@ -200,6 +200,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--tecs_capture_extra_sink_rate_mps", type=float, default=0.2)
     parser.add_argument("--inner_pitch_lpf_tau_s", type=float, default=0.12)
     parser.add_argument("--inner_pitch_rate_lpf_tau_s", type=float, default=0.1)
+    parser.add_argument("--inner_pitch_cycle_mean_enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--inner_pitch_cycle_mean_tau_s", type=float, default=0.30)
+    parser.add_argument("--inner_pitch_rate_cycle_mean_tau_s", type=float, default=0.24)
     parser.add_argument("--inner_elevon_pitch_rate_limit_per_s", type=float, default=2.0)
     parser.add_argument("--inner_elevon_roll_rate_limit_per_s", type=float, default=6.0)
     parser.add_argument("--inner_pitch_ki", type=float, default=0.8)
@@ -462,6 +465,9 @@ def main():
         tecs_capture_extra_sink_rate_mps=float(args.tecs_capture_extra_sink_rate_mps),
         inner_pitch_lpf_tau_s=float(args.inner_pitch_lpf_tau_s),
         inner_pitch_rate_lpf_tau_s=float(args.inner_pitch_rate_lpf_tau_s),
+        inner_pitch_cycle_mean_enabled=bool(args.inner_pitch_cycle_mean_enabled),
+        inner_pitch_cycle_mean_tau_s=float(args.inner_pitch_cycle_mean_tau_s),
+        inner_pitch_rate_cycle_mean_tau_s=float(args.inner_pitch_rate_cycle_mean_tau_s),
         inner_elevon_pitch_rate_limit_per_s=float(args.inner_elevon_pitch_rate_limit_per_s),
         inner_elevon_roll_rate_limit_per_s=float(args.inner_elevon_roll_rate_limit_per_s),
         inner_pitch_ki=float(args.inner_pitch_ki),

@@ -97,14 +97,24 @@ class PX4LikePathTrackingController(PX4LikeStraightLineController):
         assert self._action_elevon_roll_prev is not None
         assert self._action_elevon_pitch_integ is not None
 
-        if float(self.cfg.inner_pitch_lpf_tau_s) > 0.0:
-            alpha_pitch = dt / (float(self.cfg.inner_pitch_lpf_tau_s) + dt)
+        pitch_filter_tau_s = (
+            float(self.cfg.inner_pitch_cycle_mean_tau_s)
+            if bool(self.cfg.inner_pitch_cycle_mean_enabled)
+            else float(self.cfg.inner_pitch_lpf_tau_s)
+        )
+        pitch_rate_filter_tau_s = (
+            float(self.cfg.inner_pitch_rate_cycle_mean_tau_s)
+            if bool(self.cfg.inner_pitch_cycle_mean_enabled)
+            else float(self.cfg.inner_pitch_rate_lpf_tau_s)
+        )
+        if pitch_filter_tau_s > 0.0:
+            alpha_pitch = dt / (pitch_filter_tau_s + dt)
             alpha_pitch = min(max(alpha_pitch, 0.0), 1.0)
             self._pitch_meas_filt = self._pitch_meas_filt + alpha_pitch * (pitch - self._pitch_meas_filt)
         else:
             self._pitch_meas_filt = pitch
-        if float(self.cfg.inner_pitch_rate_lpf_tau_s) > 0.0:
-            alpha_pitch_rate = dt / (float(self.cfg.inner_pitch_rate_lpf_tau_s) + dt)
+        if pitch_rate_filter_tau_s > 0.0:
+            alpha_pitch_rate = dt / (pitch_rate_filter_tau_s + dt)
             alpha_pitch_rate = min(max(alpha_pitch_rate, 0.0), 1.0)
             self._pitch_rate_filt = self._pitch_rate_filt + alpha_pitch_rate * (ang_vel_body[:, 1] - self._pitch_rate_filt)
         else:

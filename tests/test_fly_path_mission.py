@@ -156,6 +156,15 @@ def test_path_mission_logger_does_not_call_stateful_teacher_controller_directly(
     assert direct_teacher_calls == []
 
 
+def test_path_mission_logs_inner_pitch_filter_diagnostics() -> None:
+    module = _fly_path_mission_module_ast()
+    string_constants = {node.value for node in ast.walk(module) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+
+    assert "pitch_meas_filt_deg" in string_constants
+    assert "pitch_rate_filt_dps" in string_constants
+    assert "pitch_err_filt_deg" in string_constants
+
+
 def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
     parser = build_path_mission_parser()
     args = parser.parse_args(
@@ -164,8 +173,27 @@ def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
             "level_turn",
             "--teacher_pitch_kp",
             "2.8",
+            "--teacher_roll_kp",
+            "3.0",
+            "--teacher_roll_kd",
+            "0.45",
+            "--teacher_max_roll_deg",
+            "42.0",
+            "--teacher_guidance_period_s",
+            "4.2",
+            "--teacher_guidance_damping",
+            "0.8",
+            "--teacher_guidance_roll_time_const_s",
+            "0.2",
+            "--teacher_heading_p_gain",
+            "1.2",
             "--teacher_inner_pitch_ki",
             "1.0",
+            "--teacher_inner_pitch_cycle_mean_enabled",
+            "--teacher_inner_pitch_cycle_mean_tau_s",
+            "0.30",
+            "--teacher_inner_pitch_rate_cycle_mean_tau_s",
+            "0.24",
             "--teacher_tecs_roll_throttle_compensation",
             "2.5",
             "--teacher_tecs_load_factor_clamp_max",
@@ -214,7 +242,17 @@ def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
     )
 
     assert args.teacher_pitch_kp == pytest.approx(2.8)
+    assert args.teacher_roll_kp == pytest.approx(3.0)
+    assert args.teacher_roll_kd == pytest.approx(0.45)
+    assert args.teacher_max_roll_deg == pytest.approx(42.0)
+    assert args.teacher_guidance_period_s == pytest.approx(4.2)
+    assert args.teacher_guidance_damping == pytest.approx(0.8)
+    assert args.teacher_guidance_roll_time_const_s == pytest.approx(0.2)
+    assert args.teacher_heading_p_gain == pytest.approx(1.2)
     assert args.teacher_inner_pitch_ki == pytest.approx(1.0)
+    assert args.teacher_inner_pitch_cycle_mean_enabled is True
+    assert args.teacher_inner_pitch_cycle_mean_tau_s == pytest.approx(0.30)
+    assert args.teacher_inner_pitch_rate_cycle_mean_tau_s == pytest.approx(0.24)
     assert args.teacher_tecs_roll_throttle_compensation == pytest.approx(2.5)
     assert args.teacher_tecs_load_factor_clamp_max == pytest.approx(3.0)
     assert args.teacher_tecs_load_factor_pitch_compensation_gain == pytest.approx(0.4)
@@ -360,7 +398,17 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
         teacher_tecs_load_factor_use_roll_sp=True,
         teacher_tecs_load_factor_pitch_compensation_gain=0.75,
         teacher_pitch_kp=2.5,
+        teacher_roll_kp=2.5,
+        teacher_roll_kd=0.35,
+        teacher_max_roll_deg=45.0,
+        teacher_guidance_period_s=6.0,
+        teacher_guidance_damping=0.7071,
+        teacher_guidance_roll_time_const_s=0.25,
+        teacher_heading_p_gain=0.8885,
         teacher_inner_pitch_ki=0.9,
+        teacher_inner_pitch_cycle_mean_enabled=False,
+        teacher_inner_pitch_cycle_mean_tau_s=0.22,
+        teacher_inner_pitch_rate_cycle_mean_tau_s=0.18,
         teacher_use_tecs_bank_aware_speed_sp=False,
         teacher_tecs_bank_aware_speed_scale=0.0,
         teacher_tecs_bank_aware_speed_clamp_mps=0.0,
@@ -419,7 +467,17 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
         teacher_tecs_load_factor_use_roll_sp=False,
         teacher_tecs_load_factor_pitch_compensation_gain=0.4,
         teacher_pitch_kp=2.8,
+        teacher_roll_kp=3.0,
+        teacher_roll_kd=0.45,
+        teacher_max_roll_deg=42.0,
+        teacher_guidance_period_s=4.2,
+        teacher_guidance_damping=0.8,
+        teacher_guidance_roll_time_const_s=0.2,
+        teacher_heading_p_gain=1.2,
         teacher_inner_pitch_ki=1.0,
+        teacher_inner_pitch_cycle_mean_enabled=True,
+        teacher_inner_pitch_cycle_mean_tau_s=0.30,
+        teacher_inner_pitch_rate_cycle_mean_tau_s=0.24,
         teacher_use_tecs_bank_aware_speed_sp=True,
         teacher_tecs_bank_aware_speed_scale=0.75,
         teacher_tecs_bank_aware_speed_clamp_mps=1.5,
@@ -452,7 +510,17 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
     assert configured_env_cfg.teacher_tecs_load_factor_use_roll_sp is False
     assert configured_env_cfg.teacher_tecs_load_factor_pitch_compensation_gain == pytest.approx(0.4)
     assert configured_env_cfg.teacher_pitch_kp == pytest.approx(2.8)
+    assert configured_env_cfg.teacher_roll_kp == pytest.approx(3.0)
+    assert configured_env_cfg.teacher_roll_kd == pytest.approx(0.45)
+    assert configured_env_cfg.teacher_max_roll_deg == pytest.approx(42.0)
+    assert configured_env_cfg.teacher_guidance_period_s == pytest.approx(4.2)
+    assert configured_env_cfg.teacher_guidance_damping == pytest.approx(0.8)
+    assert configured_env_cfg.teacher_guidance_roll_time_const_s == pytest.approx(0.2)
+    assert configured_env_cfg.teacher_heading_p_gain == pytest.approx(1.2)
     assert configured_env_cfg.teacher_inner_pitch_ki == pytest.approx(1.0)
+    assert configured_env_cfg.teacher_inner_pitch_cycle_mean_enabled is True
+    assert configured_env_cfg.teacher_inner_pitch_cycle_mean_tau_s == pytest.approx(0.30)
+    assert configured_env_cfg.teacher_inner_pitch_rate_cycle_mean_tau_s == pytest.approx(0.24)
     assert configured_env_cfg.teacher_use_tecs_bank_aware_speed_sp is True
     assert configured_env_cfg.teacher_tecs_bank_aware_speed_scale == pytest.approx(0.75)
     assert configured_env_cfg.teacher_tecs_bank_aware_speed_clamp_mps == pytest.approx(1.5)

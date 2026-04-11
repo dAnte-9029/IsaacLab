@@ -1,9 +1,72 @@
+import math
+
 import torch
 
 from flapping_bot.px4_like.path_tracking_controller import (
     PX4LikePathTrackingController,
     PX4LikePathTrackingControllerCfg,
 )
+
+
+def _path_query() -> dict[str, torch.Tensor]:
+    return {
+        "closest_point_xyz": torch.zeros((1, 3)),
+        "tangent_xy": torch.tensor([[1.0, 0.0]]),
+        "curvature_m_inv": torch.zeros((1,)),
+        "height_sp_m": torch.tensor([10.0]),
+        "progress_s": torch.zeros((1,)),
+        "preview_points_xyz": torch.zeros((1, 5, 3)),
+    }
+
+
+def _path_tracking_pitch_measurement_ripple_std(cfg: PX4LikePathTrackingControllerCfg) -> float:
+    controller = PX4LikePathTrackingController(cfg, device=torch.device("cpu"))
+    dt = float(cfg.control_dt_s)
+    samples: list[float] = []
+
+    for step in range(360):
+        t = step * dt
+        pitch = -math.radians(12.0) + math.radians(4.0) * math.sin(2.0 * math.pi * 5.0 * t)
+        pitch_rate = math.radians(4.0) * 2.0 * math.pi * 5.0 * math.cos(2.0 * math.pi * 5.0 * t)
+        _, diag = controller.compute_actions_from_query(
+            path_query=_path_query(),
+            pos_local=torch.tensor([[8.0 * t, 0.0, 10.0]], dtype=torch.float32),
+            ground_vel_local=torch.tensor([[8.0, 0.0, 0.0]], dtype=torch.float32),
+            wind_vel_local=torch.zeros((1, 2), dtype=torch.float32),
+            roll=torch.tensor([0.0], dtype=torch.float32),
+            pitch=torch.tensor([pitch], dtype=torch.float32),
+            yaw=torch.tensor([0.0], dtype=torch.float32),
+            ang_vel_body=torch.tensor([[0.0, pitch_rate, 0.0]], dtype=torch.float32),
+        )
+        if step >= 120:
+            samples.append(float(diag["pitch_meas_filt"][0]))
+
+    mean = sum(samples) / len(samples)
+    return math.sqrt(sum((sample - mean) ** 2 for sample in samples) / len(samples))
+
+
+def test_path_tracking_inner_pitch_cycle_mean_filter_rejects_flap_period_ripple() -> None:
+    fast_cfg = PX4LikePathTrackingControllerCfg(
+        enable_tecs=False,
+        inner_pitch_lpf_tau_s=0.02,
+        inner_pitch_rate_lpf_tau_s=0.02,
+        inner_pitch_cycle_mean_enabled=False,
+        inner_pitch_ki=0.0,
+    )
+    cycle_mean_cfg = PX4LikePathTrackingControllerCfg(
+        enable_tecs=False,
+        inner_pitch_lpf_tau_s=0.02,
+        inner_pitch_rate_lpf_tau_s=0.02,
+        inner_pitch_cycle_mean_enabled=True,
+        inner_pitch_cycle_mean_tau_s=0.30,
+        inner_pitch_rate_cycle_mean_tau_s=0.24,
+        inner_pitch_ki=0.0,
+    )
+
+    fast_std = _path_tracking_pitch_measurement_ripple_std(fast_cfg)
+    cycle_mean_std = _path_tracking_pitch_measurement_ripple_std(cycle_mean_cfg)
+
+    assert cycle_mean_std < 0.35 * fast_std
 
 
 def test_generic_controller_returns_four_actions():
