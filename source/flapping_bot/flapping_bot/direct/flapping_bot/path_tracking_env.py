@@ -195,6 +195,15 @@ except ModuleNotFoundError as exc:
         reset_forward_speed_mps: float | None = 8.0
         path_warmup_enabled: bool = False
         path_warmup_straight_length_m: float = 25.0
+        teacher_tecs_altitude_hold_error_band_m: float = 0.05
+        teacher_tecs_altitude_capture_error_m: float = 0.8
+        teacher_tecs_altitude_capture_time_const_s: float = 0.65
+        teacher_tecs_altitude_error_gain: float = 1.8
+        teacher_tecs_pitch_speed_weight: float = 0.5
+        teacher_tecs_pitch_speed_weight_capture: float = 0.25
+        teacher_tecs_capture_extra_climb_rate_mps: float = 1.0
+        teacher_tecs_capture_extra_sink_rate_mps: float = 0.2
+        teacher_tecs_pitch_damping_gain: float = 0.16
 
 
     class FlappingBotPathTrackingWeakTeacherRLEnvCfg(FlappingBotPathTrackingEnvCfg):
@@ -256,6 +265,15 @@ else:
         teacher_tecs_bank_aware_min_airspeed_mps: float = 8.0
         teacher_tecs_bank_aware_min_airspeed_scale: float = 1.0
         teacher_tecs_bank_aware_min_airspeed_clamp_mps: float = 2.0
+        teacher_tecs_altitude_hold_error_band_m: float = 0.05
+        teacher_tecs_altitude_capture_error_m: float = 0.8
+        teacher_tecs_altitude_capture_time_const_s: float = 0.65
+        teacher_tecs_altitude_error_gain: float = 1.8
+        teacher_tecs_pitch_speed_weight: float = 0.5
+        teacher_tecs_pitch_speed_weight_capture: float = 0.25
+        teacher_tecs_capture_extra_climb_rate_mps: float = 1.0
+        teacher_tecs_capture_extra_sink_rate_mps: float = 0.2
+        teacher_tecs_pitch_damping_gain: float = 0.16
         tail_horizontal_tail_incidence_bias_deg: float = 0.0
         tail_fixed_horizontal_effectiveness: float = 0.5
         tail_elevon_effectiveness: float = 1.2
@@ -537,6 +555,23 @@ else:
                         tecs_bank_aware_min_airspeed_clamp_mps=float(
                             self.cfg.teacher_tecs_bank_aware_min_airspeed_clamp_mps
                         ),
+                        tecs_altitude_hold_error_band_m=float(
+                            self.cfg.teacher_tecs_altitude_hold_error_band_m
+                        ),
+                        tecs_altitude_capture_error_m=float(self.cfg.teacher_tecs_altitude_capture_error_m),
+                        tecs_altitude_capture_time_const_s=float(
+                            self.cfg.teacher_tecs_altitude_capture_time_const_s
+                        ),
+                        tecs_altitude_error_gain=float(self.cfg.teacher_tecs_altitude_error_gain),
+                        tecs_pitch_speed_weight=float(self.cfg.teacher_tecs_pitch_speed_weight),
+                        tecs_pitch_speed_weight_capture=float(self.cfg.teacher_tecs_pitch_speed_weight_capture),
+                        tecs_capture_extra_climb_rate_mps=float(
+                            self.cfg.teacher_tecs_capture_extra_climb_rate_mps
+                        ),
+                        tecs_capture_extra_sink_rate_mps=float(
+                            self.cfg.teacher_tecs_capture_extra_sink_rate_mps
+                        ),
+                        tecs_pitch_damping_gain=float(self.cfg.teacher_tecs_pitch_damping_gain),
                         initial_elevon_pitch_action=float(self.cfg.reset_elevon_pitch_deg)
                         / max(float(self.cfg.elevon_max_deg), 1.0e-6),
                         initial_elevon_roll_action=float(self.cfg.reset_elevon_roll_deg)
