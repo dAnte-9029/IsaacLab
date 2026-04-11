@@ -142,6 +142,20 @@ def test_finalize_rollout_metrics_uses_completion_trigger_step_progress() -> Non
     assert completed_path is True
 
 
+def test_path_mission_logger_does_not_call_stateful_teacher_controller_directly() -> None:
+    module = _fly_path_mission_module_ast()
+
+    direct_teacher_calls = [
+        node
+        for node in ast.walk(module)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_compute_teacher_actions"
+    ]
+
+    assert direct_teacher_calls == []
+
+
 def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
     parser = build_path_mission_parser()
     args = parser.parse_args(

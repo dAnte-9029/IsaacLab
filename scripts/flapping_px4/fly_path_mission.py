@@ -665,26 +665,50 @@ def main() -> None:
         progress_s = unwrapped._path_progress_s.clone()
         height_sp_m = unwrapped._path_height_sp_m.clone()
 
-        actions, diag = unwrapped._compute_teacher_actions()
-        _, rewards, terminated, truncated, _ = env.step(actions)
+        # Let the environment compute the stateful PX4-like teacher exactly once inside env.step().
+        # With teacher_guidance_delta=0 this dummy policy action is ignored by both envelope and residual modes.
+        policy_actions = torch.zeros_like(unwrapped._actions)
+        _, rewards, terminated, truncated, _ = env.step(policy_actions)
         done = terminated | truncated
 
-        act_cmd = unwrapped._act_cmd.clone() if getattr(unwrapped, "_act_cmd", None) is not None else actions.clone()
-        exec_freq_hz = unwrapped._freq.clone() if getattr(unwrapped, "_freq", None) is not None else torch.full_like(
-            actions[:, 0], float("nan")
+        actions = (
+            unwrapped._debug_last_teacher_actions.clone()
+            if getattr(unwrapped, "_debug_last_teacher_actions", None) is not None
+            else policy_actions.clone()
+        )
+        diag = getattr(unwrapped, "_debug_last_teacher_diag", {})
+        act_cmd = (
+            unwrapped._debug_last_exec_action.clone()
+            if getattr(unwrapped, "_debug_last_exec_action", None) is not None
+            else unwrapped._act_cmd.clone()
+            if getattr(unwrapped, "_act_cmd", None) is not None
+            else actions.clone()
+        )
+        exec_freq_hz = (
+            unwrapped._debug_last_exec_freq_hz.clone()
+            if getattr(unwrapped, "_debug_last_exec_freq_hz", None) is not None
+            else unwrapped._freq.clone()
+            if getattr(unwrapped, "_freq", None) is not None
+            else torch.full_like(actions[:, 0], float("nan"))
         )
         exec_rudder_rad = (
-            unwrapped._rudder_cmd.clone()
+            unwrapped._debug_last_exec_rudder_rad.clone()
+            if getattr(unwrapped, "_debug_last_exec_rudder_rad", None) is not None
+            else unwrapped._rudder_cmd.clone()
             if getattr(unwrapped, "_rudder_cmd", None) is not None
             else torch.full_like(actions[:, 0], float("nan"))
         )
         exec_left_elevon_rad = (
-            unwrapped._left_elevon_cmd.clone()
+            unwrapped._debug_last_exec_left_elevon_rad.clone()
+            if getattr(unwrapped, "_debug_last_exec_left_elevon_rad", None) is not None
+            else unwrapped._left_elevon_cmd.clone()
             if getattr(unwrapped, "_left_elevon_cmd", None) is not None
             else torch.full_like(actions[:, 0], float("nan"))
         )
         exec_right_elevon_rad = (
-            unwrapped._right_elevon_cmd.clone()
+            unwrapped._debug_last_exec_right_elevon_rad.clone()
+            if getattr(unwrapped, "_debug_last_exec_right_elevon_rad", None) is not None
+            else unwrapped._right_elevon_cmd.clone()
             if getattr(unwrapped, "_right_elevon_cmd", None) is not None
             else torch.full_like(actions[:, 0], float("nan"))
         )

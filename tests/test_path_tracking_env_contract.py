@@ -338,6 +338,38 @@ def test_straight_flight_env_uses_wing_equivalent_ac_application_point_cache() -
     )
 
 
+def test_straight_flight_env_caches_teacher_diag_and_exec_action_for_rollout_logging() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "straight_flight_env.py"
+        ).read_text()
+    )
+
+    pre_physics = None
+    for node in ast.walk(module):
+        if isinstance(node, ast.FunctionDef) and node.name == "_pre_physics_step":
+            pre_physics = node
+            break
+
+    assert pre_physics is not None
+    attrs = {
+        node.attr
+        for node in ast.walk(pre_physics)
+        if isinstance(node, ast.Attribute)
+    }
+
+    assert "_debug_last_teacher_diag" in attrs
+    assert "_debug_last_teacher_actions" in attrs
+    assert "_debug_last_exec_action" in attrs
+    assert "_debug_last_exec_freq_hz" in attrs
+
+
 def test_straight_flight_env_passes_base_com_pos_to_tail_wrench() -> None:
     module = ast.parse(
         (

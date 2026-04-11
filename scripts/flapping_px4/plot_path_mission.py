@@ -20,6 +20,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--traj_csv", type=Path, default=None, help="Path to trajectory_env0.csv.")
     parser.add_argument("--out", type=Path, default=None, help="Output PNG path (default: <run_dir>/plots.png).")
     parser.add_argument("--dpi", type=int, default=160)
+    parser.add_argument(
+        "--ground_track_y_zoom_margin_m",
+        type=float,
+        default=2.0,
+        help="Y-axis margin for nearly straight ground tracks; set negative to disable.",
+    )
     return parser.parse_args()
 
 
@@ -113,12 +119,6 @@ def main() -> None:
     ax_wind = axs[2, 1]
 
     ax_alt.plot(t, z, label="z (m)")
-    if _has_finite(ref_z):
-        ax_alt.plot(
-            [ref_rows[min(int(i * (len(ref_rows) - 1) / max(len(t) - 1, 1)), len(ref_rows) - 1)]["progress_s"] for i in range(len(t))],
-            [ref_z[min(int(i * (len(ref_z) - 1) / max(len(t) - 1, 1)), len(ref_z) - 1)] for i in range(len(t))],
-            alpha=0.0,
-        )
     ax_alt.axhline(height_sp, color="k", linestyle="--", linewidth=1.0, alpha=0.6, label="height_sp")
     ax_alt.set_title("Altitude")
     ax_alt.set_ylabel("m")
@@ -177,6 +177,17 @@ def main() -> None:
     ax_path.set_ylabel("y (m)")
     ax_path.grid(True, alpha=0.3)
     ax_path.set_aspect("equal", adjustable="box")
+    x_finite = [v for v in x if v == v]
+    y_finite = [v for v in y if v == v]
+    if x_finite and y_finite and float(args.ground_track_y_zoom_margin_m) >= 0.0:
+        x_span = max(x_finite) - min(x_finite)
+        y_span = max(y_finite) - min(y_finite)
+        if x_span > 1.0 and y_span < 0.08 * x_span:
+            y_mid = 0.5 * (min(y_finite) + max(y_finite))
+            y_margin = max(float(args.ground_track_y_zoom_margin_m), 0.5 * y_span, 0.5)
+            ax_path.set_aspect("auto", adjustable="box")
+            ax_path.set_ylim(y_mid - y_margin, y_mid + y_margin)
+            ax_path.text(0.02, 0.86, "y-axis zoomed", transform=ax_path.transAxes, va="top", fontsize=8)
     ax_path.text(
         0.02,
         0.96,
@@ -206,7 +217,11 @@ def main() -> None:
         for axis in (ax_alt, ax_speed, ax_err, ax_ctrl, ax_wind):
             axis.axvline(warmup_s, color="tab:gray", linestyle="--", linewidth=1.0, alpha=0.8)
 
-    fig.suptitle(str(run_dir))
+    completed_path = bool(summary.get("completed_path", False))
+    failure_kind = summary.get("failure_kind")
+    final_progress = summary.get("final_progress_ratio", summary.get("progress_ratio_final", progress_ratio[-1]))
+    status = "completed" if completed_path else str(failure_kind or "running")
+    fig.suptitle(f"{run_dir} | {status} progress={float(final_progress):.3f}")
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=int(args.dpi))

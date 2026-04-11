@@ -409,6 +409,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._teacher_action_gap_abs: Tensor | None = None
         self._teacher_delta: float | Tensor = 0.0
         self._wind_curriculum_scale: float = 0.0
+        self._debug_last_teacher_actions: Tensor | None = None
+        self._debug_last_teacher_diag: dict[str, Tensor] = {}
+        self._debug_last_exec_action: Tensor | None = None
+        self._debug_last_exec_freq_hz: Tensor | None = None
+        self._debug_last_exec_rudder_rad: Tensor | None = None
+        self._debug_last_exec_left_elevon_rad: Tensor | None = None
+        self._debug_last_exec_right_elevon_rad: Tensor | None = None
 
         # indices
         self._IDX_LEFT_WING = None
@@ -471,6 +478,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._act_cmd = torch.zeros_like(self._actions)
         self._teacher_actions = torch.zeros_like(self._actions)
         self._teacher_action_gap_abs = torch.zeros_like(self._actions)
+        self._debug_last_teacher_actions = torch.zeros_like(self._actions)
+        self._debug_last_exec_action = torch.zeros_like(self._actions)
+        self._debug_last_exec_freq_hz = torch.zeros(self.num_envs, device=self.device)
+        self._debug_last_exec_rudder_rad = torch.zeros(self.num_envs, device=self.device)
+        self._debug_last_exec_left_elevon_rad = torch.zeros(self.num_envs, device=self.device)
+        self._debug_last_exec_right_elevon_rad = torch.zeros(self.num_envs, device=self.device)
 
         # grouped frame history buffers (N, K, D)
         N = self.num_envs
@@ -820,6 +833,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         act_exec = self._actions
         teacher_active = self._teacher_guidance_active()
         teacher_guidance_mode = resolve_teacher_guidance_mode(self.cfg.teacher_guidance_mode)
+        teacher_diag: dict[str, Tensor] = {}
         if teacher_active:
             self._teacher_delta = self._get_teacher_delta()
             teacher_actions, teacher_diag = self._compute_teacher_actions()
@@ -844,6 +858,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             teacher_requested_gap_abs = torch.zeros_like(self._teacher_action_gap_abs)
             teacher_exec_gap_abs = torch.zeros_like(self._teacher_action_gap_abs)
             teacher_freq_hz = float("nan")
+        if self._debug_last_teacher_actions is not None:
+            self._debug_last_teacher_actions.copy_(self._teacher_actions)
+        self._debug_last_teacher_diag = {
+            key: value.detach().clone()
+            for key, value in teacher_diag.items()
+            if torch.is_tensor(value)
+        }
         # low-pass filter
         if self.cfg.act_lpf_tau_s > 0.0:
             alpha = float(self.step_dt) / (self.cfg.act_lpf_tau_s + float(self.step_dt))
@@ -900,6 +921,16 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         self._elevator_cmd = 0.5 * (self._left_elevon_cmd + self._right_elevon_cmd)
         self._roll_cmd = 0.5 * (self._left_elevon_cmd - self._right_elevon_cmd)
+        if self._debug_last_exec_action is not None:
+            self._debug_last_exec_action.copy_(self._act_cmd)
+        if self._debug_last_exec_freq_hz is not None:
+            self._debug_last_exec_freq_hz.copy_(self._freq)
+        if self._debug_last_exec_rudder_rad is not None:
+            self._debug_last_exec_rudder_rad.copy_(self._rudder_cmd)
+        if self._debug_last_exec_left_elevon_rad is not None:
+            self._debug_last_exec_left_elevon_rad.copy_(self._left_elevon_cmd)
+        if self._debug_last_exec_right_elevon_rad is not None:
+            self._debug_last_exec_right_elevon_rad.copy_(self._right_elevon_cmd)
 
     def _apply_action(self):
         # advance phase (per-physics step)
