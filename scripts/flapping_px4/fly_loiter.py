@@ -173,10 +173,10 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--tecs_max_climb_rate_mps", type=float, default=3.0)
     parser.add_argument("--tecs_min_sink_rate_mps", type=float, default=2.0)
-    parser.add_argument("--tecs_altitude_error_gain", type=float, default=1.8)
+    parser.add_argument("--tecs_altitude_error_gain", type=float, default=3.0)
     parser.add_argument("--tecs_airspeed_error_gain", type=float, default=0.8)
-    parser.add_argument("--tecs_pitch_speed_weight", type=float, default=0.5)
-    parser.add_argument("--tecs_pitch_damping_gain", type=float, default=0.16)
+    parser.add_argument("--tecs_pitch_speed_weight", type=float, default=0.35)
+    parser.add_argument("--tecs_pitch_damping_gain", type=float, default=0.26)
     parser.add_argument("--tecs_integrator_gain_pitch", type=float, default=0.12)
     parser.add_argument("--tecs_throttle_damping_gain", type=float, default=0.35)
     parser.add_argument("--tecs_integrator_gain_throttle", type=float, default=0.22)
@@ -190,10 +190,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--tecs_throttle_sp_filter_tau_s", type=float, default=0.25)
     parser.add_argument("--tecs_altitude_hold_error_band_m", type=float, default=0.05)
     parser.add_argument("--tecs_altitude_capture_error_m", type=float, default=0.8)
-    parser.add_argument("--tecs_altitude_capture_time_const_s", type=float, default=0.65)
+    parser.add_argument("--tecs_altitude_capture_time_const_s", type=float, default=0.45)
+    parser.add_argument("--tecs_altitude_capture_release_error_m", type=float, default=0.03)
+    parser.add_argument("--tecs_altitude_capture_release_time_s", type=float, default=0.35)
+    parser.add_argument("--tecs_altitude_capture_persistence_gain", type=float, default=1.0)
     parser.add_argument("--tecs_airspeed_error_gain_capture_scale", type=float, default=0.35)
-    parser.add_argument("--tecs_pitch_speed_weight_capture", type=float, default=0.25)
-    parser.add_argument("--tecs_capture_extra_climb_rate_mps", type=float, default=1.0)
+    parser.add_argument("--tecs_pitch_speed_weight_capture", type=float, default=0.10)
+    parser.add_argument("--tecs_capture_extra_climb_rate_mps", type=float, default=1.4)
     parser.add_argument("--tecs_capture_extra_sink_rate_mps", type=float, default=0.2)
     parser.add_argument("--inner_pitch_lpf_tau_s", type=float, default=0.12)
     parser.add_argument("--inner_pitch_rate_lpf_tau_s", type=float, default=0.1)
@@ -450,6 +453,9 @@ def main():
         tecs_altitude_hold_error_band_m=float(args.tecs_altitude_hold_error_band_m),
         tecs_altitude_capture_error_m=float(args.tecs_altitude_capture_error_m),
         tecs_altitude_capture_time_const_s=float(args.tecs_altitude_capture_time_const_s),
+        tecs_altitude_capture_release_error_m=float(args.tecs_altitude_capture_release_error_m),
+        tecs_altitude_capture_release_time_s=float(args.tecs_altitude_capture_release_time_s),
+        tecs_altitude_capture_persistence_gain=float(args.tecs_altitude_capture_persistence_gain),
         tecs_airspeed_error_gain_capture_scale=float(args.tecs_airspeed_error_gain_capture_scale),
         tecs_pitch_speed_weight_capture=float(args.tecs_pitch_speed_weight_capture),
         tecs_capture_extra_climb_rate_mps=float(args.tecs_capture_extra_climb_rate_mps),

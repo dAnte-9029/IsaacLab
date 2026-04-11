@@ -197,13 +197,16 @@ except ModuleNotFoundError as exc:
         path_warmup_straight_length_m: float = 25.0
         teacher_tecs_altitude_hold_error_band_m: float = 0.05
         teacher_tecs_altitude_capture_error_m: float = 0.8
-        teacher_tecs_altitude_capture_time_const_s: float = 0.65
-        teacher_tecs_altitude_error_gain: float = 1.8
-        teacher_tecs_pitch_speed_weight: float = 0.5
-        teacher_tecs_pitch_speed_weight_capture: float = 0.25
-        teacher_tecs_capture_extra_climb_rate_mps: float = 1.0
+        teacher_tecs_altitude_capture_time_const_s: float = 0.45
+        teacher_tecs_altitude_capture_release_error_m: float = 0.03
+        teacher_tecs_altitude_capture_release_time_s: float = 0.35
+        teacher_tecs_altitude_capture_persistence_gain: float = 1.0
+        teacher_tecs_altitude_error_gain: float = 3.0
+        teacher_tecs_pitch_speed_weight: float = 0.35
+        teacher_tecs_pitch_speed_weight_capture: float = 0.10
+        teacher_tecs_capture_extra_climb_rate_mps: float = 1.4
         teacher_tecs_capture_extra_sink_rate_mps: float = 0.2
-        teacher_tecs_pitch_damping_gain: float = 0.16
+        teacher_tecs_pitch_damping_gain: float = 0.26
 
 
     class FlappingBotPathTrackingWeakTeacherRLEnvCfg(FlappingBotPathTrackingEnvCfg):
@@ -267,13 +270,16 @@ else:
         teacher_tecs_bank_aware_min_airspeed_clamp_mps: float = 2.0
         teacher_tecs_altitude_hold_error_band_m: float = 0.05
         teacher_tecs_altitude_capture_error_m: float = 0.8
-        teacher_tecs_altitude_capture_time_const_s: float = 0.65
-        teacher_tecs_altitude_error_gain: float = 1.8
-        teacher_tecs_pitch_speed_weight: float = 0.5
-        teacher_tecs_pitch_speed_weight_capture: float = 0.25
-        teacher_tecs_capture_extra_climb_rate_mps: float = 1.0
+        teacher_tecs_altitude_capture_time_const_s: float = 0.45
+        teacher_tecs_altitude_capture_release_error_m: float = 0.03
+        teacher_tecs_altitude_capture_release_time_s: float = 0.35
+        teacher_tecs_altitude_capture_persistence_gain: float = 1.0
+        teacher_tecs_altitude_error_gain: float = 3.0
+        teacher_tecs_pitch_speed_weight: float = 0.35
+        teacher_tecs_pitch_speed_weight_capture: float = 0.10
+        teacher_tecs_capture_extra_climb_rate_mps: float = 1.4
         teacher_tecs_capture_extra_sink_rate_mps: float = 0.2
-        teacher_tecs_pitch_damping_gain: float = 0.16
+        teacher_tecs_pitch_damping_gain: float = 0.26
         tail_horizontal_tail_incidence_bias_deg: float = 0.0
         tail_fixed_horizontal_effectiveness: float = 0.5
         tail_elevon_effectiveness: float = 1.2
@@ -561,6 +567,15 @@ else:
                         tecs_altitude_capture_error_m=float(self.cfg.teacher_tecs_altitude_capture_error_m),
                         tecs_altitude_capture_time_const_s=float(
                             self.cfg.teacher_tecs_altitude_capture_time_const_s
+                        ),
+                        tecs_altitude_capture_release_error_m=float(
+                            self.cfg.teacher_tecs_altitude_capture_release_error_m
+                        ),
+                        tecs_altitude_capture_release_time_s=float(
+                            self.cfg.teacher_tecs_altitude_capture_release_time_s
+                        ),
+                        tecs_altitude_capture_persistence_gain=float(
+                            self.cfg.teacher_tecs_altitude_capture_persistence_gain
                         ),
                         tecs_altitude_error_gain=float(self.cfg.teacher_tecs_altitude_error_gain),
                         tecs_pitch_speed_weight=float(self.cfg.teacher_tecs_pitch_speed_weight),

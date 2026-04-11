@@ -79,6 +79,9 @@ class PX4LikeTECSCfg:
     altitude_hold_error_band_m: float = 0.25
     altitude_capture_error_m: float = 0.8
     altitude_capture_time_const_s: float = 1.0
+    altitude_capture_release_error_m: float = 0.03
+    altitude_capture_release_time_s: float = 0.4
+    altitude_capture_persistence_gain: float = 0.0
     airspeed_error_gain_capture_scale: float = 0.35
     pitch_speed_weight_capture: float = 0.35
     capture_extra_climb_rate_mps: float = 0.7
@@ -104,6 +107,8 @@ class PX4LikeTECS:
         self._altitude_filt: Tensor | None = None
         self._altitude_rate_filt: Tensor | None = None
         self._ratio_underspeed: Tensor | None = None
+        self._capture_active: Tensor | None = None
+        self._capture_release_timer_s: Tensor | None = None
 
     def _ensure_state(self, batch_size: int, dtype: torch.dtype) -> None:
         if self._initialized and self._pitch_sp is not None and self._pitch_sp.numel() == batch_size:
@@ -123,6 +128,8 @@ class PX4LikeTECS:
         self._altitude_filt = torch.full((batch_size,), float(self.cfg.height_sp_m), device=self.device, dtype=dtype)
         self._altitude_rate_filt = torch.zeros((batch_size,), device=self.device, dtype=dtype)
         self._ratio_underspeed = torch.zeros((batch_size,), device=self.device, dtype=dtype)
+        self._capture_active = torch.zeros((batch_size,), device=self.device, dtype=torch.bool)
+        self._capture_release_timer_s = torch.zeros((batch_size,), device=self.device, dtype=dtype)
         self._initialized = True
 
     def reset(self, env_ids: Tensor | None = None) -> None:
@@ -145,6 +152,10 @@ class PX4LikeTECS:
             self._altitude_filt.fill_(float(self.cfg.height_sp_m))
             self._altitude_rate_filt.zero_()
             self._ratio_underspeed.zero_()
+            if self._capture_active is not None:
+                self._capture_active.zero_()
+            if self._capture_release_timer_s is not None:
+                self._capture_release_timer_s.zero_()
             return
 
         ids = env_ids.to(device=self.device, dtype=torch.long)
@@ -159,6 +170,10 @@ class PX4LikeTECS:
         self._altitude_filt[ids] = float(self.cfg.height_sp_m)
         self._altitude_rate_filt[ids] = 0.0
         self._ratio_underspeed[ids] = 0.0
+        if self._capture_active is not None:
+            self._capture_active[ids] = False
+        if self._capture_release_timer_s is not None:
+            self._capture_release_timer_s[ids] = 0.0
 
     def update(
         self,
@@ -188,6 +203,8 @@ class PX4LikeTECS:
         assert self._altitude_filt is not None
         assert self._altitude_rate_filt is not None
         assert self._ratio_underspeed is not None
+        assert self._capture_active is not None
+        assert self._capture_release_timer_s is not None
 
         height_sp = _as_batch_tensor(height_sp_m, fallback=float(self.cfg.height_sp_m), like=altitude)
         speed_sp = _as_batch_tensor(speed_sp_mps, fallback=float(self.cfg.speed_sp_mps), like=tas)
@@ -240,6 +257,30 @@ class PX4LikeTECS:
         capture_full = max(float(self.cfg.altitude_capture_error_m), capture_band + 1.0e-4)
         capture_blend = torch.clamp(
             (torch.abs(height_err_raw) - capture_band) / (capture_full - capture_band), min=0.0, max=1.0
+        )
+        capture_blend_raw = capture_blend
+        capture_release_error = max(float(self.cfg.altitude_capture_release_error_m), 0.0)
+        capture_release_time = max(float(self.cfg.altitude_capture_release_time_s), 0.0)
+        capture_persistence_gain = max(float(self.cfg.altitude_capture_persistence_gain), 0.0)
+        capture_should_activate = torch.abs(height_err_raw) > capture_band
+        capture_release_candidate = torch.abs(height_err_raw) < capture_release_error
+        self._capture_active = self._capture_active | capture_should_activate
+        self._capture_release_timer_s = torch.where(
+            capture_release_candidate,
+            self._capture_release_timer_s + dt,
+            torch.zeros_like(self._capture_release_timer_s),
+        )
+        capture_should_release = self._capture_active & (self._capture_release_timer_s >= capture_release_time)
+        self._capture_active = self._capture_active & ~capture_should_release
+        self._capture_release_timer_s = torch.where(
+            self._capture_active,
+            self._capture_release_timer_s,
+            torch.zeros_like(self._capture_release_timer_s),
+        )
+        capture_blend = torch.clamp(
+            torch.maximum(capture_blend, self._capture_active.to(dtype=altitude.dtype) * capture_persistence_gain),
+            min=0.0,
+            max=1.0,
         )
         capture_tc = max(float(self.cfg.altitude_capture_time_const_s), 1.0e-3)
         altitude_rate_sp_capture = torch.clamp(height_err_raw / capture_tc, min=-min_sink_rate, max=max_climb_rate)
@@ -409,6 +450,9 @@ class PX4LikeTECS:
             "tecs_altitude_rate_sp_hold": altitude_rate_sp_hold,
             "tecs_altitude_rate_sp_capture": altitude_rate_sp_capture,
             "tecs_capture_blend": capture_blend,
+            "tecs_capture_blend_raw": capture_blend_raw,
+            "tecs_capture_active": self._capture_active.to(dtype=altitude.dtype),
+            "tecs_capture_release_timer_s": self._capture_release_timer_s,
             "tecs_height_err_raw": height_err_raw,
             "tecs_tas_sp": speed_sp,
             "tecs_tas": tas_ctrl,

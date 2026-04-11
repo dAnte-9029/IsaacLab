@@ -207,6 +207,9 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--teacher_tecs_altitude_hold_error_band_m", type=float, default=None)
     parser.add_argument("--teacher_tecs_altitude_capture_error_m", type=float, default=None)
     parser.add_argument("--teacher_tecs_altitude_capture_time_const_s", type=float, default=None)
+    parser.add_argument("--teacher_tecs_altitude_capture_release_error_m", type=float, default=None)
+    parser.add_argument("--teacher_tecs_altitude_capture_release_time_s", type=float, default=None)
+    parser.add_argument("--teacher_tecs_altitude_capture_persistence_gain", type=float, default=None)
     parser.add_argument("--teacher_tecs_altitude_error_gain", type=float, default=None)
     parser.add_argument("--teacher_tecs_pitch_speed_weight", type=float, default=None)
     parser.add_argument("--teacher_tecs_pitch_speed_weight_capture", type=float, default=None)
@@ -433,6 +436,27 @@ def _configure_env(args: argparse.Namespace):
     ):
         env_cfg.teacher_tecs_altitude_capture_time_const_s = float(
             args.teacher_tecs_altitude_capture_time_const_s
+        )
+    if (
+        hasattr(env_cfg, "teacher_tecs_altitude_capture_release_error_m")
+        and getattr(args, "teacher_tecs_altitude_capture_release_error_m", None) is not None
+    ):
+        env_cfg.teacher_tecs_altitude_capture_release_error_m = float(
+            args.teacher_tecs_altitude_capture_release_error_m
+        )
+    if (
+        hasattr(env_cfg, "teacher_tecs_altitude_capture_release_time_s")
+        and getattr(args, "teacher_tecs_altitude_capture_release_time_s", None) is not None
+    ):
+        env_cfg.teacher_tecs_altitude_capture_release_time_s = float(
+            args.teacher_tecs_altitude_capture_release_time_s
+        )
+    if (
+        hasattr(env_cfg, "teacher_tecs_altitude_capture_persistence_gain")
+        and getattr(args, "teacher_tecs_altitude_capture_persistence_gain", None) is not None
+    ):
+        env_cfg.teacher_tecs_altitude_capture_persistence_gain = float(
+            args.teacher_tecs_altitude_capture_persistence_gain
         )
     if (
         hasattr(env_cfg, "teacher_tecs_altitude_error_gain")
@@ -825,6 +849,18 @@ def main() -> None:
                 "tecs_ratio_underspeed": float(diag["tecs_ratio_underspeed"][idx].item())
                 if "tecs_ratio_underspeed" in diag
                 else float("nan"),
+                "tecs_capture_blend": float(diag["tecs_capture_blend"][idx].item())
+                if "tecs_capture_blend" in diag
+                else float("nan"),
+                "tecs_capture_blend_raw": float(diag["tecs_capture_blend_raw"][idx].item())
+                if "tecs_capture_blend_raw" in diag
+                else float("nan"),
+                "tecs_capture_active": float(diag["tecs_capture_active"][idx].item())
+                if "tecs_capture_active" in diag
+                else float("nan"),
+                "tecs_capture_release_timer_s": float(diag["tecs_capture_release_timer_s"][idx].item())
+                if "tecs_capture_release_timer_s" in diag
+                else float("nan"),
                 "tecs_load_factor": float(diag["tecs_load_factor"][idx].item())
                 if "tecs_load_factor" in diag
                 else float("nan"),
@@ -1008,20 +1044,29 @@ def main() -> None:
             getattr(env_cfg, "teacher_tecs_altitude_capture_error_m", 0.8)
         ),
         "teacher_tecs_altitude_capture_time_const_s": float(
-            getattr(env_cfg, "teacher_tecs_altitude_capture_time_const_s", 0.65)
+            getattr(env_cfg, "teacher_tecs_altitude_capture_time_const_s", 0.45)
         ),
-        "teacher_tecs_altitude_error_gain": float(getattr(env_cfg, "teacher_tecs_altitude_error_gain", 1.8)),
-        "teacher_tecs_pitch_speed_weight": float(getattr(env_cfg, "teacher_tecs_pitch_speed_weight", 0.5)),
+        "teacher_tecs_altitude_capture_release_error_m": float(
+            getattr(env_cfg, "teacher_tecs_altitude_capture_release_error_m", 0.03)
+        ),
+        "teacher_tecs_altitude_capture_release_time_s": float(
+            getattr(env_cfg, "teacher_tecs_altitude_capture_release_time_s", 0.35)
+        ),
+        "teacher_tecs_altitude_capture_persistence_gain": float(
+            getattr(env_cfg, "teacher_tecs_altitude_capture_persistence_gain", 1.0)
+        ),
+        "teacher_tecs_altitude_error_gain": float(getattr(env_cfg, "teacher_tecs_altitude_error_gain", 3.0)),
+        "teacher_tecs_pitch_speed_weight": float(getattr(env_cfg, "teacher_tecs_pitch_speed_weight", 0.35)),
         "teacher_tecs_pitch_speed_weight_capture": float(
-            getattr(env_cfg, "teacher_tecs_pitch_speed_weight_capture", 0.25)
+            getattr(env_cfg, "teacher_tecs_pitch_speed_weight_capture", 0.10)
         ),
         "teacher_tecs_capture_extra_climb_rate_mps": float(
-            getattr(env_cfg, "teacher_tecs_capture_extra_climb_rate_mps", 1.0)
+            getattr(env_cfg, "teacher_tecs_capture_extra_climb_rate_mps", 1.4)
         ),
         "teacher_tecs_capture_extra_sink_rate_mps": float(
             getattr(env_cfg, "teacher_tecs_capture_extra_sink_rate_mps", 0.2)
         ),
-        "teacher_tecs_pitch_damping_gain": float(getattr(env_cfg, "teacher_tecs_pitch_damping_gain", 0.16)),
+        "teacher_tecs_pitch_damping_gain": float(getattr(env_cfg, "teacher_tecs_pitch_damping_gain", 0.26)),
         "total_path_length_m": float(total_path_length_m),
         "mission_num_segments_min": int(args.mission_num_segments_min),
         "mission_num_segments_max": int(args.mission_num_segments_max),

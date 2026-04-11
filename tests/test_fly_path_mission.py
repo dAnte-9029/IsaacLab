@@ -188,6 +188,12 @@ def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
             "0.9",
             "--teacher_tecs_altitude_capture_time_const_s",
             "0.65",
+            "--teacher_tecs_altitude_capture_release_error_m",
+            "0.02",
+            "--teacher_tecs_altitude_capture_release_time_s",
+            "0.5",
+            "--teacher_tecs_altitude_capture_persistence_gain",
+            "1.0",
             "--teacher_tecs_altitude_error_gain",
             "0.9",
             "--teacher_tecs_pitch_speed_weight",
@@ -220,6 +226,9 @@ def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
     assert args.teacher_tecs_altitude_hold_error_band_m == pytest.approx(0.1)
     assert args.teacher_tecs_altitude_capture_error_m == pytest.approx(0.9)
     assert args.teacher_tecs_altitude_capture_time_const_s == pytest.approx(0.65)
+    assert args.teacher_tecs_altitude_capture_release_error_m == pytest.approx(0.02)
+    assert args.teacher_tecs_altitude_capture_release_time_s == pytest.approx(0.5)
+    assert args.teacher_tecs_altitude_capture_persistence_gain == pytest.approx(1.0)
     assert args.teacher_tecs_altitude_error_gain == pytest.approx(0.9)
     assert args.teacher_tecs_pitch_speed_weight == pytest.approx(0.55)
     assert args.teacher_tecs_pitch_speed_weight_capture == pytest.approx(0.3)
@@ -362,6 +371,9 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
         teacher_tecs_altitude_hold_error_band_m=0.25,
         teacher_tecs_altitude_capture_error_m=0.8,
         teacher_tecs_altitude_capture_time_const_s=1.0,
+        teacher_tecs_altitude_capture_release_error_m=0.03,
+        teacher_tecs_altitude_capture_release_time_s=0.4,
+        teacher_tecs_altitude_capture_persistence_gain=0.0,
         teacher_tecs_altitude_error_gain=0.55,
         teacher_tecs_pitch_speed_weight=0.8,
         teacher_tecs_pitch_speed_weight_capture=0.35,
@@ -418,6 +430,9 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
         teacher_tecs_altitude_hold_error_band_m=0.1,
         teacher_tecs_altitude_capture_error_m=0.9,
         teacher_tecs_altitude_capture_time_const_s=0.65,
+        teacher_tecs_altitude_capture_release_error_m=0.02,
+        teacher_tecs_altitude_capture_release_time_s=0.5,
+        teacher_tecs_altitude_capture_persistence_gain=1.0,
         teacher_tecs_altitude_error_gain=0.9,
         teacher_tecs_pitch_speed_weight=0.55,
         teacher_tecs_pitch_speed_weight_capture=0.3,
@@ -448,6 +463,9 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
     assert configured_env_cfg.teacher_tecs_altitude_hold_error_band_m == pytest.approx(0.1)
     assert configured_env_cfg.teacher_tecs_altitude_capture_error_m == pytest.approx(0.9)
     assert configured_env_cfg.teacher_tecs_altitude_capture_time_const_s == pytest.approx(0.65)
+    assert configured_env_cfg.teacher_tecs_altitude_capture_release_error_m == pytest.approx(0.02)
+    assert configured_env_cfg.teacher_tecs_altitude_capture_release_time_s == pytest.approx(0.5)
+    assert configured_env_cfg.teacher_tecs_altitude_capture_persistence_gain == pytest.approx(1.0)
     assert configured_env_cfg.teacher_tecs_altitude_error_gain == pytest.approx(0.9)
     assert configured_env_cfg.teacher_tecs_pitch_speed_weight == pytest.approx(0.55)
     assert configured_env_cfg.teacher_tecs_pitch_speed_weight_capture == pytest.approx(0.3)

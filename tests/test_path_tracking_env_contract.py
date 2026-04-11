@@ -276,12 +276,15 @@ def test_path_tracking_env_inherits_retuned_straight_height_recovery_tecs_defaul
     cfg = FlappingBotPathTrackingEnvCfg()
 
     assert cfg.teacher_tecs_altitude_hold_error_band_m == 0.05
-    assert cfg.teacher_tecs_altitude_capture_time_const_s == 0.65
-    assert cfg.teacher_tecs_altitude_error_gain == 1.8
-    assert cfg.teacher_tecs_pitch_speed_weight == 0.5
-    assert cfg.teacher_tecs_pitch_speed_weight_capture == 0.25
-    assert cfg.teacher_tecs_capture_extra_climb_rate_mps == 1.0
-    assert cfg.teacher_tecs_pitch_damping_gain == 0.16
+    assert cfg.teacher_tecs_altitude_capture_time_const_s == 0.45
+    assert cfg.teacher_tecs_altitude_capture_release_error_m == 0.03
+    assert cfg.teacher_tecs_altitude_capture_release_time_s == 0.35
+    assert cfg.teacher_tecs_altitude_capture_persistence_gain == 1.0
+    assert cfg.teacher_tecs_altitude_error_gain == 3.0
+    assert cfg.teacher_tecs_pitch_speed_weight == 0.35
+    assert cfg.teacher_tecs_pitch_speed_weight_capture == 0.10
+    assert cfg.teacher_tecs_capture_extra_climb_rate_mps == 1.4
+    assert cfg.teacher_tecs_pitch_damping_gain == 0.26
 
 
 def test_straight_flight_env_uses_root_com_for_wing_wrench_reference() -> None:

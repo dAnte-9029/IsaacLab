@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+import pytest
 import torch
 
 from flapping_bot.px4_like.tecs import PX4LikeTECS, PX4LikeTECSCfg
@@ -189,3 +190,63 @@ def test_tecs_capture_tuning_stays_neutral_near_altitude_hold_band() -> None:
     )
 
     assert torch.allclose(pitch_sp_tuned, pitch_sp_baseline, atol=1.0e-4)
+
+
+def test_tecs_capture_blend_persists_until_recovered() -> None:
+    tecs = PX4LikeTECS(
+        PX4LikeTECSCfg(
+            altitude_hold_error_band_m=0.05,
+            altitude_capture_error_m=0.8,
+            altitude_capture_release_error_m=0.02,
+            altitude_capture_release_time_s=0.3,
+            altitude_capture_persistence_gain=1.0,
+        ),
+        device=torch.device("cpu"),
+    )
+
+    _, _, diag_drop = tecs.update(
+        dt=0.1,
+        altitude=torch.tensor([9.6]),
+        altitude_rate=torch.tensor([0.0]),
+        tas=torch.tensor([7.0]),
+        height_sp_m=torch.tensor([10.0]),
+        speed_sp_mps=torch.tensor([7.0]),
+    )
+    _, _, diag_mid = tecs.update(
+        dt=0.1,
+        altitude=torch.tensor([9.92]),
+        altitude_rate=torch.tensor([0.0]),
+        tas=torch.tensor([7.0]),
+        height_sp_m=torch.tensor([10.0]),
+        speed_sp_mps=torch.tensor([7.0]),
+    )
+
+    assert float(diag_drop["tecs_capture_active"][0]) == pytest.approx(1.0)
+    assert float(diag_mid["tecs_capture_active"][0]) == pytest.approx(1.0)
+    assert float(diag_mid["tecs_capture_blend"][0]) > 0.9
+
+    diag_releasing = diag_mid
+    for _ in range(2):
+        _, _, diag_releasing = tecs.update(
+            dt=0.1,
+            altitude=torch.tensor([9.99]),
+            altitude_rate=torch.tensor([0.0]),
+            tas=torch.tensor([7.0]),
+            height_sp_m=torch.tensor([10.0]),
+            speed_sp_mps=torch.tensor([7.0]),
+        )
+
+    assert float(diag_releasing["tecs_capture_active"][0]) == pytest.approx(1.0)
+
+    for _ in range(2):
+        _, _, diag_releasing = tecs.update(
+            dt=0.1,
+            altitude=torch.tensor([9.99]),
+            altitude_rate=torch.tensor([0.0]),
+            tas=torch.tensor([7.0]),
+            height_sp_m=torch.tensor([10.0]),
+            speed_sp_mps=torch.tensor([7.0]),
+        )
+
+    assert float(diag_releasing["tecs_capture_active"][0]) == pytest.approx(0.0)
+    assert float(diag_releasing["tecs_capture_blend"][0]) < 0.1
