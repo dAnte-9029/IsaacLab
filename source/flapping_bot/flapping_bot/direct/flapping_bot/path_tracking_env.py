@@ -124,6 +124,44 @@ def _compute_curriculum_schedule_step(*, common_step_counter: int, num_envs: int
     return max(int(common_step_counter), 0) * max(int(num_envs), 1)
 
 
+def _prepend_mission_warmup_straight(*, mission: Mission, enabled: bool, warmup_length_m: float) -> Mission:
+    """Return mission with one leading non-scored straight warmup segment when enabled."""
+    if (not enabled) or float(warmup_length_m) <= 0.0 or len(mission.segments) == 0:
+        return mission
+    first_segment = mission.segments[0]
+    if first_segment.kind == "straight" and not bool(getattr(first_segment, "counts_toward_progress", True)):
+        return mission
+    return Mission(
+        segments=[
+            MissionSegment(
+                kind="straight",
+                altitude_changes=False,
+                counts_toward_progress=False,
+                length_m=float(warmup_length_m),
+            ),
+            *mission.segments,
+        ]
+    )
+
+
+def _compute_scored_path_progress(
+    *,
+    progress_s: torch.Tensor,
+    raw_delta_s: torch.Tensor,
+    score_start_progress_s: torch.Tensor,
+    scored_total_length_m: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return scored progress and delta after removing any leading warmup segment."""
+    clamped_total = torch.clamp(scored_total_length_m, min=0.0)
+    scored_progress_s = torch.clamp(progress_s - score_start_progress_s, min=0.0)
+    scored_progress_s = torch.minimum(scored_progress_s, clamped_total)
+    previous_raw_progress_s = torch.clamp(progress_s - raw_delta_s, min=0.0)
+    previous_scored_progress_s = torch.clamp(previous_raw_progress_s - score_start_progress_s, min=0.0)
+    previous_scored_progress_s = torch.minimum(previous_scored_progress_s, clamped_total)
+    scored_delta_s = torch.clamp(scored_progress_s - previous_scored_progress_s, min=0.0)
+    return scored_progress_s, scored_delta_s
+
+
 @dataclass(frozen=True)
 class _LoiterCurriculumStage:
     """Resolved loiter curriculum parameters for the current training step."""
@@ -154,6 +192,9 @@ except ModuleNotFoundError as exc:
         reset_pitch_deg: float = 8.0
         reset_flap_hz: float = 4.0
         reset_elevon_pitch_deg: float = -18.0
+        reset_forward_speed_mps: float | None = 8.0
+        path_warmup_enabled: bool = False
+        path_warmup_straight_length_m: float = 25.0
 
 
     class FlappingBotPathTrackingWeakTeacherRLEnvCfg(FlappingBotPathTrackingEnvCfg):
@@ -224,6 +265,7 @@ else:
         reset_pitch_deg: float = 8.0
         reset_flap_hz: float = 4.0
         reset_elevon_pitch_deg: float = -18.0
+        reset_forward_speed_mps: float | None = 8.0
 
         wind_enabled: bool = False
         wind_xy_mps: tuple[float, float] = (0.0, 0.0)
@@ -250,6 +292,8 @@ else:
 
         path_manager_max_roll_deg: float = 35.0
         path_manager_max_flight_path_angle_deg: float = 10.0
+        path_warmup_enabled: bool = False
+        path_warmup_straight_length_m: float = 25.0
         loiter_turns: float = 1.0
         loiter_curriculum_enabled: bool = False
         loiter_curriculum_stage_steps: tuple[int, ...] = ()
@@ -426,6 +470,8 @@ else:
             self._path_progress_s: torch.Tensor | None = None
             self._path_progress_prev_s: torch.Tensor | None = None
             self._path_delta_s: torch.Tensor | None = None
+            self._path_score_start_progress_s: torch.Tensor | None = None
+            self._path_scored_total_length_m: torch.Tensor | None = None
             self._path_height_sp_m: torch.Tensor | None = None
             self._path_lateral_error_m: torch.Tensor | None = None
             self._path_height_error_m: torch.Tensor | None = None
@@ -512,6 +558,8 @@ else:
             self._path_progress_s = torch.zeros((num_envs,), device=device)
             self._path_progress_prev_s = torch.zeros((num_envs,), device=device)
             self._path_delta_s = torch.zeros((num_envs,), device=device)
+            self._path_score_start_progress_s = torch.zeros((num_envs,), device=device)
+            self._path_scored_total_length_m = torch.zeros((num_envs,), device=device)
             self._path_height_sp_m = torch.full((num_envs,), float(self.cfg.height_cmd), device=device)
             self._path_lateral_error_m = torch.zeros((num_envs,), device=device)
             self._path_height_error_m = torch.zeros((num_envs,), device=device)
@@ -621,6 +669,13 @@ else:
                 )
             )
 
+        def _prepare_mission_for_execution(self, mission: Mission) -> Mission:
+            return _prepend_mission_warmup_straight(
+                mission=mission,
+                enabled=bool(self.cfg.path_warmup_enabled),
+                warmup_length_m=float(self.cfg.path_warmup_straight_length_m),
+            )
+
         def _make_path_manager(self, mission: Mission, env_id: int) -> PathManager:
             assert self._path_loiter_turns is not None
             return PathManager(
@@ -656,6 +711,8 @@ else:
 
             assert self._path_progress_prev_s is not None
             assert self._path_delta_s is not None
+            assert self._path_score_start_progress_s is not None
+            assert self._path_scored_total_length_m is not None
             assert self._path_lateral_error_m is not None
             assert self._path_height_error_m is not None
             assert self._path_align_error_rad is not None
@@ -683,10 +740,12 @@ else:
             assert self.reset_stalled is not None
 
             for env_id in env_ids.tolist():
-                mission = self._sample_mission_for_env(env_id)
+                mission = self._prepare_mission_for_execution(self._sample_mission_for_env(env_id))
                 self._missions[env_id] = mission
                 manager = self._make_path_manager(mission, env_id)
                 self._path_managers[env_id] = manager
+                self._path_score_start_progress_s[env_id] = float(manager.score_start_progress_s)
+                self._path_scored_total_length_m[env_id] = float(manager.scored_total_length_m)
                 episode_length_s = _compute_path_episode_length_s(
                     current_episode_length_s=float(self.cfg.episode_length_s),
                     path_total_length_m=float(manager.total_length_m),
@@ -740,6 +799,8 @@ else:
             assert self._path_progress_s is not None
             assert self._path_progress_prev_s is not None
             assert self._path_delta_s is not None
+            assert self._path_score_start_progress_s is not None
+            assert self._path_scored_total_length_m is not None
             assert self._path_height_sp_m is not None
             assert self._path_lateral_error_m is not None
             assert self._path_height_error_m is not None
@@ -758,10 +819,12 @@ else:
             for env_id in range(self.num_envs):
                 manager = self._path_managers[env_id]
                 if manager is None:
-                    mission = self._sample_mission_for_env(env_id)
+                    mission = self._prepare_mission_for_execution(self._sample_mission_for_env(env_id))
                     self._missions[env_id] = mission
                     manager = self._make_path_manager(mission, env_id)
                     self._path_managers[env_id] = manager
+                    self._path_score_start_progress_s[env_id] = float(manager.score_start_progress_s)
+                    self._path_scored_total_length_m[env_id] = float(manager.scored_total_length_m)
 
                 query = manager.query(
                     position_xy=(float(pos_local[env_id, 0].item()), float(pos_local[env_id, 1].item())),
@@ -874,6 +937,8 @@ else:
             assert self._eval_loiter_quarter_turn_complete is not None
             assert self._eval_stalled is not None
             assert self._stalled is not None
+            assert self._path_score_start_progress_s is not None
+            assert self._path_scored_total_length_m is not None
 
             self._eval_abs_lateral_error_m.copy_(torch.abs(self._path_lateral_error_m))
             self._eval_abs_height_error_m.copy_(torch.abs(self._path_height_error_m))
@@ -884,8 +949,14 @@ else:
             self._eval_stalled.copy_(self._stalled)
 
             for env_id, manager in enumerate(self._path_managers):
-                total_length = float(manager.total_length_m) if manager is not None else 1.0
-                progress_ratio = float(self._path_progress_s[env_id].item()) / max(total_length, 1.0e-6)
+                scored_total_length = float(self._path_scored_total_length_m[env_id].item())
+                scored_progress, _ = _compute_scored_path_progress(
+                    progress_s=self._path_progress_s[env_id : env_id + 1],
+                    raw_delta_s=self._path_delta_s[env_id : env_id + 1],
+                    score_start_progress_s=self._path_score_start_progress_s[env_id : env_id + 1],
+                    scored_total_length_m=self._path_scored_total_length_m[env_id : env_id + 1],
+                )
+                progress_ratio = float(scored_progress[0].item()) / max(scored_total_length, 1.0e-6)
                 self._eval_progress_ratio[env_id] = min(max(progress_ratio, 0.0), 1.0)
 
         def _update_stall_flags(self) -> torch.Tensor:
@@ -1125,6 +1196,8 @@ else:
             assert self._path_loiter_quarter_turn_complete is not None
             assert self._stalled is not None
             assert self._teacher_action_gap_abs is not None
+            assert self._path_score_start_progress_s is not None
+            assert self._path_scored_total_length_m is not None
 
             airspeed = torch.linalg.norm(self._robot.data.root_lin_vel_w - self._wind_w, dim=1)
             pos_w = self._robot.data.root_pos_w - self.scene.env_origins
@@ -1136,12 +1209,18 @@ else:
             terminated = terminated | (tilt > tilt_thr)
             terminated = terminated | (torch.abs(self._path_lateral_error_m) > float(self.cfg.terminate_path_error_m))
             terminated = terminated | (torch.abs(self._path_height_error_m) > float(self.cfg.terminate_height_error_m))
-            path_total_length_m = torch.ones_like(self._path_progress_s)
+            scored_progress_s, scored_delta_s = _compute_scored_path_progress(
+                progress_s=self._path_progress_s,
+                raw_delta_s=self._path_delta_s,
+                score_start_progress_s=self._path_score_start_progress_s,
+                scored_total_length_m=self._path_scored_total_length_m,
+            )
+            path_total_length_m = self._path_scored_total_length_m.clone()
             for env_id, manager in enumerate(self._path_managers):
                 if manager is not None:
-                    path_total_length_m[env_id] = float(manager.total_length_m)
+                    path_total_length_m[env_id] = float(manager.scored_total_length_m)
             completed = _compute_path_completion_mask(
-                progress_s=self._path_progress_s,
+                progress_s=scored_progress_s,
                 path_total_length_m=path_total_length_m,
                 completion_ratio=float(self.cfg.completion_ratio),
             )
@@ -1168,7 +1247,7 @@ else:
                 lateral_error=torch.abs(self._path_lateral_error_m),
                 height_error=torch.abs(self._path_height_error_m),
                 align_error=self._path_align_error_rad,
-                delta_s=self._path_delta_s,
+                delta_s=scored_delta_s,
                 curvature_m_inv=self._path_curvature_m_inv,
                 airspeed=airspeed,
                 action=self._act_cmd,
@@ -1210,16 +1289,24 @@ else:
             assert self._path_height_error_m is not None
             assert self._path_progress_s is not None
             assert self._path_episode_horizon_steps is not None
+            assert self._path_score_start_progress_s is not None
+            assert self._path_scored_total_length_m is not None
             assert self.reset_stalled is not None
             self.reset_stalled.copy_(self._update_stall_flags())
             self._capture_eval_metrics()
 
-            path_total_length_m = torch.ones_like(self._path_progress_s)
+            scored_progress_s, _ = _compute_scored_path_progress(
+                progress_s=self._path_progress_s,
+                raw_delta_s=self._path_delta_s,
+                score_start_progress_s=self._path_score_start_progress_s,
+                scored_total_length_m=self._path_scored_total_length_m,
+            )
+            path_total_length_m = self._path_scored_total_length_m.clone()
             for env_id, manager in enumerate(self._path_managers):
                 if manager is not None:
-                    path_total_length_m[env_id] = float(manager.total_length_m)
+                    path_total_length_m[env_id] = float(manager.scored_total_length_m)
             completed = _compute_path_completion_mask(
-                progress_s=self._path_progress_s,
+                progress_s=scored_progress_s,
                 path_total_length_m=path_total_length_m,
                 completion_ratio=float(self.cfg.completion_ratio),
             )

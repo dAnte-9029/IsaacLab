@@ -11,6 +11,8 @@ class MissionSegment:
     kind: str
     altitude_changes: bool = False
     altitude_direction: int = 0
+    counts_toward_progress: bool = True
+    length_m: float | None = None
 
 
 @dataclass(frozen=True)

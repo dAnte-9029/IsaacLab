@@ -1,4 +1,5 @@
 import ast
+import math
 from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
@@ -17,6 +18,7 @@ from scripts.flapping_px4.fly_path_mission import (
     build_random_mission,
     ensure_episode_horizon,
     finalize_rollout_metrics,
+    prepend_task_warmup,
     resolve_rollout_status,
 )
 
@@ -53,6 +55,14 @@ def test_build_phase_mission_multi_segment_contains_turning_and_straight() -> No
     assert "straight" in kinds
     assert "turn" in kinds
     assert "loiter" in kinds
+
+
+def test_prepend_task_warmup_marks_leading_segment_as_non_scored() -> None:
+    mission = prepend_task_warmup(build_phase_mission("level_loiter"), warmup_enabled=True)
+
+    assert [segment.kind for segment in mission.segments[:2]] == ["straight", "loiter"]
+    assert mission.segments[0].counts_toward_progress is False
+    assert mission.segments[1].counts_toward_progress is True
 
 
 def test_resolve_rollout_status_treats_near_complete_path_as_success() -> None:
@@ -240,12 +250,31 @@ def test_path_mission_parser_accepts_reset_trim_overrides() -> None:
             "3.2",
             "--reset_elevon_pitch_deg",
             "-14.0",
+            "--reset_forward_speed_mps",
+            "8.1",
         ]
     )
 
     assert args.reset_pitch_deg == pytest.approx(6.5)
     assert args.reset_flap_hz == pytest.approx(3.2)
     assert args.reset_elevon_pitch_deg == pytest.approx(-14.0)
+    assert args.reset_forward_speed_mps == pytest.approx(8.1)
+
+
+def test_path_mission_parser_accepts_warmup_overrides() -> None:
+    parser = build_path_mission_parser()
+    args = parser.parse_args(
+        [
+            "--phase",
+            "level_turn",
+            "--path_warmup_straight_length_m",
+            "25.0",
+            "--no-path_warmup_enabled",
+        ]
+    )
+
+    assert args.path_warmup_straight_length_m == pytest.approx(25.0)
+    assert args.path_warmup_enabled is False
 
 
 def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -593,6 +622,7 @@ def test_configure_env_applies_reset_trim_overrides(monkeypatch: pytest.MonkeyPa
         reset_pitch_deg=10.0,
         reset_flap_hz=2.5,
         reset_elevon_pitch_deg=-10.0,
+        reset_forward_speed_mps=None,
     )
 
     parse_cfg_mod = ModuleType("isaaclab_tasks.utils.parse_cfg")
@@ -649,6 +679,7 @@ def test_configure_env_applies_reset_trim_overrides(monkeypatch: pytest.MonkeyPa
         reset_pitch_deg=6.5,
         reset_flap_hz=3.2,
         reset_elevon_pitch_deg=-14.0,
+        reset_forward_speed_mps=8.1,
     )
 
     env, configured_env_cfg, env_step_dt = _configure_env(args)
@@ -659,6 +690,7 @@ def test_configure_env_applies_reset_trim_overrides(monkeypatch: pytest.MonkeyPa
     assert configured_env_cfg.reset_pitch_deg == pytest.approx(6.5)
     assert configured_env_cfg.reset_flap_hz == pytest.approx(3.2)
     assert configured_env_cfg.reset_elevon_pitch_deg == pytest.approx(-14.0)
+    assert configured_env_cfg.reset_forward_speed_mps == pytest.approx(8.1)
     assert env_step_dt == pytest.approx((1.0 / 240.0) * 2.0)
 
 
@@ -735,7 +767,7 @@ def test_inject_mission_recomputes_path_episode_horizon_for_replaced_mission() -
         completion_margin_s=float(env.cfg.path_episode_completion_margin_s),
         max_episode_length_s=float(env.cfg.path_episode_max_s),
     )
-    expected_horizon_steps = max(int(expected_episode_length_s / env.step_dt), 1)
+    expected_horizon_steps = max(int(math.ceil(expected_episode_length_s / env.step_dt)), 1)
 
     assert int(env._path_episode_horizon_steps[0].item()) == expected_horizon_steps
     assert env._teacher_controller.reset_calls == 1

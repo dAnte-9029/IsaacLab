@@ -112,6 +112,26 @@ def build_random_mission(
     )
 
 
+def prepend_task_warmup(mission: Mission, *, warmup_enabled: bool, warmup_straight_length_m: float = 25.0) -> Mission:
+    """Return a mission with one leading non-scored straight segment when warmup is enabled."""
+    if not warmup_enabled or len(mission.segments) == 0:
+        return mission
+    first_segment = mission.segments[0]
+    if first_segment.kind == "straight" and not bool(getattr(first_segment, "counts_toward_progress", True)):
+        return mission
+    return Mission(
+        segments=[
+            MissionSegment(
+                kind="straight",
+                altitude_changes=False,
+                counts_toward_progress=False,
+                length_m=float(warmup_straight_length_m),
+            ),
+            *mission.segments,
+        ]
+    )
+
+
 def build_path_mission_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for path-mission baseline rollouts."""
     parser = argparse.ArgumentParser(description="Run a PX4-like teacher baseline on a canonical path mission.")
@@ -152,6 +172,8 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--climb_delta_m", type=float, default=3.0)
     parser.add_argument("--path_manager_max_roll_deg", type=float, default=35.0)
     parser.add_argument("--path_manager_max_flight_path_angle_deg", type=float, default=10.0)
+    parser.add_argument("--path_warmup_enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--path_warmup_straight_length_m", type=float, default=25.0)
     parser.add_argument(
         "--teacher_use_tecs_load_factor_compensation",
         action=argparse.BooleanOptionalAction,
@@ -191,6 +213,7 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reset_pitch_deg", type=float, default=None)
     parser.add_argument("--reset_flap_hz", type=float, default=None)
     parser.add_argument("--reset_elevon_pitch_deg", type=float, default=None)
+    parser.add_argument("--reset_forward_speed_mps", type=float, default=None)
     parser.add_argument("--wind_x_mps", type=float, default=0.0)
     parser.add_argument("--wind_y_mps", type=float, default=0.0)
     parser.add_argument(
@@ -345,6 +368,10 @@ def _configure_env(args: argparse.Namespace):
         env_cfg.path_manager_max_roll_deg = float(args.path_manager_max_roll_deg)
     if hasattr(env_cfg, "path_manager_max_flight_path_angle_deg"):
         env_cfg.path_manager_max_flight_path_angle_deg = float(args.path_manager_max_flight_path_angle_deg)
+    if hasattr(env_cfg, "path_warmup_enabled"):
+        env_cfg.path_warmup_enabled = bool(getattr(args, "path_warmup_enabled", True))
+    if hasattr(env_cfg, "path_warmup_straight_length_m"):
+        env_cfg.path_warmup_straight_length_m = float(getattr(args, "path_warmup_straight_length_m", 25.0))
     if (
         hasattr(env_cfg, "teacher_use_tecs_load_factor_compensation")
         and args.teacher_use_tecs_load_factor_compensation is not None
@@ -399,6 +426,8 @@ def _configure_env(args: argparse.Namespace):
         env_cfg.reset_flap_hz = float(args.reset_flap_hz)
     if hasattr(env_cfg, "reset_elevon_pitch_deg") and args.reset_elevon_pitch_deg is not None:
         env_cfg.reset_elevon_pitch_deg = float(args.reset_elevon_pitch_deg)
+    if hasattr(env_cfg, "reset_forward_speed_mps") and getattr(args, "reset_forward_speed_mps", None) is not None:
+        env_cfg.reset_forward_speed_mps = float(args.reset_forward_speed_mps)
 
     env = gym.make(args.task, cfg=env_cfg)
     return env, env_cfg, env_step_dt
@@ -434,6 +463,14 @@ def _inject_mission(env, args: argparse.Namespace, mission: Mission) -> Any:
     unwrapped._ensure_path_buffers()
     for env_id in env_ids.tolist():
         phase_mission = Mission(segments=list(mission.segments))
+        if hasattr(unwrapped, "_prepare_mission_for_execution"):
+            phase_mission = unwrapped._prepare_mission_for_execution(phase_mission)
+        else:
+            phase_mission = prepend_task_warmup(
+                phase_mission,
+                warmup_enabled=bool(getattr(args, "path_warmup_enabled", True)),
+                warmup_straight_length_m=float(getattr(args, "path_warmup_straight_length_m", 25.0)),
+            )
         manager = PathManager(
             PathManagerCfg(
                 max_roll_deg=float(args.path_manager_max_roll_deg),
@@ -450,6 +487,10 @@ def _inject_mission(env, args: argparse.Namespace, mission: Mission) -> Any:
         )
         unwrapped._missions[env_id] = phase_mission
         unwrapped._path_managers[env_id] = manager
+        if hasattr(unwrapped, "_path_score_start_progress_s"):
+            unwrapped._path_score_start_progress_s[env_id] = float(manager.score_start_progress_s)
+        if hasattr(unwrapped, "_path_scored_total_length_m"):
+            unwrapped._path_scored_total_length_m[env_id] = float(manager.scored_total_length_m)
         if hasattr(unwrapped, "_path_episode_horizon_steps"):
             episode_length_s = _compute_injected_path_episode_length_s(
                 current_episode_length_s=float(getattr(unwrapped.cfg, "episode_length_s", 0.0)),

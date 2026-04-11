@@ -343,3 +343,25 @@ def test_path_manager_supports_explicit_climb_and_descent_segments():
 
     assert climb_end[2] > climb_start[2]
     assert descent_end[2] < descent_start[2]
+
+
+def test_path_manager_reports_scored_progress_after_leading_warmup_segment() -> None:
+    mission = Mission(
+        segments=[
+            MissionSegment(kind="straight", altitude_changes=False, counts_toward_progress=False),
+            MissionSegment(kind="turn", altitude_changes=False),
+        ]
+    )
+    cfg = PathManagerCfg(
+        max_roll_deg=35.0,
+        max_flight_path_angle_deg=10.0,
+        straight_length_m=25.0,
+        turn_radius_m=20.0,
+        turn_sweep_deg=90.0,
+        initial_altitude_m=10.0,
+    )
+
+    manager = PathManager(cfg, mission)
+
+    assert manager.score_start_progress_s == pytest.approx(25.0)
+    assert manager.scored_total_length_m == pytest.approx(20.0 * math.pi * 0.5, rel=1.0e-6)

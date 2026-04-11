@@ -125,6 +125,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     reset_flap_hz: float = 4.0
     # A small negative elevon pitch command helps counter the default wing pitching moment in open-loop rollouts.
     reset_elevon_pitch_deg: float = -18.0
+    reset_forward_speed_mps: float | None = 8.0
     reset_rudder_deg: float = 0.0
     reset_elevon_roll_deg: float = 0.0
 
@@ -1205,7 +1206,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             yaw=torch.zeros_like(pitch),
         )
         lin_vel = torch.zeros(n, 3, device=self.device)
-        lin_vel[:, 0] = self._vx_cmd[env_ids]
+        reset_forward_speed = self._vx_cmd[env_ids]
+        if self.cfg.reset_forward_speed_mps is not None:
+            reset_forward_speed = torch.full(
+                (n,),
+                float(self.cfg.reset_forward_speed_mps),
+                device=self.device,
+            )
+        lin_vel[:, 0] = reset_forward_speed
         ang_vel = torch.zeros(n, 3, device=self.device)
         root_state = torch.cat([pos, rot, lin_vel, ang_vel], dim=1)
         self._robot.write_root_state_to_sim(root_state, env_ids=env_ids)

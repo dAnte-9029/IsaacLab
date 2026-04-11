@@ -269,6 +269,7 @@ def test_path_tracking_env_inherits_retuned_reset_trim_defaults() -> None:
     assert cfg.reset_pitch_deg == 8.0
     assert cfg.reset_flap_hz == 4.0
     assert cfg.reset_elevon_pitch_deg == -18.0
+    assert cfg.reset_forward_speed_mps == 8.0
 
 
 def test_straight_flight_env_uses_root_com_for_wing_wrench_reference() -> None:

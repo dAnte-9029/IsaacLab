@@ -135,6 +135,8 @@ class PathManager:
         self.mission = mission
         self._segments = self._build_segments()
         self.total_length_m = self._segments[-1].s_end
+        self.score_start_progress_s = self._resolve_score_start_progress_s()
+        self.scored_total_length_m = max(self.total_length_m - self.score_start_progress_s, 0.0)
         self._last_progress_s = 0.0
         self._last_segment_idx = 0
         self._last_segment_progress_s = 0.0
@@ -244,7 +246,11 @@ class PathManager:
 
         for mission_segment in self.mission.segments:
             if mission_segment.kind == "straight":
-                length_m = max(float(self.cfg.straight_length_m), 1.0e-6)
+                explicit_length_m = getattr(mission_segment, "length_m", None)
+                if explicit_length_m is None:
+                    length_m = max(float(self.cfg.straight_length_m), 1.0e-6)
+                else:
+                    length_m = max(float(explicit_length_m), 1.0e-6)
                 unit_tangent_xy = (math.cos(heading_rad), math.sin(heading_rad))
                 end_xy = (
                     position_xy[0] + length_m * unit_tangent_xy[0],
@@ -318,6 +324,12 @@ class PathManager:
             heading_rad = heading_rad + sweep_angle_rad
 
         return segments
+
+    def _resolve_score_start_progress_s(self) -> float:
+        for mission_segment, built_segment in zip(self.mission.segments, self._segments, strict=True):
+            if bool(getattr(mission_segment, "counts_toward_progress", True)):
+                return float(built_segment.s_start)
+        return float(self.total_length_m)
 
     def _query_segment(
         self,
