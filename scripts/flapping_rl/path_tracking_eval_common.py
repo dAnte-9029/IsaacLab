@@ -91,7 +91,7 @@ def is_path_tracking_task(task: str) -> bool:
 def resolve_eval_suite(task: str, eval_suite: str) -> str:
     """Resolve the effective evaluation suite for the requested task."""
     if eval_suite == "straight_standard" and is_path_tracking_task(task):
-        return "path_tracking_truth_nowind_v1"
+        return "path_tracking_estimated_nowind_v1"
     return str(eval_suite)
 
 
@@ -121,6 +121,9 @@ def apply_eval_case_to_cfg(case: dict, cfg, *, vx_cmd: float | None, height_cmd:
     cfg.wind_ou_clip_to_range = False
 
     mission_fields = (
+        "teacher_state_source",
+        "policy_state_source",
+        "imu_source",
         "mission_seed",
         "mission_increment_seed_per_reset",
         "mission_num_segments_min",

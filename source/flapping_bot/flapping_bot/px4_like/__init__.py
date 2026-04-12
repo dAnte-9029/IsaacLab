@@ -8,6 +8,13 @@ from .guidance import (
     DirectionalGuidanceSettings,
 )
 from .circle_navigation import navigate_circle
+from .imu_provider import ImuMeasurement, ImuProvider, SyntheticImuProvider, build_imu_provider
+from .isaacsim_imu_adapter import (
+    ISAACSIM_IMU_IMPORT_ERROR,
+    ISAACSIM_IMU_RUNTIME_AVAILABLE,
+    IsaacSimImuProvider,
+    IsaacSimImuSensorSpec,
+)
 from .loiter_controller import PX4LikeLoiterController, PX4LikeLoiterControllerCfg
 from .line_navigation import navigate_line
 from .path_tracking_controller import PX4LikePathTrackingController, PX4LikePathTrackingControllerCfg
@@ -21,12 +28,19 @@ __all__ = [
     "DirectionalGuidance",
     "DirectionalGuidanceOutput",
     "DirectionalGuidanceSettings",
+    "ISAACSIM_IMU_IMPORT_ERROR",
+    "ISAACSIM_IMU_RUNTIME_AVAILABLE",
+    "ImuMeasurement",
+    "ImuProvider",
+    "IsaacSimImuProvider",
+    "IsaacSimImuSensorSpec",
     "PX4LikeLoiterController",
     "PX4LikeLoiterControllerCfg",
     "PX4LikePathTrackingController",
     "PX4LikePathTrackingControllerCfg",
     "SensorStateEstimator",
     "SensorSuiteCfg",
+    "SyntheticImuProvider",
     "StateEstimatorCfg",
     "PX4LikeStraightLineController",
     "PX4LikeStraightLineControllerCfg",
@@ -34,4 +48,5 @@ __all__ = [
     "PX4LikeTECSCfg",
     "navigate_circle",
     "navigate_line",
+    "build_imu_provider",
 ]

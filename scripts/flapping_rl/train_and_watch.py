@@ -40,8 +40,13 @@ from eval_suites import get_eval_suite_choices
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
     if eval_suite == "straight_standard" and "PathTracking" in str(task):
-        return "path_tracking_truth_nowind_v1"
+        return "path_tracking_estimated_nowind_v1"
     return str(eval_suite)
+
+
+def _should_apply_estimated_teacher_defaults(task: str) -> bool:
+    task_name = str(task)
+    return "FlappingBot" in task_name and "RL" in task_name
 
 
 def _parse_args() -> argparse.Namespace:
@@ -215,6 +220,14 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     if args.checkpoint is not None:
         train_cmd.extend(["--checkpoint", str(args.checkpoint)])
     train_cmd.extend(["--kit_args", _portable_kit_args(args, "train")])
+    if _should_apply_estimated_teacher_defaults(args.task):
+        train_cmd.extend(
+            [
+                "teacher_state_source=estimated",
+                "policy_state_source=estimated",
+                "imu_source=synthetic",
+            ]
+        )
     if args.headless:
         train_cmd.append("--headless")
     return train_cmd

@@ -175,6 +175,7 @@ try:
     from isaaclab.utils import configclass
     from isaaclab.utils.math import euler_xyz_from_quat, quat_apply_inverse
 
+    from .state_source_contract import resolve_teacher_state_inputs
     from .straight_flight_env import FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg, FlappingBotStraightFlightEnv
 except ModuleNotFoundError as exc:
     PATH_TRACKING_RUNTIME_IMPORT_ERROR = exc
@@ -217,6 +218,9 @@ except ModuleNotFoundError as exc:
         teacher_tecs_capture_extra_climb_rate_mps: float = 1.4
         teacher_tecs_capture_extra_sink_rate_mps: float = 0.2
         teacher_tecs_pitch_damping_gain: float = 0.26
+        teacher_state_source: str = "truth"
+        policy_state_source: str = "truth"
+        imu_source: str = "synthetic"
 
 
     class FlappingBotPathTrackingWeakTeacherRLEnvCfg(FlappingBotPathTrackingEnvCfg):
@@ -257,6 +261,9 @@ else:
         teacher_guidance_schedule_steps: tuple[int, ...] = (0, 20_000, 80_000, 160_000)
         teacher_guidance_schedule_deltas: tuple[float, ...] = (0.15, 0.25, 0.75, 2.0)
         teacher_guidance_disable_after_steps: int = -1
+        teacher_state_source: str = "truth"
+        policy_state_source: str = "truth"
+        imu_source: str = "synthetic"
         curve_teacher_delta_scale: float = 1.0
         curve_teacher_curvature_ref_m_inv: float = 0.05
         loiter_teacher_delta_scale: float = 1.0
@@ -1099,7 +1106,12 @@ else:
             ground_vel_local = self._robot.data.root_lin_vel_w
             roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
             ang_vel_body = self._robot.data.root_ang_vel_b
-            if bool(self.cfg.teacher_guidance_use_wind_truth):
+            state_inputs = resolve_teacher_state_inputs(
+                self.cfg.teacher_state_source,
+                self.cfg.policy_state_source,
+                self.cfg.teacher_guidance_use_wind_truth,
+            )
+            if state_inputs.teacher_uses_truth_wind:
                 wind_xy = self._wind_w[:, 0:2]
             else:
                 wind_xy = torch.zeros((self.num_envs, 2), device=self.device)

@@ -7,6 +7,8 @@ import math
 
 import torch
 
+from .imu_provider import ImuMeasurement
+
 Tensor = torch.Tensor
 
 
@@ -336,6 +338,7 @@ class SensorStateEstimator:
         yaw_true: Tensor,
         ang_vel_body_true: Tensor,
         airspeed_true: Tensor,
+        imu_measurement: ImuMeasurement | None = None,
     ) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
         if not self._initialized:
             self.reset(
@@ -359,16 +362,20 @@ class SensorStateEstimator:
         specific_force_world[:, 2] = specific_force_world[:, 2] + 9.81
         specific_force_body = _body_from_world(roll_true, pitch_true, yaw_true, specific_force_world)
 
-        self._gyro_meas = (
-            ang_vel_body_true
-            + self._gyro_bias
-            + self._randn_like(ang_vel_body_true) * (math.radians(float(c.gyro_noise_std_dps)) * noise)
-        )
-        self._accel_meas = (
-            specific_force_body
-            + self._accel_bias
-            + self._randn_like(specific_force_body) * (float(c.accel_noise_std_mps2) * noise)
-        )
+        if imu_measurement is None:
+            self._gyro_meas = (
+                ang_vel_body_true
+                + self._gyro_bias
+                + self._randn_like(ang_vel_body_true) * (math.radians(float(c.gyro_noise_std_dps)) * noise)
+            )
+            self._accel_meas = (
+                specific_force_body
+                + self._accel_bias
+                + self._randn_like(specific_force_body) * (float(c.accel_noise_std_mps2) * noise)
+            )
+        else:
+            self._gyro_meas = imu_measurement.gyro_rad_s.clone()
+            self._accel_meas = imu_measurement.accel_mps2.clone()
 
         roll_pred, pitch_pred, yaw_pred = _integrate_euler_from_body_rates(
             self._roll_est,

@@ -50,6 +50,11 @@ from ...px4_like.rl_training_utils import (
 )
 from ...px4_like.straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
 from ...scenes import FlappingRoomSceneCfg
+from .state_source_contract import (
+    TeacherStateInputs,
+    resolve_imu_source,
+    resolve_teacher_state_inputs,
+)
 from .startup_phase import advance_flap_phase
 
 Tensor = torch.Tensor
@@ -101,6 +106,9 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     teacher_guidance_schedule_deltas: tuple[float, ...] = ()
     teacher_guidance_disable_after_steps: int = -1
     teacher_guidance_use_wind_truth: bool = True
+    teacher_state_source: str = "truth"
+    policy_state_source: str = "truth"
+    imu_source: str = "synthetic"
     teacher_line_start_xy: tuple[float, float] = (0.0, 0.0)
     teacher_line_end_xy: tuple[float, float] = (120.0, 0.0)
 
@@ -404,6 +412,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._height_cmd: Tensor | None = None
         self._wind_w: Tensor | None = None
         self._wind_mean_w: Tensor | None = None
+        self._teacher_state_inputs: TeacherStateInputs | None = None
+        self._resolved_imu_source: str | None = None
         self._teacher_controller: PX4LikeStraightLineController | None = None
         self._teacher_actions: Tensor | None = None
         self._teacher_action_gap_abs: Tensor | None = None
@@ -451,6 +461,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._wing_application_point_link: Tensor | None = None  # (2,3) for left/right
 
         super().__init__(cfg, render_mode, **kwargs)
+        self._teacher_state_inputs = resolve_teacher_state_inputs(
+            self.cfg.teacher_state_source,
+            self.cfg.policy_state_source,
+            self.cfg.teacher_guidance_use_wind_truth,
+        )
+        self._resolved_imu_source = resolve_imu_source(self.cfg.imu_source)
 
         # resolve joints available in current URDF
         available = list(self._robot.joint_names)
@@ -764,7 +780,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         ground_vel_local = self._robot.data.root_lin_vel_w
         roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
         ang_vel_body = self._robot.data.root_ang_vel_b
-        if bool(self.cfg.teacher_guidance_use_wind_truth):
+        state_inputs = resolve_teacher_state_inputs(
+            self.cfg.teacher_state_source,
+            self.cfg.policy_state_source,
+            self.cfg.teacher_guidance_use_wind_truth,
+        )
+        self._teacher_state_inputs = state_inputs
+        if state_inputs.teacher_uses_truth_wind:
             wind_xy = self._wind_w[:, 0:2]
         else:
             wind_xy = torch.zeros((self.num_envs, 2), device=self.device)

@@ -170,6 +170,26 @@ def test_path_tracking_env_defaults_are_no_wind_for_truth_training() -> None:
     assert found_fields == expected_fields
 
 
+def test_teacher_and_policy_state_source_fields_exist() -> None:
+    cfg = FlappingBotPathTrackingEnvCfg()
+    assert cfg.teacher_state_source in ("truth", "estimated")
+    assert cfg.policy_state_source in ("truth", "estimated")
+    assert cfg.imu_source in ("synthetic", "isaacsim")
+
+
+def test_path_tracking_teacher_wind_contract_uses_state_source_helper() -> None:
+    source_text = (
+        Path(__file__).resolve().parents[1]
+        / "source"
+        / "flapping_bot"
+        / "flapping_bot"
+        / "direct"
+        / "flapping_bot"
+        / "path_tracking_env.py"
+    ).read_text()
+    assert "resolve_teacher_state_inputs(" in source_text
+
+
 def test_path_tracking_env_defaults_disable_action_filtering() -> None:
     module = ast.parse(
         (

@@ -56,6 +56,20 @@ def _parse_args() -> argparse.Namespace:
         default="truth",
         help="State source for control: truth, estimated, or compare (control=estimated + log both).",
     )
+    parser.add_argument(
+        "--teacher_state_source",
+        type=str,
+        choices=("truth", "estimated"),
+        default=None,
+        help="Teacher runtime state source. Defaults to truth for truth-control, estimated otherwise.",
+    )
+    parser.add_argument(
+        "--imu_source",
+        type=str,
+        choices=("synthetic", "isaacsim"),
+        default="synthetic",
+        help="IMU provider to declare in the env runtime contract.",
+    )
     parser.add_argument("--sensor_noise_scale", type=float, default=1.0, help="Scale factor for sensor noise std.")
     parser.add_argument("--sensor_bias_scale", type=float, default=1.0, help="Scale factor for sensor bias std.")
     parser.add_argument("--sensor_delay_scale", type=float, default=1.0, help="Scale factor for sensor delays.")
@@ -281,17 +295,76 @@ def _quantile(values: list[float], q: float) -> float:
     return float(torch.quantile(torch.tensor(values), q).item())
 
 
+def _resolve_state_source_selection(args: argparse.Namespace):
+    try:
+        from flapping_bot.direct.flapping_bot.state_source_contract import resolve_runtime_state_source_selection
+    except ModuleNotFoundError:
+        from flapping_bot.flapping_bot.direct.flapping_bot.state_source_contract import resolve_runtime_state_source_selection
+    return resolve_runtime_state_source_selection(
+        state_source=str(args.state_source),
+        teacher_state_source=args.teacher_state_source,
+        imu_source=str(args.imu_source),
+    )
+
+
+def _build_imu_measurement(
+    imu_provider,
+    *,
+    quat_w,
+    vel_w,
+    prev_vel_w,
+    ang_vel_b,
+    dt: float,
+    quat_apply_inverse_fn,
+):
+    vel_acc_world = (vel_w - prev_vel_w) / max(float(dt), 1.0e-6)
+    specific_force_world = vel_acc_world.clone()
+    specific_force_world[:, 2] = specific_force_world[:, 2] + 9.81
+    specific_force_body = quat_apply_inverse_fn(quat_w, specific_force_world)
+    return imu_provider.build_from_truth(
+        ang_vel_body=ang_vel_b,
+        specific_force_body=specific_force_body,
+    )
+
+
+def _create_isaacsim_imu_sensor(imu_provider, env, *, env_step_dt: float):
+    if getattr(imu_provider, "backend_name", "") != "isaacsim":
+        return None
+
+    try:
+        from flapping_bot.px4_like import IsaacSimImuSensorSpec
+    except ModuleNotFoundError:
+        from flapping_bot.flapping_bot.px4_like import IsaacSimImuSensorSpec
+
+    robot = env.unwrapped._robot
+    body_name = str(robot.body_names[0]) if len(robot.body_names) > 0 else "base_link"
+    prim_path = f"{env.unwrapped.cfg.robot.prim_path}/{body_name}"
+    sensor = imu_provider.create_sensor(
+        IsaacSimImuSensorSpec(
+            prim_path=prim_path,
+            update_period=float(env_step_dt),
+        )
+    )
+    if hasattr(sensor, "is_initialized") and not sensor.is_initialized:
+        sensor._initialize_impl()
+        sensor._is_initialized = True
+    sensor.reset()
+    sensor.update(dt=float(env_step_dt), force_recompute=True)
+    return sensor
+
+
 def main():
     args = _parse_args()
 
     app_launcher = AppLauncher(args)
     simulation_app = app_launcher.app
+    state_source_selection = _resolve_state_source_selection(args)
 
     import gymnasium as gym
     import torch
 
     import isaaclab_tasks  # noqa: F401
-    from isaaclab.utils.math import euler_xyz_from_quat, quat_from_euler_xyz
+    from isaaclab.utils.math import euler_xyz_from_quat, quat_apply_inverse, quat_from_euler_xyz
     from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
 
     try:
@@ -301,6 +374,7 @@ def main():
             SensorStateEstimator,
             SensorSuiteCfg,
             StateEstimatorCfg,
+            build_imu_provider,
         )
     except ModuleNotFoundError:
         from flapping_bot.flapping_bot.px4_like import (
@@ -309,10 +383,22 @@ def main():
             SensorStateEstimator,
             SensorSuiteCfg,
             StateEstimatorCfg,
+            build_imu_provider,
         )
 
     env_cfg = parse_env_cfg(args.task, device=args.device, num_envs=args.num_envs)
     env_cfg.randomize_commands = False
+    if hasattr(env_cfg, "teacher_state_source"):
+        env_cfg.teacher_state_source = state_source_selection.teacher_state_source
+    if hasattr(env_cfg, "policy_state_source"):
+        env_cfg.policy_state_source = state_source_selection.policy_state_source
+    if hasattr(env_cfg, "imu_source"):
+        env_cfg.imu_source = state_source_selection.imu_source
+    if hasattr(env_cfg, "teacher_guidance_use_wind_truth"):
+        env_cfg.teacher_guidance_use_wind_truth = bool(
+            bool(getattr(env_cfg, "teacher_guidance_use_wind_truth"))
+            and state_source_selection.teacher_state_source == "truth"
+        )
     env_cfg.height_cmd = float(args.height_sp)
     env_cfg.action_space = 4
     env_step_dt = float(env_cfg.sim.dt) * float(env_cfg.decimation)
@@ -484,7 +570,12 @@ def main():
 
     circle_center_xy = torch.tensor([float(args.loiter_center_x), float(args.loiter_center_y)], device=env.unwrapped.device)
     state_estimator: SensorStateEstimator | None = None
-    if args.state_source in ("estimated", "compare"):
+    imu_provider = None
+    imu_sensor = None
+    imu_measurement_mode = "disabled"
+    prev_vel_for_imu = None
+    if state_source_selection.controller_state_source in ("estimated", "compare"):
+        imu_provider = build_imu_provider(state_source_selection.imu_source)
         sensor_cfg = SensorSuiteCfg(
             gps_delay_s=0.10 * float(args.sensor_delay_scale),
             baro_delay_s=0.04 * float(args.sensor_delay_scale),
@@ -539,6 +630,9 @@ def main():
             airspeed_true=airspeed_init,
             wind_local_true=wind_init,
         )
+        imu_sensor = _create_isaacsim_imu_sensor(imu_provider, env, env_step_dt=env_step_dt)
+        imu_measurement_mode = "isaacsim_live" if imu_sensor is not None else "synthetic_truth_derived"
+        prev_vel_for_imu = vel_init.clone()
 
     resets = 0
     episode_id = 0
@@ -579,6 +673,21 @@ def main():
         est_state: dict[str, torch.Tensor] | None = None
         est_diag: dict[str, torch.Tensor] = {}
         if state_estimator is not None:
+            assert imu_provider is not None
+            if imu_sensor is not None:
+                imu_sensor.update(dt=float(env_step_dt), force_recompute=True)
+                imu_measurement = imu_provider.build_from_sensor(imu_sensor)
+            else:
+                assert prev_vel_for_imu is not None
+                imu_measurement = _build_imu_measurement(
+                    imu_provider,
+                    quat_w=quat_w,
+                    vel_w=vel_w,
+                    prev_vel_w=prev_vel_for_imu,
+                    ang_vel_b=ang_vel_b,
+                    dt=env_step_dt,
+                    quat_apply_inverse_fn=quat_apply_inverse,
+                )
             est_state, est_diag = state_estimator.step(
                 pos_local_true=pos_local,
                 vel_local_true=vel_w,
@@ -587,9 +696,11 @@ def main():
                 yaw_true=yaw,
                 ang_vel_body_true=ang_vel_b,
                 airspeed_true=airspeed_true,
+                imu_measurement=imu_measurement,
             )
+            prev_vel_for_imu = vel_w.clone()
 
-        if args.state_source == "truth":
+        if state_source_selection.controller_state_source == "truth":
             ctrl_pos = pos_local
             ctrl_vel = vel_w
             ctrl_roll = roll
@@ -647,6 +758,10 @@ def main():
                     airspeed_true=airspeed_reset,
                     wind_local_true=wind_reset,
                 )
+                if imu_sensor is not None:
+                    imu_sensor.reset()
+                    imu_sensor.update(dt=float(env_step_dt), force_recompute=True)
+                prev_vel_for_imu = vel_reset.clone()
 
         idx = 0
         speed = float(torch.linalg.norm(vel_w[idx]).item())
@@ -755,7 +870,14 @@ def main():
                 "est_pos_xy_err_m": est_pos_xy_err,
                 "est_vel_xyz_err_mps": est_vel_xyz_err,
                 "est_yaw_err_deg": est_yaw_err_deg,
-                "state_source": float(0 if args.state_source == "truth" else (1 if args.state_source == "estimated" else 2)),
+                "state_source": float(
+                    0
+                    if state_source_selection.controller_state_source == "truth"
+                    else (1 if state_source_selection.controller_state_source == "estimated" else 2)
+                ),
+                "teacher_state_source": str(state_source_selection.teacher_state_source),
+                "policy_state_source": str(state_source_selection.policy_state_source),
+                "imu_source": str(state_source_selection.imu_source),
                 "course_sp_deg": float(torch.rad2deg(diag["course_sp"][idx]).item()),
                 "heading_sp_deg": float(torch.rad2deg(diag["heading_sp"][idx]).item()),
                 "roll_sp_deg": float(torch.rad2deg(diag["roll_sp"][idx]).item()),
@@ -820,7 +942,11 @@ def main():
     summary = {
         "task": args.task,
         "mission_mode": "loiter_circle",
-        "state_source": str(args.state_source),
+        "state_source": str(state_source_selection.controller_state_source),
+        "teacher_state_source": str(state_source_selection.teacher_state_source),
+        "policy_state_source": str(state_source_selection.policy_state_source),
+        "imu_source": str(state_source_selection.imu_source),
+        "imu_measurement_mode": str(imu_measurement_mode),
         "num_envs": int(args.num_envs),
         "steps_requested": int(requested_steps),
         "steps": int(effective_steps),
