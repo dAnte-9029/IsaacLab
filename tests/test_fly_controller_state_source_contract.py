@@ -86,6 +86,83 @@ def test_fly_straight_line_defaults_teacher_source_from_state_source(monkeypatch
     assert selection.policy_state_source == "estimated"
 
 
+def test_fly_straight_line_parser_accepts_env_seed(monkeypatch) -> None:
+    module = _load_script_module(
+        "test_fly_straight_line_seed_module",
+        "scripts/flapping_px4/fly_straight_line.py",
+        monkeypatch,
+    )
+
+    monkeypatch.setattr(sys, "argv", ["fly_straight_line.py"])
+    default_args = module._parse_args()
+    assert default_args.seed is None
+    assert default_args.estimator_attitude_correction_mode == "gravity_vector"
+    assert default_args.estimator_accel_hard_gate is True
+    assert default_args.estimator_accel_gate_low_g == 0.9
+    assert default_args.estimator_accel_gate_high_g == 1.1
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "fly_straight_line.py",
+            "--seed",
+            "123",
+            "--estimator_attitude_correction_mode",
+            "euler_lpf",
+            "--no-estimator_accel_hard_gate",
+            "--estimator_accel_gate_low_g",
+            "0.8",
+            "--estimator_accel_gate_high_g",
+            "1.2",
+        ],
+    )
+    seeded_args = module._parse_args()
+    assert seeded_args.seed == 123
+    assert seeded_args.estimator_attitude_correction_mode == "euler_lpf"
+    assert seeded_args.estimator_accel_hard_gate is False
+    assert seeded_args.estimator_accel_gate_low_g == 0.8
+    assert seeded_args.estimator_accel_gate_high_g == 1.2
+
+
+def test_fly_straight_line_parser_accepts_total_mass_override(monkeypatch) -> None:
+    module = _load_script_module(
+        "test_fly_straight_line_mass_override_module",
+        "scripts/flapping_px4/fly_straight_line.py",
+        monkeypatch,
+    )
+
+    monkeypatch.setattr(sys, "argv", ["fly_straight_line.py"])
+    default_args = module._parse_args()
+    assert default_args.total_mass_kg_override is None
+
+    monkeypatch.setattr(sys, "argv", ["fly_straight_line.py", "--total_mass_kg_override", "0.95"])
+    override_args = module._parse_args()
+    assert override_args.total_mass_kg_override == 0.95
+
+
+def test_fly_straight_line_apply_runtime_mass_override_updates_env_cfg() -> None:
+    from scripts.flapping_px4 import fly_straight_line as module
+
+    env_cfg = SimpleNamespace(total_mass_kg_override=None)
+    args = SimpleNamespace(total_mass_kg_override=0.95)
+
+    module._apply_runtime_mass_override_arg(env_cfg, args)
+
+    assert env_cfg.total_mass_kg_override == 0.95
+
+
+def test_fly_straight_line_apply_runtime_mass_override_leaves_env_cfg_untouched_when_arg_is_none() -> None:
+    from scripts.flapping_px4 import fly_straight_line as module
+
+    env_cfg = SimpleNamespace(total_mass_kg_override=None)
+    args = SimpleNamespace(total_mass_kg_override=None)
+
+    module._apply_runtime_mass_override_arg(env_cfg, args)
+
+    assert env_cfg.total_mass_kg_override is None
+
+
 def test_fly_loiter_parser_accepts_teacher_state_source_and_imu_source(monkeypatch) -> None:
     module = _load_script_module(
         "test_fly_loiter_module",
@@ -129,6 +206,84 @@ def test_fly_loiter_defaults_teacher_source_from_compare_state_source(monkeypatc
     assert args.teacher_state_source is None
     assert selection.teacher_state_source == "estimated"
     assert selection.policy_state_source == "estimated"
+
+
+def test_fly_loiter_parser_accepts_env_seed(monkeypatch) -> None:
+    module = _load_script_module(
+        "test_fly_loiter_seed_module",
+        "scripts/flapping_px4/fly_loiter.py",
+        monkeypatch,
+    )
+
+    monkeypatch.setattr(sys, "argv", ["fly_loiter.py"])
+    default_args = module._parse_args()
+    assert default_args.seed is None
+    assert default_args.loiter_radius_m == 40.0
+    assert default_args.estimator_attitude_correction_mode == "gravity_vector"
+    assert default_args.estimator_accel_hard_gate is True
+    assert default_args.estimator_accel_gate_low_g == 0.9
+    assert default_args.estimator_accel_gate_high_g == 1.1
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "fly_loiter.py",
+            "--seed",
+            "123",
+            "--estimator_attitude_correction_mode",
+            "euler_lpf",
+            "--no-estimator_accel_hard_gate",
+            "--estimator_accel_gate_low_g",
+            "0.8",
+            "--estimator_accel_gate_high_g",
+            "1.2",
+        ],
+    )
+    seeded_args = module._parse_args()
+    assert seeded_args.seed == 123
+    assert seeded_args.estimator_attitude_correction_mode == "euler_lpf"
+    assert seeded_args.estimator_accel_hard_gate is False
+    assert seeded_args.estimator_accel_gate_low_g == 0.8
+    assert seeded_args.estimator_accel_gate_high_g == 1.2
+
+
+def test_fly_loiter_parser_accepts_total_mass_override(monkeypatch) -> None:
+    module = _load_script_module(
+        "test_fly_loiter_mass_override_module",
+        "scripts/flapping_px4/fly_loiter.py",
+        monkeypatch,
+    )
+
+    monkeypatch.setattr(sys, "argv", ["fly_loiter.py"])
+    default_args = module._parse_args()
+    assert default_args.total_mass_kg_override is None
+
+    monkeypatch.setattr(sys, "argv", ["fly_loiter.py", "--total_mass_kg_override", "0.95"])
+    override_args = module._parse_args()
+    assert override_args.total_mass_kg_override == 0.95
+
+
+def test_fly_loiter_apply_runtime_mass_override_updates_env_cfg() -> None:
+    from scripts.flapping_px4 import fly_loiter as module
+
+    env_cfg = SimpleNamespace(total_mass_kg_override=None)
+    args = SimpleNamespace(total_mass_kg_override=0.95)
+
+    module._apply_runtime_mass_override_arg(env_cfg, args)
+
+    assert env_cfg.total_mass_kg_override == 0.95
+
+
+def test_fly_loiter_apply_runtime_mass_override_leaves_env_cfg_untouched_when_arg_is_none() -> None:
+    from scripts.flapping_px4 import fly_loiter as module
+
+    env_cfg = SimpleNamespace(total_mass_kg_override=None)
+    args = SimpleNamespace(total_mass_kg_override=None)
+
+    module._apply_runtime_mass_override_arg(env_cfg, args)
+
+    assert env_cfg.total_mass_kg_override is None
 
 
 def test_fly_straight_line_build_imu_measurement_routes_specific_force_to_provider(monkeypatch) -> None:

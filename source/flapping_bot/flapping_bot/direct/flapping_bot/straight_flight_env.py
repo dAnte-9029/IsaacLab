@@ -238,6 +238,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     tail_elevon_alpha_limit_deg: float = 25.0
     tail_horizontal_tail_q_scale: float = 1.0
     base_body_com_override_x_m: float | None = -0.10
+    total_mass_kg_override: float | None = None
 
     # virtual roll control (decoupled from the aerodynamic tail model)
     # Differential elevons now generate a physical roll moment, so this surrogate is disabled by default.
@@ -545,6 +546,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         base_body_ids, _ = self._robot.find_bodies(["base_link"], preserve_order=True)
         self._base_body_ids = base_body_ids
         self._override_appendage_mass_properties()
+        self._override_total_mass_properties()
         self._override_base_body_com()
 
         # wing phase/frequency
@@ -711,6 +713,31 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         base_id = int(self._base_body_ids[0])
         coms[:, base_id, 0] = float(override_x)
         self._robot.root_physx_view.set_coms(coms, env_ids)
+
+    def _override_total_mass_properties(self) -> None:
+        """Optionally scale all rigid-body masses/inertias to match a desired total vehicle mass."""
+        target_mass_kg = self.cfg.total_mass_kg_override
+        if target_mass_kg is None:
+            return
+
+        desired_mass = float(target_mass_kg)
+        if desired_mass <= 0.0:
+            raise ValueError("cfg.total_mass_kg_override must be positive when provided.")
+
+        env_ids = torch.arange(self.num_envs, device="cpu", dtype=torch.int64)
+        masses = self._robot.root_physx_view.get_masses().clone()
+        inertias = self._robot.root_physx_view.get_inertias().clone()
+        total_now = masses.sum(dim=1, keepdim=True)
+        scale = desired_mass / torch.clamp(total_now, min=1.0e-9)
+        masses_new = masses * scale
+        inertias_new = inertias * scale.unsqueeze(-1)
+
+        self._robot.root_physx_view.set_masses(masses_new, env_ids)
+        self._robot.root_physx_view.set_inertias(inertias_new, env_ids)
+
+        self._mass_total = masses_new.sum(dim=1).to(device=self.device)
+        if hasattr(self._robot.data, "default_mass"):
+            self._robot.data.default_mass = masses_new.to(device=self.device)
 
     # ------------------------------------------------------------------
     # Scene

@@ -1,5 +1,6 @@
 """PX4-inspired guidance and control helpers for flapping straight-flight baselines."""
 
+from .controller_tuning_profiles import apply_controller_tuning_profile, resolve_controller_tuning_profile
 from .guidance import (
     AirspeedDirectionController,
     AirspeedDirectionControllerSettings,
@@ -28,6 +29,7 @@ __all__ = [
     "DirectionalGuidance",
     "DirectionalGuidanceOutput",
     "DirectionalGuidanceSettings",
+    "apply_controller_tuning_profile",
     "ISAACSIM_IMU_IMPORT_ERROR",
     "ISAACSIM_IMU_RUNTIME_AVAILABLE",
     "ImuMeasurement",
@@ -42,6 +44,7 @@ __all__ = [
     "SensorSuiteCfg",
     "SyntheticImuProvider",
     "StateEstimatorCfg",
+    "resolve_controller_tuning_profile",
     "PX4LikeStraightLineController",
     "PX4LikeStraightLineControllerCfg",
     "PX4LikeTECS",

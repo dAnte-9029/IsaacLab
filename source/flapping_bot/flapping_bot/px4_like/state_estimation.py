@@ -167,6 +167,11 @@ class StateEstimatorCfg:
     roll_pitch_accel_gain_min: float = 0.0
     roll_pitch_accel_gate_sigma_mps2: float = 1.25
     roll_pitch_accel_gate_gyro_dps: float = 90.0
+    roll_pitch_accel_hard_gate: bool = True
+    roll_pitch_accel_gate_low_g: float = 0.9
+    roll_pitch_accel_gate_high_g: float = 1.1
+    roll_pitch_accel_gate_lpf_tau_s: float = 0.25
+    roll_pitch_accel_correction_mode: str = "gravity_vector"
     attitude_max_pitch_deg: float = 85.0
     yaw_mag_gain: float = 0.08
     gps_pos_lpf_tau_s: float = 0.18
@@ -246,6 +251,7 @@ class SensorStateEstimator:
 
         self._gyro_meas = zeros_3.clone()
         self._accel_meas = zeros_3.clone()
+        self._accel_gate_lpf = zeros_3.clone()
         self._gps_pos_meas = zeros_3.clone()
         self._gps_vel_meas = zeros_3.clone()
         self._baro_alt_meas = zeros_1.clone()
@@ -315,6 +321,9 @@ class SensorStateEstimator:
         self._vel_prev_true = vel_local_true.clone()
         self._gyro_meas.zero_()
         self._accel_meas.zero_()
+        gravity_world = torch.zeros_like(pos_local_true)
+        gravity_world[:, 2] = 9.81
+        self._accel_gate_lpf = _body_from_world(roll_true, pitch_true, yaw_true, gravity_world)
         self._acc_world_est.zero_()
 
         self._gps_timer_s = self._gps_period_s
@@ -386,15 +395,13 @@ class SensorStateEstimator:
             max_pitch_rad=math.radians(max(float(e.attitude_max_pitch_deg), 1.0)),
         )
 
-        roll_acc = torch.atan2(self._accel_meas[:, 1], self._accel_meas[:, 2])
-        pitch_acc = torch.atan2(
-            -self._accel_meas[:, 0],
-            torch.sqrt(torch.clamp(self._accel_meas[:, 1] ** 2 + self._accel_meas[:, 2] ** 2, min=1.0e-6)),
-        )
-
         base_att_gain = float(max(e.roll_pitch_accel_gain, 0.0))
+        acc_norm = torch.linalg.norm(self._accel_meas, dim=1)
+        alpha_accel_gate = _alpha_from_tau(self.dt, float(e.roll_pitch_accel_gate_lpf_tau_s))
+        self._accel_gate_lpf = self._accel_gate_lpf + alpha_accel_gate * (self._accel_meas - self._accel_gate_lpf)
+        acc_lpf_norm = torch.linalg.norm(self._accel_gate_lpf, dim=1)
+        corr_scale = torch.zeros_like(self._roll_est)
         if base_att_gain > 0.0:
-            acc_norm = torch.linalg.norm(self._accel_meas, dim=1)
             sigma = max(float(e.roll_pitch_accel_gate_sigma_mps2), 1.0e-3)
             acc_scale = torch.exp(-torch.square(torch.abs(acc_norm - 9.81) / sigma))
 
@@ -403,14 +410,53 @@ class SensorStateEstimator:
             gyro_scale = torch.clamp(1.0 - gyro_norm / gyro_gate_radps, min=0.0, max=1.0)
 
             corr_scale = acc_scale * gyro_scale
+            hard_gate_mask = torch.ones_like(corr_scale, dtype=torch.bool)
+            if bool(e.roll_pitch_accel_hard_gate):
+                gate_low = max(float(e.roll_pitch_accel_gate_low_g), 0.0) * 9.81
+                gate_high = (
+                    max(float(e.roll_pitch_accel_gate_high_g), float(e.roll_pitch_accel_gate_low_g) + 1.0e-3)
+                    * 9.81
+                )
+                accel_gate = (
+                    (acc_norm >= gate_low)
+                    & (acc_norm <= gate_high)
+                    & (acc_lpf_norm >= gate_low)
+                    & (acc_lpf_norm <= gate_high)
+                )
+                gyro_gate = gyro_norm <= gyro_gate_radps
+                hard_gate_mask = accel_gate & gyro_gate
+
             min_scale = max(0.0, min(float(e.roll_pitch_accel_gain_min), 1.0))
             corr_scale = torch.clamp(corr_scale, min=min_scale, max=1.0)
+            corr_scale = torch.where(hard_gate_mask, corr_scale, torch.zeros_like(corr_scale))
             att_corr_gain = base_att_gain * corr_scale
         else:
             att_corr_gain = torch.zeros_like(self._roll_est)
 
-        self._roll_est = _angle_lpf(roll_pred, roll_acc, att_corr_gain)
-        self._pitch_est = _angle_lpf(pitch_pred, pitch_acc, att_corr_gain)
+        correction_mode = str(e.roll_pitch_accel_correction_mode).strip().lower()
+        if correction_mode in {"euler", "euler_lpf", "legacy"}:
+            roll_acc = torch.atan2(self._accel_meas[:, 1], self._accel_meas[:, 2])
+            pitch_acc = torch.atan2(
+                -self._accel_meas[:, 0],
+                torch.sqrt(torch.clamp(self._accel_meas[:, 1] ** 2 + self._accel_meas[:, 2] ** 2, min=1.0e-6)),
+            )
+            self._roll_est = _angle_lpf(roll_pred, roll_acc, att_corr_gain)
+            self._pitch_est = _angle_lpf(pitch_pred, pitch_acc, att_corr_gain)
+        elif correction_mode in {"gravity_vector", "px4_gravity"}:
+            up_world = torch.zeros_like(self._accel_meas)
+            up_world[:, 2] = 1.0
+            predicted_up_body = _body_from_world(roll_pred, pitch_pred, yaw_pred, up_world)
+            measured_up_body = self._accel_meas / torch.clamp(acc_norm, min=1.0e-6).unsqueeze(1)
+            tilt_correction = torch.cross(measured_up_body, predicted_up_body, dim=1)
+            max_pitch_rad = math.radians(max(float(e.attitude_max_pitch_deg), 1.0))
+            self._roll_est = _wrap_pi(roll_pred + att_corr_gain * tilt_correction[:, 0])
+            self._pitch_est = torch.clamp(
+                pitch_pred + att_corr_gain * tilt_correction[:, 1],
+                min=-max_pitch_rad,
+                max=max_pitch_rad,
+            )
+        else:
+            raise ValueError(f"Unsupported roll_pitch_accel_correction_mode: {e.roll_pitch_accel_correction_mode}")
         self._yaw_est = yaw_pred
 
         self._mag_timer_s += self.dt
@@ -537,5 +583,8 @@ class SensorStateEstimator:
             "acc_world_y": self._acc_world_est[:, 1].clone(),
             "acc_world_z": self._acc_world_est[:, 2].clone(),
             "att_corr_gain": att_corr_gain.clone(),
+            "att_corr_scale": corr_scale.clone(),
+            "accel_norm": acc_norm.clone(),
+            "accel_gate_lpf_norm": acc_lpf_norm.clone(),
         }
         return state, diag

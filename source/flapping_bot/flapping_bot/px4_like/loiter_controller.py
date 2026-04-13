@@ -18,7 +18,7 @@ class PX4LikeLoiterControllerCfg(PX4LikeStraightLineControllerCfg):
     """Controller gains and mission settings for loiter flight."""
 
     circle_center_xy: tuple[float, float] = (0.0, 0.0)
-    loiter_radius_m: float = 20.0
+    loiter_radius_m: float = 40.0
     loiter_clockwise: bool = False
 
 

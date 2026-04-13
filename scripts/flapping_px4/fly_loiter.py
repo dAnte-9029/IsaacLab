@@ -27,6 +27,7 @@ def _parse_args() -> argparse.Namespace:
         help="Gym task id.",
     )
     parser.add_argument("--num_envs", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=None, help="Environment RNG seed for deterministic rollouts.")
     parser.add_argument("--steps", type=int, default=3000)
     parser.add_argument(
         "--auto_extend_steps",
@@ -74,6 +75,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sensor_bias_scale", type=float, default=1.0, help="Scale factor for sensor bias std.")
     parser.add_argument("--sensor_delay_scale", type=float, default=1.0, help="Scale factor for sensor delays.")
     parser.add_argument("--estimator_attitude_gain", type=float, default=0.05, help="Accel correction gain for roll/pitch.")
+    parser.add_argument(
+        "--estimator_attitude_correction_mode",
+        type=str,
+        choices=("gravity_vector", "px4_gravity", "euler_lpf", "euler", "legacy"),
+        default="gravity_vector",
+        help="Roll/pitch accel correction mode.",
+    )
+    parser.add_argument(
+        "--estimator_accel_hard_gate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Hard-disable accel attitude correction outside the PX4-style accel/gyro gate.",
+    )
+    parser.add_argument("--estimator_accel_gate_low_g", type=float, default=0.9)
+    parser.add_argument("--estimator_accel_gate_high_g", type=float, default=1.1)
+    parser.add_argument("--estimator_accel_gate_lpf_tau_s", type=float, default=0.25)
     parser.add_argument(
         "--estimator_attitude_gain_min",
         type=float,
@@ -132,7 +149,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--loiter_center_x", type=float, default=40.0)
     parser.add_argument("--loiter_center_y", type=float, default=0.0)
-    parser.add_argument("--loiter_radius_m", type=float, default=20.0)
+    parser.add_argument("--loiter_radius_m", type=float, default=40.0)
     parser.add_argument(
         "--loiter_clockwise",
         action=argparse.BooleanOptionalAction,
@@ -212,6 +229,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--tecs_pitch_speed_weight_capture", type=float, default=0.10)
     parser.add_argument("--tecs_capture_extra_climb_rate_mps", type=float, default=1.4)
     parser.add_argument("--tecs_capture_extra_sink_rate_mps", type=float, default=0.2)
+    parser.add_argument("--tecs_load_factor_use_roll_sp", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--inner_pitch_lpf_tau_s", type=float, default=0.12)
     parser.add_argument("--inner_pitch_rate_lpf_tau_s", type=float, default=0.1)
     parser.add_argument("--inner_pitch_cycle_mean_enabled", action=argparse.BooleanOptionalAction, default=True)
@@ -219,6 +237,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--inner_pitch_rate_cycle_mean_tau_s", type=float, default=0.24)
     parser.add_argument("--inner_elevon_pitch_rate_limit_per_s", type=float, default=2.0)
     parser.add_argument("--inner_elevon_roll_rate_limit_per_s", type=float, default=6.0)
+    parser.add_argument("--profile_max_roll_deg", type=float, default=None)
+    parser.add_argument("--profile_roll_kd", type=float, default=None)
+    parser.add_argument("--profile_inner_elevon_roll_rate_limit_per_s", type=float, default=None)
     parser.add_argument("--inner_pitch_ki", type=float, default=0.8)
     parser.add_argument("--inner_pitch_integrator_limit", type=float, default=0.6)
     parser.add_argument("--inner_pitch_integrator_leak_per_s", type=float, default=0.04)
@@ -280,6 +301,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Override env_cfg.fuselage_drag_cda (if supported).",
     )
+    parser.add_argument(
+        "--total_mass_kg_override",
+        type=float,
+        default=None,
+        help="Runtime override for vehicle total mass without editing the asset files.",
+    )
     parser.add_argument("--out_dir", type=Path, default=Path("logs/flapping_px4/loiter"))
     parser.add_argument("--print_every", type=int, default=250)
     AppLauncher.add_app_launcher_args(parser)
@@ -325,6 +352,20 @@ def _build_imu_measurement(
         ang_vel_body=ang_vel_b,
         specific_force_body=specific_force_body,
     )
+
+
+def _apply_runtime_mass_override_arg(env_cfg, args: argparse.Namespace) -> None:
+    total_mass_kg_override = getattr(args, "total_mass_kg_override", None)
+    if total_mass_kg_override is None:
+        return
+    env_cfg.total_mass_kg_override = float(total_mass_kg_override)
+
+
+def _resolve_logged_mass_total_kg(env) -> float:
+    mass_total = getattr(env.unwrapped, "_mass_total", None)
+    if mass_total is not None:
+        return float(mass_total[0].item())
+    return float(env.unwrapped._robot.data.default_mass[0].sum().item())
 
 
 def _create_isaacsim_imu_sensor(imu_provider, env, *, env_step_dt: float):
@@ -374,7 +415,9 @@ def main():
             SensorStateEstimator,
             SensorSuiteCfg,
             StateEstimatorCfg,
+            apply_controller_tuning_profile,
             build_imu_provider,
+            resolve_controller_tuning_profile,
         )
     except ModuleNotFoundError:
         from flapping_bot.flapping_bot.px4_like import (
@@ -383,10 +426,13 @@ def main():
             SensorStateEstimator,
             SensorSuiteCfg,
             StateEstimatorCfg,
+            apply_controller_tuning_profile,
             build_imu_provider,
+            resolve_controller_tuning_profile,
         )
 
     env_cfg = parse_env_cfg(args.task, device=args.device, num_envs=args.num_envs)
+    env_cfg.seed = None if args.seed is None else int(args.seed)
     env_cfg.randomize_commands = False
     if hasattr(env_cfg, "teacher_state_source"):
         env_cfg.teacher_state_source = state_source_selection.teacher_state_source
@@ -458,6 +504,7 @@ def main():
         env_cfg.delaurier_induced_drag_efficiency = float(args.delaurier_induced_drag_efficiency)
     if args.fuselage_drag_cda is not None and hasattr(env_cfg, "fuselage_drag_cda"):
         env_cfg.fuselage_drag_cda = float(args.fuselage_drag_cda)
+    _apply_runtime_mass_override_arg(env_cfg, args)
     env = gym.make(args.task, cfg=env_cfg)
 
     def _reset_on_loiter_entry() -> None:
@@ -498,73 +545,92 @@ def main():
 
     env.reset()
     _reset_on_loiter_entry()
-    controller_cfg = PX4LikeLoiterControllerCfg(
-        circle_center_xy=(float(args.loiter_center_x), float(args.loiter_center_y)),
-        loiter_radius_m=float(args.loiter_radius_m),
-        loiter_clockwise=bool(args.loiter_clockwise),
-        wind_xy=(float(args.wind_x_mps), float(args.wind_y_mps)),
-        control_dt_s=float(env_step_dt),
-        height_sp_m=float(args.height_sp),
-        pitch_trim_deg=float(args.pitch_trim_deg),
-        max_roll_deg=float(args.max_roll_deg),
-        roll_kp=float(args.roll_kp),
-        roll_kd=float(args.roll_kd),
-        pitch_kp=float(args.pitch_kp),
-        pitch_kd=float(args.pitch_kd),
-        yaw_kp=float(args.yaw_kp),
-        yaw_kd=float(args.yaw_kd),
-        height_kp=float(args.height_kp),
-        height_rate_kd=float(args.height_rate_kd),
-        max_pitch_up_deg=float(args.max_pitch_up_deg),
-        max_pitch_down_deg=float(args.max_pitch_down_deg),
-        freq_trim_hz=float(args.freq_trim_hz),
-        min_flap_hz=float(env.unwrapped.cfg.min_flap_hz),
-        max_flap_hz=float(env.unwrapped.cfg.max_flap_hz),
-        enable_tecs=bool(args.enable_tecs),
-        tecs_max_climb_rate_mps=float(args.tecs_max_climb_rate_mps),
-        tecs_min_sink_rate_mps=float(args.tecs_min_sink_rate_mps),
-        tecs_altitude_error_gain=float(args.tecs_altitude_error_gain),
-        tecs_airspeed_error_gain=float(args.tecs_airspeed_error_gain),
-        tecs_pitch_speed_weight=float(args.tecs_pitch_speed_weight),
-        tecs_pitch_damping_gain=float(args.tecs_pitch_damping_gain),
-        tecs_integrator_gain_pitch=float(args.tecs_integrator_gain_pitch),
-        tecs_throttle_damping_gain=float(args.tecs_throttle_damping_gain),
-        tecs_integrator_gain_throttle=float(args.tecs_integrator_gain_throttle),
-        tecs_ste_rate_time_const_s=float(args.tecs_ste_rate_time_const_s),
-        tecs_tas_min_mps=float(args.tecs_tas_min_mps),
-        tecs_tas_error_percentage=float(args.tecs_tas_error_percentage),
-        tecs_detect_underspeed=bool(args.tecs_detect_underspeed),
-        tecs_altitude_filter_tau_s=float(args.tecs_altitude_filter_tau_s),
-        tecs_altitude_rate_filter_tau_s=float(args.tecs_altitude_rate_filter_tau_s),
-        tecs_pitch_sp_filter_tau_s=float(args.tecs_pitch_sp_filter_tau_s),
-        tecs_pitch_sp_rate_limit_deg_s=float(args.tecs_pitch_sp_rate_limit_deg_s),
-        tecs_throttle_sp_filter_tau_s=float(args.tecs_throttle_sp_filter_tau_s),
-        tecs_altitude_hold_error_band_m=float(args.tecs_altitude_hold_error_band_m),
-        tecs_altitude_capture_error_m=float(args.tecs_altitude_capture_error_m),
-        tecs_altitude_capture_time_const_s=float(args.tecs_altitude_capture_time_const_s),
-        tecs_altitude_capture_release_error_m=float(args.tecs_altitude_capture_release_error_m),
-        tecs_altitude_capture_release_time_s=float(args.tecs_altitude_capture_release_time_s),
-        tecs_altitude_capture_persistence_gain=float(args.tecs_altitude_capture_persistence_gain),
-        tecs_airspeed_error_gain_capture_scale=float(args.tecs_airspeed_error_gain_capture_scale),
-        tecs_pitch_speed_weight_capture=float(args.tecs_pitch_speed_weight_capture),
-        tecs_capture_extra_climb_rate_mps=float(args.tecs_capture_extra_climb_rate_mps),
-        tecs_capture_extra_sink_rate_mps=float(args.tecs_capture_extra_sink_rate_mps),
-        inner_pitch_lpf_tau_s=float(args.inner_pitch_lpf_tau_s),
-        inner_pitch_rate_lpf_tau_s=float(args.inner_pitch_rate_lpf_tau_s),
-        inner_pitch_cycle_mean_enabled=bool(args.inner_pitch_cycle_mean_enabled),
-        inner_pitch_cycle_mean_tau_s=float(args.inner_pitch_cycle_mean_tau_s),
-        inner_pitch_rate_cycle_mean_tau_s=float(args.inner_pitch_rate_cycle_mean_tau_s),
-        inner_elevon_pitch_rate_limit_per_s=float(args.inner_elevon_pitch_rate_limit_per_s),
-        inner_elevon_roll_rate_limit_per_s=float(args.inner_elevon_roll_rate_limit_per_s),
-        inner_pitch_ki=float(args.inner_pitch_ki),
-        inner_pitch_integrator_limit=float(args.inner_pitch_integrator_limit),
-        inner_pitch_integrator_leak_per_s=float(args.inner_pitch_integrator_leak_per_s),
-        enable_speed_hold=bool(args.enable_speed_hold),
-        speed_sp_mps=float(args.speed_sp),
-        speed_kp_hz_per_mps=float(args.speed_kp_hz_per_mps),
-        freq_height_kp_hz_per_m=float(args.freq_height_kp_hz_per_m),
-        freq_height_rate_kd_hz_per_mps=float(args.freq_height_rate_kd_hz_per_mps),
+    mass_total = _resolve_logged_mass_total_kg(env)
+    controller_tuning_profile = resolve_controller_tuning_profile(
+        controller_state_source=state_source_selection.controller_state_source
     )
+    controller_kwargs = apply_controller_tuning_profile(
+        dict(
+            circle_center_xy=(float(args.loiter_center_x), float(args.loiter_center_y)),
+            loiter_radius_m=float(args.loiter_radius_m),
+            loiter_clockwise=bool(args.loiter_clockwise),
+            wind_xy=(float(args.wind_x_mps), float(args.wind_y_mps)),
+            control_dt_s=float(env_step_dt),
+            height_sp_m=float(args.height_sp),
+            pitch_trim_deg=float(args.pitch_trim_deg),
+            max_roll_deg=float(args.max_roll_deg),
+            roll_kp=float(args.roll_kp),
+            roll_kd=float(args.roll_kd),
+            pitch_kp=float(args.pitch_kp),
+            pitch_kd=float(args.pitch_kd),
+            yaw_kp=float(args.yaw_kp),
+            yaw_kd=float(args.yaw_kd),
+            height_kp=float(args.height_kp),
+            height_rate_kd=float(args.height_rate_kd),
+            max_pitch_up_deg=float(args.max_pitch_up_deg),
+            max_pitch_down_deg=float(args.max_pitch_down_deg),
+            freq_trim_hz=float(args.freq_trim_hz),
+            min_flap_hz=float(env.unwrapped.cfg.min_flap_hz),
+            max_flap_hz=float(env.unwrapped.cfg.max_flap_hz),
+            enable_tecs=bool(args.enable_tecs),
+            tecs_max_climb_rate_mps=float(args.tecs_max_climb_rate_mps),
+            tecs_min_sink_rate_mps=float(args.tecs_min_sink_rate_mps),
+            tecs_altitude_error_gain=float(args.tecs_altitude_error_gain),
+            tecs_airspeed_error_gain=float(args.tecs_airspeed_error_gain),
+            tecs_pitch_speed_weight=float(args.tecs_pitch_speed_weight),
+            tecs_pitch_damping_gain=float(args.tecs_pitch_damping_gain),
+            tecs_integrator_gain_pitch=float(args.tecs_integrator_gain_pitch),
+            tecs_throttle_damping_gain=float(args.tecs_throttle_damping_gain),
+            tecs_integrator_gain_throttle=float(args.tecs_integrator_gain_throttle),
+            tecs_ste_rate_time_const_s=float(args.tecs_ste_rate_time_const_s),
+            tecs_tas_min_mps=float(args.tecs_tas_min_mps),
+            tecs_tas_error_percentage=float(args.tecs_tas_error_percentage),
+            tecs_detect_underspeed=bool(args.tecs_detect_underspeed),
+            tecs_altitude_filter_tau_s=float(args.tecs_altitude_filter_tau_s),
+            tecs_altitude_rate_filter_tau_s=float(args.tecs_altitude_rate_filter_tau_s),
+            tecs_pitch_sp_filter_tau_s=float(args.tecs_pitch_sp_filter_tau_s),
+            tecs_pitch_sp_rate_limit_deg_s=float(args.tecs_pitch_sp_rate_limit_deg_s),
+            tecs_throttle_sp_filter_tau_s=float(args.tecs_throttle_sp_filter_tau_s),
+            tecs_altitude_hold_error_band_m=float(args.tecs_altitude_hold_error_band_m),
+            tecs_altitude_capture_error_m=float(args.tecs_altitude_capture_error_m),
+            tecs_altitude_capture_time_const_s=float(args.tecs_altitude_capture_time_const_s),
+            tecs_altitude_capture_release_error_m=float(args.tecs_altitude_capture_release_error_m),
+            tecs_altitude_capture_release_time_s=float(args.tecs_altitude_capture_release_time_s),
+            tecs_altitude_capture_persistence_gain=float(args.tecs_altitude_capture_persistence_gain),
+            tecs_airspeed_error_gain_capture_scale=float(args.tecs_airspeed_error_gain_capture_scale),
+            tecs_pitch_speed_weight_capture=float(args.tecs_pitch_speed_weight_capture),
+            tecs_capture_extra_climb_rate_mps=float(args.tecs_capture_extra_climb_rate_mps),
+            tecs_capture_extra_sink_rate_mps=float(args.tecs_capture_extra_sink_rate_mps),
+            tecs_load_factor_use_roll_sp=bool(args.tecs_load_factor_use_roll_sp),
+            inner_pitch_lpf_tau_s=float(args.inner_pitch_lpf_tau_s),
+            inner_pitch_rate_lpf_tau_s=float(args.inner_pitch_rate_lpf_tau_s),
+            inner_pitch_cycle_mean_enabled=bool(args.inner_pitch_cycle_mean_enabled),
+            inner_pitch_cycle_mean_tau_s=float(args.inner_pitch_cycle_mean_tau_s),
+            inner_pitch_rate_cycle_mean_tau_s=float(args.inner_pitch_rate_cycle_mean_tau_s),
+            inner_elevon_pitch_rate_limit_per_s=float(args.inner_elevon_pitch_rate_limit_per_s),
+            inner_elevon_roll_rate_limit_per_s=float(args.inner_elevon_roll_rate_limit_per_s),
+            inner_pitch_ki=float(args.inner_pitch_ki),
+            inner_pitch_integrator_limit=float(args.inner_pitch_integrator_limit),
+            inner_pitch_integrator_leak_per_s=float(args.inner_pitch_integrator_leak_per_s),
+            enable_speed_hold=bool(args.enable_speed_hold),
+            speed_sp_mps=float(args.speed_sp),
+            speed_kp_hz_per_mps=float(args.speed_kp_hz_per_mps),
+            freq_height_kp_hz_per_m=float(args.freq_height_kp_hz_per_m),
+            freq_height_rate_kd_hz_per_mps=float(args.freq_height_rate_kd_hz_per_mps),
+        ),
+        controller_state_source=state_source_selection.controller_state_source,
+        controller_kind="loiter",
+        explicit_overrides={
+            key: value
+            for key, value in {
+                "max_roll_deg": args.profile_max_roll_deg,
+                "roll_kd": args.profile_roll_kd,
+                "inner_elevon_roll_rate_limit_per_s": args.profile_inner_elevon_roll_rate_limit_per_s,
+            }.items()
+            if value is not None
+        },
+    )
+    controller_cfg = PX4LikeLoiterControllerCfg(**controller_kwargs)
     controller = PX4LikeLoiterController(controller_cfg, device=env.unwrapped.device)
     controller.reset()
 
@@ -587,6 +653,11 @@ def main():
             roll_pitch_accel_gain_min=float(args.estimator_attitude_gain_min),
             roll_pitch_accel_gate_sigma_mps2=float(args.estimator_accel_gate_sigma_mps2),
             roll_pitch_accel_gate_gyro_dps=float(args.estimator_accel_gate_gyro_dps),
+            roll_pitch_accel_hard_gate=bool(args.estimator_accel_hard_gate),
+            roll_pitch_accel_gate_low_g=float(args.estimator_accel_gate_low_g),
+            roll_pitch_accel_gate_high_g=float(args.estimator_accel_gate_high_g),
+            roll_pitch_accel_gate_lpf_tau_s=float(args.estimator_accel_gate_lpf_tau_s),
+            roll_pitch_accel_correction_mode=str(args.estimator_attitude_correction_mode),
             attitude_max_pitch_deg=float(args.estimator_attitude_max_pitch_deg),
             yaw_mag_gain=float(args.estimator_yaw_gain),
             gps_pos_lpf_tau_s=float(args.estimator_gps_pos_tau_s),
@@ -909,8 +980,17 @@ def main():
                 "sensor_accel_x_mps2": float(est_diag["accel_x"][idx].item()) if "accel_x" in est_diag else float("nan"),
                 "sensor_accel_y_mps2": float(est_diag["accel_y"][idx].item()) if "accel_y" in est_diag else float("nan"),
                 "sensor_accel_z_mps2": float(est_diag["accel_z"][idx].item()) if "accel_z" in est_diag else float("nan"),
+                "sensor_accel_norm_mps2": float(est_diag["accel_norm"][idx].item())
+                if "accel_norm" in est_diag
+                else float("nan"),
+                "sensor_accel_gate_lpf_norm_mps2": float(est_diag["accel_gate_lpf_norm"][idx].item())
+                if "accel_gate_lpf_norm" in est_diag
+                else float("nan"),
                 "sensor_att_corr_gain": float(est_diag["att_corr_gain"][idx].item())
                 if "att_corr_gain" in est_diag
+                else float("nan"),
+                "sensor_att_corr_scale": float(est_diag["att_corr_scale"][idx].item())
+                if "att_corr_scale" in est_diag
                 else float("nan"),
                 "action_freq": float(actions[idx, 0].item()),
                 "action_rudder": float(actions[idx, 1].item()),
@@ -948,10 +1028,12 @@ def main():
         "imu_source": str(state_source_selection.imu_source),
         "imu_measurement_mode": str(imu_measurement_mode),
         "num_envs": int(args.num_envs),
+        "env_seed": None if args.seed is None else int(args.seed),
         "steps_requested": int(requested_steps),
         "steps": int(effective_steps),
         "resets": int(resets),
         "env_dt_s": float(env_step_dt),
+        "mass_total_kg": float(mass_total),
         "aero_mode": str(args.aero_mode),
         "enable_tecs": bool(args.enable_tecs),
         "enable_speed_hold": bool(args.enable_speed_hold),
@@ -983,11 +1065,27 @@ def main():
         "wind_x_logged_std_mps": float(torch.std(wind_x_tensor, unbiased=False).item()),
         "wind_y_logged_mean_mps": float(torch.mean(wind_y_tensor).item()),
         "wind_y_logged_std_mps": float(torch.std(wind_y_tensor, unbiased=False).item()),
+        "controller_tuning_profile": str(controller_tuning_profile),
+        "controller_max_roll_deg": float(controller_cfg.max_roll_deg),
+        "controller_roll_kp": float(controller_cfg.roll_kp),
+        "controller_roll_kd": float(controller_cfg.roll_kd),
+        "controller_guidance_period_s": float(controller_cfg.guidance_period_s),
+        "controller_guidance_damping": float(controller_cfg.guidance_damping),
+        "controller_guidance_roll_time_const_s": float(controller_cfg.guidance_roll_time_const_s),
+        "controller_heading_p_gain": float(controller_cfg.heading_p_gain),
+        "controller_inner_elevon_pitch_rate_limit_per_s": float(controller_cfg.inner_elevon_pitch_rate_limit_per_s),
+        "controller_inner_elevon_roll_rate_limit_per_s": float(controller_cfg.inner_elevon_roll_rate_limit_per_s),
+        "controller_tecs_load_factor_use_roll_sp": bool(controller_cfg.tecs_load_factor_use_roll_sp),
         "sensor_noise_scale": float(args.sensor_noise_scale),
         "sensor_bias_scale": float(args.sensor_bias_scale),
         "sensor_delay_scale": float(args.sensor_delay_scale),
         "estimator_attitude_gain": float(args.estimator_attitude_gain),
+        "estimator_attitude_correction_mode": str(args.estimator_attitude_correction_mode),
         "estimator_attitude_gain_min": float(args.estimator_attitude_gain_min),
+        "estimator_accel_hard_gate": bool(args.estimator_accel_hard_gate),
+        "estimator_accel_gate_low_g": float(args.estimator_accel_gate_low_g),
+        "estimator_accel_gate_high_g": float(args.estimator_accel_gate_high_g),
+        "estimator_accel_gate_lpf_tau_s": float(args.estimator_accel_gate_lpf_tau_s),
         "estimator_accel_gate_sigma_mps2": float(args.estimator_accel_gate_sigma_mps2),
         "estimator_accel_gate_gyro_dps": float(args.estimator_accel_gate_gyro_dps),
         "estimator_attitude_max_pitch_deg": float(args.estimator_attitude_max_pitch_deg),
