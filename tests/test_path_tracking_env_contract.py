@@ -190,6 +190,58 @@ def test_path_tracking_teacher_wind_contract_uses_state_source_helper() -> None:
     assert "resolve_teacher_state_inputs(" in source_text
 
 
+def test_straight_flight_env_estimated_runtime_contract_uses_estimator_and_imu_helpers() -> None:
+    source_text = (
+        Path(__file__).resolve().parents[1]
+        / "source"
+        / "flapping_bot"
+        / "flapping_bot"
+        / "direct"
+        / "flapping_bot"
+        / "straight_flight_env.py"
+    ).read_text()
+
+    assert "SensorStateEstimator" in source_text
+    assert "build_imu_provider" in source_text
+    assert "_refresh_runtime_estimated_state(" in source_text
+    assert "_create_runtime_imu_sensor(" in source_text
+
+
+def test_straight_flight_env_runtime_imu_helper_uses_base_com_offset() -> None:
+    source_text = (
+        Path(__file__).resolve().parents[1]
+        / "source"
+        / "flapping_bot"
+        / "flapping_bot"
+        / "direct"
+        / "flapping_bot"
+        / "straight_flight_env.py"
+    ).read_text()
+
+    assert "resolve_base_body_com_offset_b" in source_text
+    assert "offset_pos_b=" in source_text
+
+
+def test_path_tracking_env_maintains_separate_estimated_path_query_state() -> None:
+    source_text = (
+        Path(__file__).resolve().parents[1]
+        / "source"
+        / "flapping_bot"
+        / "flapping_bot"
+        / "direct"
+        / "flapping_bot"
+        / "path_tracking_env.py"
+    ).read_text()
+
+    for token in (
+        "_estimated_missions",
+        "_estimated_path_managers",
+        "_estimated_path_query_dirty",
+        "_refresh_estimated_path_state(",
+    ):
+        assert token in source_text
+
+
 def test_path_tracking_env_defaults_disable_action_filtering() -> None:
     module = ast.parse(
         (
@@ -270,6 +322,13 @@ def test_path_tracking_env_exposes_teacher_tecs_load_factor_defaults() -> None:
         break
 
     assert found_fields == expected_fields
+
+
+def test_path_tracking_env_exposes_teacher_inner_elevon_rate_limit_defaults() -> None:
+    cfg = FlappingBotPathTrackingEnvCfg()
+
+    assert cfg.teacher_inner_elevon_pitch_rate_limit_per_s == 2.0
+    assert cfg.teacher_inner_elevon_roll_rate_limit_per_s == 6.0
 
 
 def test_path_tracking_env_inherits_tail_aero_compatibility_defaults() -> None:
@@ -478,6 +537,8 @@ def test_path_tracking_teacher_passes_tecs_load_factor_cfg_to_controller() -> No
         "guidance_damping": "teacher_guidance_damping",
         "guidance_roll_time_const_s": "teacher_guidance_roll_time_const_s",
         "heading_p_gain": "teacher_heading_p_gain",
+        "lateral_heading_yaw_blend": "teacher_lateral_heading_yaw_blend",
+        "lateral_heading_yaw_correction_limit_deg": "teacher_lateral_heading_yaw_correction_limit_deg",
         "inner_pitch_ki": "teacher_inner_pitch_ki",
         "inner_pitch_cycle_mean_enabled": "teacher_inner_pitch_cycle_mean_enabled",
         "inner_pitch_cycle_mean_tau_s": "teacher_inner_pitch_cycle_mean_tau_s",

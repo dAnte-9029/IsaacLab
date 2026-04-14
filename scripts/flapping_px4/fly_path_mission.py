@@ -132,6 +132,78 @@ def prepend_task_warmup(mission: Mission, *, warmup_enabled: bool, warmup_straig
     )
 
 
+def _apply_runtime_mass_override_arg(env_cfg, args: argparse.Namespace) -> None:
+    total_mass_kg_override = getattr(args, "total_mass_kg_override", None)
+    if total_mass_kg_override is None:
+        return
+    env_cfg.total_mass_kg_override = float(total_mass_kg_override)
+
+
+def _resolve_logged_mass_total_kg(env) -> float:
+    mass_total = getattr(env.unwrapped, "_mass_total", None)
+    if mass_total is not None:
+        return float(mass_total[0].item())
+    return float(env.unwrapped._robot.data.default_mass[0].sum().item())
+
+
+def _resolve_controller_tuning_profile_name(args: argparse.Namespace) -> str:
+    try:
+        from flapping_bot.px4_like import resolve_controller_tuning_profile
+    except ModuleNotFoundError:
+        from flapping_bot.flapping_bot.px4_like import resolve_controller_tuning_profile
+
+    requested_profile = str(getattr(args, "controller_tuning_profile", "auto"))
+    if requested_profile != "auto":
+        return requested_profile
+    return resolve_controller_tuning_profile(
+        controller_state_source=str(getattr(args, "teacher_state_source", "truth"))
+    )
+
+
+def _apply_env_controller_tuning_profile(env_cfg, args: argparse.Namespace) -> str:
+    try:
+        from flapping_bot.px4_like import apply_controller_tuning_profile
+    except ModuleNotFoundError:
+        from flapping_bot.flapping_bot.px4_like import apply_controller_tuning_profile
+
+    profile_name = _resolve_controller_tuning_profile_name(args)
+    controller_state_source = "estimated" if profile_name == "estimated_teacher" else "truth"
+    tuned_kwargs = apply_controller_tuning_profile(
+        {
+            "roll_kd": float(getattr(env_cfg, "teacher_roll_kd", 0.85)),
+            "max_roll_deg": float(getattr(env_cfg, "teacher_max_roll_deg", 45.0)),
+            "heading_p_gain": float(getattr(env_cfg, "teacher_heading_p_gain", 1.8)),
+            "lateral_heading_yaw_blend": float(getattr(env_cfg, "teacher_lateral_heading_yaw_blend", 0.0)),
+            "lateral_heading_yaw_correction_limit_deg": float(
+                getattr(env_cfg, "teacher_lateral_heading_yaw_correction_limit_deg", 180.0)
+            ),
+            "inner_elevon_pitch_rate_limit_per_s": float(
+                getattr(env_cfg, "teacher_inner_elevon_pitch_rate_limit_per_s", 2.0)
+            ),
+            "inner_elevon_roll_rate_limit_per_s": float(
+                getattr(env_cfg, "teacher_inner_elevon_roll_rate_limit_per_s", 6.0)
+            ),
+        },
+        controller_state_source=controller_state_source,
+        controller_kind="path_tracking",
+    )
+    env_cfg.teacher_roll_kd = float(tuned_kwargs["roll_kd"])
+    env_cfg.teacher_max_roll_deg = float(tuned_kwargs["max_roll_deg"])
+    env_cfg.teacher_heading_p_gain = float(tuned_kwargs["heading_p_gain"])
+    env_cfg.teacher_lateral_heading_yaw_blend = float(tuned_kwargs["lateral_heading_yaw_blend"])
+    env_cfg.teacher_lateral_heading_yaw_correction_limit_deg = float(
+        tuned_kwargs["lateral_heading_yaw_correction_limit_deg"]
+    )
+    env_cfg.teacher_inner_elevon_pitch_rate_limit_per_s = float(
+        tuned_kwargs["inner_elevon_pitch_rate_limit_per_s"]
+    )
+    env_cfg.teacher_inner_elevon_roll_rate_limit_per_s = float(
+        tuned_kwargs["inner_elevon_roll_rate_limit_per_s"]
+    )
+    env_cfg.controller_tuning_profile = profile_name
+    return str(profile_name)
+
+
 def build_path_mission_parser() -> argparse.ArgumentParser:
     """Build the CLI parser for path-mission baseline rollouts."""
     parser = argparse.ArgumentParser(description="Run a PX4-like teacher baseline on a canonical path mission.")
@@ -147,6 +219,7 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mission_allow_loiter", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--mission_allow_climb_on_straight", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--num_envs", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=None, help="Environment RNG seed for deterministic rollouts.")
     parser.add_argument("--steps", type=int, default=2600)
     parser.add_argument(
         "--auto_extend_steps",
@@ -174,6 +247,15 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path_manager_max_flight_path_angle_deg", type=float, default=10.0)
     parser.add_argument("--path_warmup_enabled", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--path_warmup_straight_length_m", type=float, default=25.0)
+    parser.add_argument("--teacher_state_source", type=str, choices=("truth", "estimated"), default="truth")
+    parser.add_argument("--policy_state_source", type=str, choices=("truth", "estimated"), default="truth")
+    parser.add_argument("--imu_source", type=str, choices=("synthetic", "isaacsim"), default="synthetic")
+    parser.add_argument(
+        "--controller_tuning_profile",
+        type=str,
+        choices=("auto", "truth_baseline", "estimated_teacher"),
+        default="auto",
+    )
     parser.add_argument(
         "--teacher_use_tecs_load_factor_compensation",
         action=argparse.BooleanOptionalAction,
@@ -195,6 +277,8 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--teacher_guidance_damping", type=float, default=None)
     parser.add_argument("--teacher_guidance_roll_time_const_s", type=float, default=None)
     parser.add_argument("--teacher_heading_p_gain", type=float, default=None)
+    parser.add_argument("--teacher_lateral_heading_yaw_blend", type=float, default=None)
+    parser.add_argument("--teacher_lateral_heading_yaw_correction_limit_deg", type=float, default=None)
     parser.add_argument("--teacher_inner_pitch_ki", type=float, default=None)
     parser.add_argument(
         "--teacher_inner_pitch_cycle_mean_enabled",
@@ -203,6 +287,8 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--teacher_inner_pitch_cycle_mean_tau_s", type=float, default=None)
     parser.add_argument("--teacher_inner_pitch_rate_cycle_mean_tau_s", type=float, default=None)
+    parser.add_argument("--teacher_inner_elevon_pitch_rate_limit_per_s", type=float, default=None)
+    parser.add_argument("--teacher_inner_elevon_roll_rate_limit_per_s", type=float, default=None)
     parser.add_argument(
         "--teacher_use_tecs_bank_aware_speed_sp",
         action=argparse.BooleanOptionalAction,
@@ -242,6 +328,10 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reset_forward_speed_mps", type=float, default=None)
     parser.add_argument("--wind_x_mps", type=float, default=0.0)
     parser.add_argument("--wind_y_mps", type=float, default=0.0)
+    parser.add_argument("--wind_x_range_min_mps", type=float, default=None)
+    parser.add_argument("--wind_x_range_max_mps", type=float, default=None)
+    parser.add_argument("--wind_y_range_min_mps", type=float, default=None)
+    parser.add_argument("--wind_y_range_max_mps", type=float, default=None)
     parser.add_argument(
         "--wind_ou",
         action=argparse.BooleanOptionalAction,
@@ -252,6 +342,7 @@ def build_path_mission_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wind_ou_sigma_x_mps", type=float, default=0.0)
     parser.add_argument("--wind_ou_sigma_y_mps", type=float, default=0.0)
     parser.add_argument("--wind_ou_clip_to_range", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--total_mass_kg_override", type=float, default=None)
     parser.add_argument("--out_dir", type=Path, default=Path("logs/flapping_px4/path_tracking"))
     parser.add_argument("--print_every", type=int, default=250)
     try:
@@ -289,6 +380,113 @@ def _mean_abs(values: list[float]) -> float:
     if not values:
         return float("nan")
     return float(sum(abs(v) for v in values) / len(values))
+
+
+def _build_estimator_diag_row(
+    *,
+    idx: int,
+    pos_local,
+    vel_w,
+    yaw,
+    est_state: dict[str, Any] | None,
+    est_diag: dict[str, Any] | None,
+) -> dict[str, float]:
+    import torch
+
+    row = {
+        "x_est": float("nan"),
+        "y_est": float("nan"),
+        "z_est": float("nan"),
+        "vx_est": float("nan"),
+        "vy_est": float("nan"),
+        "vz_est": float("nan"),
+        "speed_est": float("nan"),
+        "airspeed_est": float("nan"),
+        "wind_x_est_mps": float("nan"),
+        "wind_y_est_mps": float("nan"),
+        "roll_est_deg": float("nan"),
+        "pitch_est_deg": float("nan"),
+        "yaw_est_deg": float("nan"),
+        "est_pos_xy_err_m": float("nan"),
+        "est_vel_xyz_err_mps": float("nan"),
+        "est_yaw_err_deg": float("nan"),
+        "sensor_gps_x": float("nan"),
+        "sensor_gps_y": float("nan"),
+        "sensor_gps_z": float("nan"),
+        "sensor_baro_alt": float("nan"),
+        "sensor_airspeed": float("nan"),
+        "sensor_mag_yaw_deg": float("nan"),
+        "sensor_gyro_x_dps": float("nan"),
+        "sensor_gyro_y_dps": float("nan"),
+        "sensor_gyro_z_dps": float("nan"),
+        "sensor_accel_x_mps2": float("nan"),
+        "sensor_accel_y_mps2": float("nan"),
+        "sensor_accel_z_mps2": float("nan"),
+        "sensor_accel_norm_mps2": float("nan"),
+        "sensor_accel_gate_lpf_norm_mps2": float("nan"),
+        "sensor_att_corr_gain": float("nan"),
+        "sensor_att_corr_scale": float("nan"),
+    }
+    if est_state is not None:
+        pos_est = est_state["pos_local"]
+        vel_est = est_state["ground_vel_local"]
+        row.update(
+            {
+                "x_est": float(pos_est[idx, 0].item()),
+                "y_est": float(pos_est[idx, 1].item()),
+                "z_est": float(pos_est[idx, 2].item()),
+                "vx_est": float(vel_est[idx, 0].item()),
+                "vy_est": float(vel_est[idx, 1].item()),
+                "vz_est": float(vel_est[idx, 2].item()),
+                "speed_est": float(torch.linalg.norm(vel_est[idx]).item()),
+                "airspeed_est": float(est_state["airspeed"][idx].item()) if "airspeed" in est_state else float("nan"),
+                "wind_x_est_mps": float(est_state["wind_xy"][idx, 0].item()) if "wind_xy" in est_state else float("nan"),
+                "wind_y_est_mps": float(est_state["wind_xy"][idx, 1].item()) if "wind_xy" in est_state else float("nan"),
+                "roll_est_deg": float(torch.rad2deg(est_state["roll"][idx]).item()) if "roll" in est_state else float("nan"),
+                "pitch_est_deg": float(torch.rad2deg(est_state["pitch"][idx]).item()) if "pitch" in est_state else float("nan"),
+                "yaw_est_deg": float(torch.rad2deg(est_state["yaw"][idx]).item()) if "yaw" in est_state else float("nan"),
+                "est_pos_xy_err_m": float(torch.linalg.norm(pos_est[idx, 0:2] - pos_local[idx, 0:2]).item()),
+                "est_vel_xyz_err_mps": float(torch.linalg.norm(vel_est[idx] - vel_w[idx]).item()),
+            }
+        )
+        if "yaw" in est_state:
+            yaw_err = torch.atan2(torch.sin(est_state["yaw"][idx] - yaw[idx]), torch.cos(est_state["yaw"][idx] - yaw[idx]))
+            row["est_yaw_err_deg"] = float(torch.abs(torch.rad2deg(yaw_err)).item())
+    if est_diag is None:
+        return row
+    if "gps_x" in est_diag:
+        row["sensor_gps_x"] = float(est_diag["gps_x"][idx].item())
+    if "gps_y" in est_diag:
+        row["sensor_gps_y"] = float(est_diag["gps_y"][idx].item())
+    if "gps_z" in est_diag:
+        row["sensor_gps_z"] = float(est_diag["gps_z"][idx].item())
+    if "baro_alt" in est_diag:
+        row["sensor_baro_alt"] = float(est_diag["baro_alt"][idx].item())
+    if "airspeed_meas" in est_diag:
+        row["sensor_airspeed"] = float(est_diag["airspeed_meas"][idx].item())
+    if "mag_yaw" in est_diag:
+        row["sensor_mag_yaw_deg"] = float(torch.rad2deg(est_diag["mag_yaw"][idx]).item())
+    if "gyro_x" in est_diag:
+        row["sensor_gyro_x_dps"] = float(torch.rad2deg(est_diag["gyro_x"][idx]).item())
+    if "gyro_y" in est_diag:
+        row["sensor_gyro_y_dps"] = float(torch.rad2deg(est_diag["gyro_y"][idx]).item())
+    if "gyro_z" in est_diag:
+        row["sensor_gyro_z_dps"] = float(torch.rad2deg(est_diag["gyro_z"][idx]).item())
+    if "accel_x" in est_diag:
+        row["sensor_accel_x_mps2"] = float(est_diag["accel_x"][idx].item())
+    if "accel_y" in est_diag:
+        row["sensor_accel_y_mps2"] = float(est_diag["accel_y"][idx].item())
+    if "accel_z" in est_diag:
+        row["sensor_accel_z_mps2"] = float(est_diag["accel_z"][idx].item())
+    if "accel_norm" in est_diag:
+        row["sensor_accel_norm_mps2"] = float(est_diag["accel_norm"][idx].item())
+    if "accel_gate_lpf_norm" in est_diag:
+        row["sensor_accel_gate_lpf_norm_mps2"] = float(est_diag["accel_gate_lpf_norm"][idx].item())
+    if "att_corr_gain" in est_diag:
+        row["sensor_att_corr_gain"] = float(est_diag["att_corr_gain"][idx].item())
+    if "att_corr_scale" in est_diag:
+        row["sensor_att_corr_scale"] = float(est_diag["att_corr_scale"][idx].item())
+    return row
 
 
 def finalize_rollout_metrics(
@@ -349,8 +547,80 @@ def _configure_env(args: argparse.Namespace):
     import isaaclab_tasks  # noqa: F401
     from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
 
+    optional_arg_defaults = {
+        "teacher_use_tecs_load_factor_compensation": None,
+        "teacher_tecs_roll_throttle_compensation": None,
+        "teacher_tecs_load_factor_clamp_max": None,
+        "teacher_tecs_load_factor_use_roll_sp": None,
+        "teacher_tecs_load_factor_pitch_compensation_gain": None,
+        "teacher_pitch_kp": None,
+        "teacher_roll_kp": None,
+        "teacher_roll_kd": None,
+        "teacher_max_roll_deg": None,
+        "teacher_guidance_period_s": None,
+        "teacher_guidance_damping": None,
+        "teacher_guidance_roll_time_const_s": None,
+        "teacher_heading_p_gain": None,
+        "teacher_lateral_heading_yaw_blend": None,
+        "teacher_lateral_heading_yaw_correction_limit_deg": None,
+        "teacher_inner_pitch_ki": None,
+        "teacher_inner_pitch_cycle_mean_enabled": None,
+        "teacher_inner_pitch_cycle_mean_tau_s": None,
+        "teacher_inner_pitch_rate_cycle_mean_tau_s": None,
+        "teacher_inner_elevon_pitch_rate_limit_per_s": None,
+        "teacher_inner_elevon_roll_rate_limit_per_s": None,
+        "teacher_use_tecs_bank_aware_speed_sp": None,
+        "teacher_tecs_bank_aware_speed_scale": None,
+        "teacher_tecs_bank_aware_speed_clamp_mps": None,
+        "teacher_use_tecs_bank_aware_min_airspeed": None,
+        "teacher_tecs_bank_aware_min_airspeed_mps": None,
+        "teacher_tecs_bank_aware_min_airspeed_scale": None,
+        "teacher_tecs_bank_aware_min_airspeed_clamp_mps": None,
+        "teacher_tecs_altitude_hold_error_band_m": None,
+        "teacher_tecs_altitude_capture_error_m": None,
+        "teacher_tecs_altitude_capture_time_const_s": None,
+        "teacher_tecs_altitude_capture_release_error_m": None,
+        "teacher_tecs_altitude_capture_release_time_s": None,
+        "teacher_tecs_altitude_capture_persistence_gain": None,
+        "teacher_tecs_altitude_error_gain": None,
+        "teacher_tecs_pitch_speed_weight": None,
+        "teacher_tecs_pitch_speed_weight_capture": None,
+        "teacher_tecs_capture_extra_climb_rate_mps": None,
+        "teacher_tecs_capture_extra_sink_rate_mps": None,
+        "teacher_tecs_pitch_damping_gain": None,
+        "tail_horizontal_tail_incidence_bias_deg": None,
+        "tail_fixed_horizontal_effectiveness": None,
+        "tail_elevon_effectiveness": None,
+        "tail_elevon_alpha_limit_deg": None,
+        "tail_horizontal_tail_q_scale": None,
+        "base_body_com_override_x_m": None,
+        "reset_pitch_deg": None,
+        "reset_flap_hz": None,
+        "reset_elevon_pitch_deg": None,
+        "reset_forward_speed_mps": None,
+        "path_warmup_enabled": True,
+        "path_warmup_straight_length_m": 25.0,
+        "total_mass_kg_override": None,
+        "wind_x_range_min_mps": None,
+        "wind_x_range_max_mps": None,
+        "wind_y_range_min_mps": None,
+        "wind_y_range_max_mps": None,
+    }
+    for name, default in optional_arg_defaults.items():
+        if not hasattr(args, name):
+            setattr(args, name, default)
+
     env_cfg = parse_env_cfg(args.task, device=args.device, num_envs=args.num_envs)
+    env_cfg.seed = None if getattr(args, "seed", None) is None else int(args.seed)
     env_cfg.randomize_commands = False
+    env_cfg.teacher_state_source = str(getattr(args, "teacher_state_source", getattr(env_cfg, "teacher_state_source", "truth")))
+    env_cfg.policy_state_source = str(getattr(args, "policy_state_source", getattr(env_cfg, "policy_state_source", "truth")))
+    env_cfg.imu_source = str(getattr(args, "imu_source", getattr(env_cfg, "imu_source", "synthetic")))
+    if hasattr(env_cfg, "teacher_guidance_use_wind_truth"):
+        env_cfg.teacher_guidance_use_wind_truth = bool(
+            bool(getattr(env_cfg, "teacher_guidance_use_wind_truth"))
+            and str(env_cfg.teacher_state_source) == "truth"
+        )
     env_cfg.height_cmd = float(args.height_sp)
     env_cfg.action_space = 4
     if hasattr(env_cfg, "act_lpf_tau_s"):
@@ -393,9 +663,15 @@ def _configure_env(args: argparse.Namespace):
     if hasattr(env_cfg, "wind_xy_mps"):
         env_cfg.wind_xy_mps = (float(args.wind_x_mps), float(args.wind_y_mps))
     if hasattr(env_cfg, "wind_x_range_mps"):
-        env_cfg.wind_x_range_mps = (float(args.wind_x_mps), float(args.wind_x_mps))
+        env_cfg.wind_x_range_mps = (
+            float(args.wind_x_mps) if args.wind_x_range_min_mps is None else float(args.wind_x_range_min_mps),
+            float(args.wind_x_mps) if args.wind_x_range_max_mps is None else float(args.wind_x_range_max_mps),
+        )
     if hasattr(env_cfg, "wind_y_range_mps"):
-        env_cfg.wind_y_range_mps = (float(args.wind_y_mps), float(args.wind_y_mps))
+        env_cfg.wind_y_range_mps = (
+            float(args.wind_y_mps) if args.wind_y_range_min_mps is None else float(args.wind_y_range_min_mps),
+            float(args.wind_y_mps) if args.wind_y_range_max_mps is None else float(args.wind_y_range_max_mps),
+        )
     if hasattr(env_cfg, "wind_ou_enabled"):
         env_cfg.wind_ou_enabled = bool(args.wind_ou)
     if hasattr(env_cfg, "wind_ou_tau_s"):
@@ -413,6 +689,8 @@ def _configure_env(args: argparse.Namespace):
         env_cfg.path_warmup_enabled = bool(getattr(args, "path_warmup_enabled", True))
     if hasattr(env_cfg, "path_warmup_straight_length_m"):
         env_cfg.path_warmup_straight_length_m = float(getattr(args, "path_warmup_straight_length_m", 25.0))
+    _apply_runtime_mass_override_arg(env_cfg, args)
+    controller_tuning_profile = _apply_env_controller_tuning_profile(env_cfg, args)
     if (
         hasattr(env_cfg, "teacher_use_tecs_load_factor_compensation")
         and args.teacher_use_tecs_load_factor_compensation is not None
@@ -447,6 +725,18 @@ def _configure_env(args: argparse.Namespace):
         env_cfg.teacher_guidance_roll_time_const_s = float(args.teacher_guidance_roll_time_const_s)
     if hasattr(env_cfg, "teacher_heading_p_gain") and args.teacher_heading_p_gain is not None:
         env_cfg.teacher_heading_p_gain = float(args.teacher_heading_p_gain)
+    if (
+        hasattr(env_cfg, "teacher_lateral_heading_yaw_blend")
+        and getattr(args, "teacher_lateral_heading_yaw_blend", None) is not None
+    ):
+        env_cfg.teacher_lateral_heading_yaw_blend = float(args.teacher_lateral_heading_yaw_blend)
+    if (
+        hasattr(env_cfg, "teacher_lateral_heading_yaw_correction_limit_deg")
+        and getattr(args, "teacher_lateral_heading_yaw_correction_limit_deg", None) is not None
+    ):
+        env_cfg.teacher_lateral_heading_yaw_correction_limit_deg = float(
+            args.teacher_lateral_heading_yaw_correction_limit_deg
+        )
     if hasattr(env_cfg, "teacher_inner_pitch_ki") and args.teacher_inner_pitch_ki is not None:
         env_cfg.teacher_inner_pitch_ki = float(args.teacher_inner_pitch_ki)
     if (
@@ -464,6 +754,16 @@ def _configure_env(args: argparse.Namespace):
         and args.teacher_inner_pitch_rate_cycle_mean_tau_s is not None
     ):
         env_cfg.teacher_inner_pitch_rate_cycle_mean_tau_s = float(args.teacher_inner_pitch_rate_cycle_mean_tau_s)
+    if (
+        hasattr(env_cfg, "teacher_inner_elevon_pitch_rate_limit_per_s")
+        and getattr(args, "teacher_inner_elevon_pitch_rate_limit_per_s", None) is not None
+    ):
+        env_cfg.teacher_inner_elevon_pitch_rate_limit_per_s = float(args.teacher_inner_elevon_pitch_rate_limit_per_s)
+    if (
+        hasattr(env_cfg, "teacher_inner_elevon_roll_rate_limit_per_s")
+        and getattr(args, "teacher_inner_elevon_roll_rate_limit_per_s", None) is not None
+    ):
+        env_cfg.teacher_inner_elevon_roll_rate_limit_per_s = float(args.teacher_inner_elevon_roll_rate_limit_per_s)
     if hasattr(env_cfg, "teacher_use_tecs_bank_aware_speed_sp") and args.teacher_use_tecs_bank_aware_speed_sp is not None:
         env_cfg.teacher_use_tecs_bank_aware_speed_sp = bool(args.teacher_use_tecs_bank_aware_speed_sp)
     if hasattr(env_cfg, "teacher_tecs_bank_aware_speed_scale") and args.teacher_tecs_bank_aware_speed_scale is not None:
@@ -568,6 +868,7 @@ def _configure_env(args: argparse.Namespace):
         env_cfg.reset_forward_speed_mps = float(args.reset_forward_speed_mps)
 
     env = gym.make(args.task, cfg=env_cfg)
+    env_cfg.controller_tuning_profile = str(controller_tuning_profile)
     return env, env_cfg, env_step_dt
 
 
@@ -625,6 +926,24 @@ def _inject_mission(env, args: argparse.Namespace, mission: Mission) -> Any:
         )
         unwrapped._missions[env_id] = phase_mission
         unwrapped._path_managers[env_id] = manager
+        if hasattr(unwrapped, "_estimated_missions"):
+            unwrapped._estimated_missions[env_id] = phase_mission
+        if hasattr(unwrapped, "_estimated_path_managers"):
+            estimated_manager = PathManager(
+                PathManagerCfg(
+                    max_roll_deg=float(args.path_manager_max_roll_deg),
+                    max_flight_path_angle_deg=float(args.path_manager_max_flight_path_angle_deg),
+                    straight_length_m=float(args.straight_length_m),
+                    turn_radius_m=float(args.turn_radius_m),
+                    loiter_radius_m=float(args.loiter_radius_m),
+                    turn_sweep_deg=float(args.turn_sweep_deg),
+                    loiter_turns=float(args.loiter_turns),
+                    climb_delta_m=float(args.climb_delta_m),
+                    initial_altitude_m=float(unwrapped._height_cmd[env_id].item()),
+                ),
+                phase_mission,
+            )
+            unwrapped._estimated_path_managers[env_id] = estimated_manager
         if hasattr(unwrapped, "_path_score_start_progress_s"):
             unwrapped._path_score_start_progress_s[env_id] = float(manager.score_start_progress_s)
         if hasattr(unwrapped, "_path_scored_total_length_m"):
@@ -656,6 +975,8 @@ def _inject_mission(env, args: argparse.Namespace, mission: Mission) -> Any:
     unwrapped._path_preview_points_body_xyz[env_ids] = 0.0
     unwrapped._path_action_delta[env_ids] = 0.0
     unwrapped._path_query_dirty = True
+    if hasattr(unwrapped, "_estimated_path_query_dirty"):
+        unwrapped._estimated_path_query_dirty = True
     if getattr(unwrapped, "_teacher_controller", None) is not None:
         unwrapped._teacher_controller.reset()
     unwrapped._refresh_path_state()
@@ -689,6 +1010,9 @@ def main() -> None:
     env.reset()
     mission, mission_label = _build_selected_mission(args)
     manager0 = _inject_mission(env, args, mission)
+    controller_tuning_profile = str(
+        getattr(env_cfg, "controller_tuning_profile", _resolve_controller_tuning_profile_name(args))
+    )
     runtime_base_body_com_x_m: float | None = None
     base_body_ids = getattr(env.unwrapped, "_base_body_ids", None)
     if base_body_ids is not None and len(base_body_ids) > 0:
@@ -738,6 +1062,8 @@ def main() -> None:
         ang_vel_b = robot.data.root_ang_vel_b.clone()
         wind_w = unwrapped._wind_w.clone() if getattr(unwrapped, "_wind_w", None) is not None else torch.zeros_like(vel_w)
         airspeed = torch.linalg.norm(vel_w - wind_w, dim=1)
+        est_state = getattr(unwrapped, "_runtime_estimated_state", None)
+        est_diag = getattr(unwrapped, "_runtime_estimator_diag", None)
 
         closest_point_xyz = unwrapped._path_closest_point_xyz.clone()
         lateral_error_m = unwrapped._path_lateral_error_m.clone()
@@ -875,6 +1201,14 @@ def main() -> None:
                 "roll_deg": float(torch.rad2deg(roll[idx]).item()),
                 "pitch_deg": float(torch.rad2deg(pitch[idx]).item()),
                 "yaw_deg": float(torch.rad2deg(yaw[idx]).item()),
+                **_build_estimator_diag_row(
+                    idx=idx,
+                    pos_local=pos_local,
+                    vel_w=vel_w,
+                    yaw=yaw,
+                    est_state=est_state,
+                    est_diag=est_diag,
+                ),
                 "reference_x": float(closest_point_xyz[idx, 0].item()),
                 "reference_y": float(closest_point_xyz[idx, 1].item()),
                 "reference_z": float(closest_point_xyz[idx, 2].item()),
@@ -1055,6 +1389,17 @@ def main() -> None:
         "mission_altitude_changes": [bool(segment.altitude_changes) for segment in mission.segments],
         "mission_altitude_directions": [int(segment.altitude_direction) for segment in mission.segments],
         "teacher_mode": "path_tracking_teacher",
+        "teacher_state_source": str(getattr(env_cfg, "teacher_state_source", "truth")),
+        "policy_state_source": str(getattr(env_cfg, "policy_state_source", "truth")),
+        "imu_source": str(getattr(env_cfg, "imu_source", "synthetic")),
+        "env_seed": getattr(env_cfg, "seed", None),
+        "total_mass_kg_override": (
+            None
+            if getattr(env_cfg, "total_mass_kg_override", None) is None
+            else float(getattr(env_cfg, "total_mass_kg_override"))
+        ),
+        "mass_total_kg": _resolve_logged_mass_total_kg(env),
+        "controller_tuning_profile": controller_tuning_profile,
         "num_envs": int(args.num_envs),
         "steps_requested": int(args.steps),
         "steps_effective": int(effective_steps),
@@ -1093,6 +1438,10 @@ def main() -> None:
         "teacher_guidance_damping": float(getattr(env_cfg, "teacher_guidance_damping", 0.7071)),
         "teacher_guidance_roll_time_const_s": float(getattr(env_cfg, "teacher_guidance_roll_time_const_s", 0.18)),
         "teacher_heading_p_gain": float(getattr(env_cfg, "teacher_heading_p_gain", 1.8)),
+        "teacher_lateral_heading_yaw_blend": float(getattr(env_cfg, "teacher_lateral_heading_yaw_blend", 0.0)),
+        "teacher_lateral_heading_yaw_correction_limit_deg": float(
+            getattr(env_cfg, "teacher_lateral_heading_yaw_correction_limit_deg", 180.0)
+        ),
         "teacher_inner_pitch_ki": float(getattr(env_cfg, "teacher_inner_pitch_ki", 0.0)),
         "teacher_inner_pitch_cycle_mean_enabled": bool(
             getattr(env_cfg, "teacher_inner_pitch_cycle_mean_enabled", False)
@@ -1102,6 +1451,12 @@ def main() -> None:
         ),
         "teacher_inner_pitch_rate_cycle_mean_tau_s": float(
             getattr(env_cfg, "teacher_inner_pitch_rate_cycle_mean_tau_s", 0.18)
+        ),
+        "teacher_inner_elevon_pitch_rate_limit_per_s": float(
+            getattr(env_cfg, "teacher_inner_elevon_pitch_rate_limit_per_s", 2.0)
+        ),
+        "teacher_inner_elevon_roll_rate_limit_per_s": float(
+            getattr(env_cfg, "teacher_inner_elevon_roll_rate_limit_per_s", 6.0)
         ),
         "teacher_use_tecs_bank_aware_speed_sp": bool(getattr(env_cfg, "teacher_use_tecs_bank_aware_speed_sp", False)),
         "teacher_tecs_bank_aware_speed_scale": float(getattr(env_cfg, "teacher_tecs_bank_aware_speed_scale", 0.0)),
@@ -1159,6 +1514,14 @@ def main() -> None:
         "mission_allow_climb_on_straight": bool(args.mission_allow_climb_on_straight),
         "wind_x_mps": float(args.wind_x_mps),
         "wind_y_mps": float(args.wind_y_mps),
+        "wind_x_range_mps": [
+            float(getattr(env_cfg, "wind_x_range_mps", (float(args.wind_x_mps), float(args.wind_x_mps)))[0]),
+            float(getattr(env_cfg, "wind_x_range_mps", (float(args.wind_x_mps), float(args.wind_x_mps)))[1]),
+        ],
+        "wind_y_range_mps": [
+            float(getattr(env_cfg, "wind_y_range_mps", (float(args.wind_y_mps), float(args.wind_y_mps)))[0]),
+            float(getattr(env_cfg, "wind_y_range_mps", (float(args.wind_y_mps), float(args.wind_y_mps)))[1]),
+        ],
         "wind_ou_enabled": bool(args.wind_ou),
         "wind_ou_tau_s": float(args.wind_ou_tau_s),
         "wind_ou_sigma_x_mps": float(args.wind_ou_sigma_x_mps),

@@ -74,7 +74,9 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
 
         air_vel_xy = vel_xy - wind_xy
         airspeed = torch.linalg.norm(air_vel_xy, dim=1)
-        heading = torch.atan2(air_vel_xy[:, 1], air_vel_xy[:, 0])
+        heading_diag = self._resolve_lateral_heading(air_vel_xy=air_vel_xy, yaw=yaw)
+        heading_used = heading_diag["heading_used"]
+        heading_from_velocity = heading_diag["heading_from_velocity"]
         bearing_unit = torch.stack((torch.cos(guidance.course_setpoint), torch.sin(guidance.course_setpoint)), dim=1)
         wind_dot_bearing = (wind_xy * bearing_unit).sum(dim=1)
         wind_sq = (wind_xy * wind_xy).sum(dim=1)
@@ -85,7 +87,7 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
         v_a_sp = bearing_unit * ground_speed_along_bearing.unsqueeze(1) - wind_xy
         heading_sp = torch.atan2(v_a_sp[:, 1], v_a_sp[:, 0])
 
-        lateral_accel_fb = self._heading_controller.control_heading(heading_sp, heading, airspeed)
+        lateral_accel_fb = self._heading_controller.control_heading(heading_sp, heading_used, airspeed)
         lateral_accel_sp = lateral_accel_fb + guidance.lateral_acceleration_feedforward
         roll_sp = -torch.atan(lateral_accel_sp / 9.81)
 
@@ -234,7 +236,7 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
             action_elevon_pitch = torch.clamp(action_elevon_pitch, min=-1.0, max=1.0)
         self._action_elevon_pitch_prev = action_elevon_pitch
 
-        course_err = _wrap_pi(yaw - heading)
+        course_err = _wrap_pi(yaw - heading_from_velocity)
         action_rudder = torch.clamp(
             float(self.cfg.yaw_kp) * course_err - float(self.cfg.yaw_kd) * ang_vel_body[:, 2],
             min=-1.0,
@@ -250,7 +252,10 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
         diag = {
             "course_sp": guidance.course_setpoint,
             "heading_sp": heading_sp,
-            "heading": heading,
+            "heading": heading_from_velocity,
+            "heading_used": heading_used,
+            "heading_from_velocity": heading_from_velocity,
+            "heading_yaw_correction": heading_diag["heading_yaw_correction"],
             "course_err": course_err,
             "signed_track_error": guidance.signed_track_error,
             "track_error_bound": guidance.track_error_bound,

@@ -122,6 +122,8 @@ class PX4LikeStraightLineControllerCfg:
     guidance_damping: float = 0.7071
     guidance_roll_time_const_s: float = 0.18
     heading_p_gain: float = 1.8
+    lateral_heading_yaw_blend: float = 0.0
+    lateral_heading_yaw_correction_limit_deg: float = 180.0
 
 
 class PX4LikeStraightLineController:
@@ -269,6 +271,29 @@ class PX4LikeStraightLineController:
             "bank_min_delta": bank_min_delta,
         }
 
+    def _resolve_lateral_heading(self, *, air_vel_xy: Tensor, yaw: Tensor) -> dict[str, Tensor]:
+        """Return the heading measurement used by the lateral loop plus diagnostics."""
+        heading_from_velocity = torch.atan2(air_vel_xy[:, 1], air_vel_xy[:, 0])
+        heading_yaw_delta = _wrap_pi(yaw - heading_from_velocity)
+        yaw_blend = min(max(float(self.cfg.lateral_heading_yaw_blend), 0.0), 1.0)
+        correction_limit_rad = math.radians(max(float(self.cfg.lateral_heading_yaw_correction_limit_deg), 0.0))
+
+        if correction_limit_rad >= math.pi:
+            heading_yaw_correction = heading_yaw_delta
+        else:
+            heading_yaw_correction = torch.clamp(
+                heading_yaw_delta,
+                min=-correction_limit_rad,
+                max=correction_limit_rad,
+            )
+
+        heading_used = _wrap_pi(heading_from_velocity + yaw_blend * heading_yaw_correction)
+        return {
+            "heading_used": heading_used,
+            "heading_from_velocity": heading_from_velocity,
+            "heading_yaw_correction": heading_yaw_correction,
+        }
+
     def compute_actions(
         self,
         *,
@@ -302,7 +327,9 @@ class PX4LikeStraightLineController:
 
         air_vel_xy = vel_xy - wind_xy
         airspeed = torch.linalg.norm(air_vel_xy, dim=1)
-        heading = torch.atan2(air_vel_xy[:, 1], air_vel_xy[:, 0])
+        heading_diag = self._resolve_lateral_heading(air_vel_xy=air_vel_xy, yaw=yaw)
+        heading_used = heading_diag["heading_used"]
+        heading_from_velocity = heading_diag["heading_from_velocity"]
         # Wind correction: DirectionalGuidance outputs a *ground* bearing (course) to converge to the path.
         # The heading controller operates on the airspeed vector direction. Compute the desired air-velocity
         # direction such that (air + wind) points along the desired bearing, i.e. "crab" into the wind.
@@ -320,7 +347,7 @@ class PX4LikeStraightLineController:
         v_a_sp = bearing_unit * ground_speed_along_bearing.unsqueeze(1) - wind_xy
         heading_sp = torch.atan2(v_a_sp[:, 1], v_a_sp[:, 0])
 
-        lateral_accel_fb = self._heading_controller.control_heading(heading_sp, heading, airspeed)
+        lateral_accel_fb = self._heading_controller.control_heading(heading_sp, heading_used, airspeed)
         lateral_accel_sp = lateral_accel_fb + guidance.lateral_acceleration_feedforward
         roll_sp = -torch.atan(lateral_accel_sp / 9.81)
 
@@ -471,7 +498,7 @@ class PX4LikeStraightLineController:
 
         # Fixed-wing convention: roll controls ground-track; yaw/rudder should not fight wind-crab.
         # Drive yaw to align with the airspeed direction (beta≈0), with yaw-rate damping.
-        course_err = _wrap_pi(yaw - heading)
+        course_err = _wrap_pi(yaw - heading_from_velocity)
         action_rudder = torch.clamp(
             float(self.cfg.yaw_kp) * course_err - float(self.cfg.yaw_kd) * ang_vel_body[:, 2],
             min=-1.0,
@@ -487,7 +514,10 @@ class PX4LikeStraightLineController:
         diag = {
             "course_sp": guidance.course_setpoint,
             "heading_sp": heading_sp,
-            "heading": heading,
+            "heading": heading_from_velocity,
+            "heading_used": heading_used,
+            "heading_from_velocity": heading_from_velocity,
+            "heading_yaw_correction": heading_diag["heading_yaw_correction"],
             "course_err": course_err,
             "signed_track_error": guidance.signed_track_error,
             "track_error_bound": guidance.track_error_bound,

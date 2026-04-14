@@ -1,5 +1,6 @@
 import math
 
+import pytest
 import torch
 
 from flapping_bot.px4_like.path_tracking_controller import (
@@ -91,6 +92,52 @@ def test_generic_controller_returns_four_actions():
     )
     assert actions.shape == (1, 4)
     assert "course_sp" in diag
+
+
+def test_path_tracking_controller_can_blend_yaw_into_lateral_heading_measurement() -> None:
+    base_query = {
+        "closest_point_xyz": torch.zeros((1, 3)),
+        "tangent_xy": torch.tensor([[0.0, 1.0]]),
+        "curvature_m_inv": torch.zeros((1,)),
+        "height_sp_m": torch.tensor([10.0]),
+        "progress_s": torch.zeros((1,)),
+        "preview_points_xyz": torch.zeros((1, 5, 3)),
+    }
+    baseline = PX4LikePathTrackingController(
+        PX4LikePathTrackingControllerCfg(
+            enable_tecs=False,
+            heading_p_gain=1.8,
+            lateral_heading_yaw_blend=0.0,
+        ),
+        device=torch.device("cpu"),
+    )
+    yaw_fused = PX4LikePathTrackingController(
+        PX4LikePathTrackingControllerCfg(
+            enable_tecs=False,
+            heading_p_gain=1.8,
+            lateral_heading_yaw_blend=1.0,
+            lateral_heading_yaw_correction_limit_deg=180.0,
+        ),
+        device=torch.device("cpu"),
+    )
+
+    kwargs = dict(
+        path_query=base_query,
+        pos_local=torch.tensor([[0.0, 0.0, 10.0]], dtype=torch.float32),
+        ground_vel_local=torch.tensor([[8.0, 0.0, 0.0]], dtype=torch.float32),
+        wind_vel_local=torch.zeros((1, 2), dtype=torch.float32),
+        roll=torch.zeros((1,), dtype=torch.float32),
+        pitch=torch.zeros((1,), dtype=torch.float32),
+        yaw=torch.tensor([math.pi / 2.0], dtype=torch.float32),
+        ang_vel_body=torch.zeros((1, 3), dtype=torch.float32),
+    )
+
+    _, baseline_diag = baseline.compute_actions_from_query(**kwargs)
+    _, fused_diag = yaw_fused.compute_actions_from_query(**kwargs)
+
+    assert abs(float(fused_diag["roll_sp"][0])) < abs(float(baseline_diag["roll_sp"][0]))
+    assert float(torch.rad2deg(fused_diag["heading_used"][0])) == pytest.approx(90.0, abs=1.0e-3)
+    assert float(torch.rad2deg(baseline_diag["heading_used"][0])) == pytest.approx(0.0, abs=1.0e-3)
 
 
 def test_generic_controller_uses_query_height_reference():

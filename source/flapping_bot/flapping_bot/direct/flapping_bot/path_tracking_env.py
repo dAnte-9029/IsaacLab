@@ -203,9 +203,13 @@ except ModuleNotFoundError as exc:
         teacher_guidance_damping: float = 0.7071
         teacher_guidance_roll_time_const_s: float = 0.18
         teacher_heading_p_gain: float = 1.8
+        teacher_lateral_heading_yaw_blend: float = 0.0
+        teacher_lateral_heading_yaw_correction_limit_deg: float = 180.0
         teacher_inner_pitch_cycle_mean_enabled: bool = True
         teacher_inner_pitch_cycle_mean_tau_s: float = 0.30
         teacher_inner_pitch_rate_cycle_mean_tau_s: float = 0.24
+        teacher_inner_elevon_pitch_rate_limit_per_s: float = 2.0
+        teacher_inner_elevon_roll_rate_limit_per_s: float = 6.0
         teacher_tecs_altitude_hold_error_band_m: float = 0.05
         teacher_tecs_altitude_capture_error_m: float = 0.8
         teacher_tecs_altitude_capture_time_const_s: float = 0.45
@@ -282,10 +286,14 @@ else:
         teacher_guidance_damping: float = 0.7071
         teacher_guidance_roll_time_const_s: float = 0.18
         teacher_heading_p_gain: float = 1.8
+        teacher_lateral_heading_yaw_blend: float = 0.0
+        teacher_lateral_heading_yaw_correction_limit_deg: float = 180.0
         teacher_inner_pitch_ki: float = 1.0
         teacher_inner_pitch_cycle_mean_enabled: bool = True
         teacher_inner_pitch_cycle_mean_tau_s: float = 0.30
         teacher_inner_pitch_rate_cycle_mean_tau_s: float = 0.24
+        teacher_inner_elevon_pitch_rate_limit_per_s: float = 2.0
+        teacher_inner_elevon_roll_rate_limit_per_s: float = 6.0
         teacher_use_tecs_bank_aware_speed_sp: bool = True
         teacher_tecs_bank_aware_speed_scale: float = 1.0
         teacher_tecs_bank_aware_speed_clamp_mps: float = 2.0
@@ -513,6 +521,10 @@ else:
             self._path_reset_counter: int = 0
             self._missions: list[Mission | None] = []
             self._path_managers: list[PathManager | None] = []
+            self._estimated_missions: list[Mission | None] = []
+            self._estimated_path_managers: list[PathManager | None] = []
+            self._estimated_path_query: dict[str, torch.Tensor] | None = None
+            self._estimated_path_query_dirty: bool = True
 
             self._path_closest_point_xyz: torch.Tensor | None = None
             self._path_closest_point_body_xyz: torch.Tensor | None = None
@@ -585,11 +597,21 @@ else:
                         guidance_damping=float(self.cfg.teacher_guidance_damping),
                         guidance_roll_time_const_s=float(self.cfg.teacher_guidance_roll_time_const_s),
                         heading_p_gain=float(self.cfg.teacher_heading_p_gain),
+                        lateral_heading_yaw_blend=float(self.cfg.teacher_lateral_heading_yaw_blend),
+                        lateral_heading_yaw_correction_limit_deg=float(
+                            self.cfg.teacher_lateral_heading_yaw_correction_limit_deg
+                        ),
                         inner_pitch_ki=float(self.cfg.teacher_inner_pitch_ki),
                         inner_pitch_cycle_mean_enabled=bool(self.cfg.teacher_inner_pitch_cycle_mean_enabled),
                         inner_pitch_cycle_mean_tau_s=float(self.cfg.teacher_inner_pitch_cycle_mean_tau_s),
                         inner_pitch_rate_cycle_mean_tau_s=float(
                             self.cfg.teacher_inner_pitch_rate_cycle_mean_tau_s
+                        ),
+                        inner_elevon_pitch_rate_limit_per_s=float(
+                            self.cfg.teacher_inner_elevon_pitch_rate_limit_per_s
+                        ),
+                        inner_elevon_roll_rate_limit_per_s=float(
+                            self.cfg.teacher_inner_elevon_roll_rate_limit_per_s
                         ),
                         use_tecs_bank_aware_speed_sp=bool(self.cfg.teacher_use_tecs_bank_aware_speed_sp),
                         tecs_bank_aware_speed_scale=float(self.cfg.teacher_tecs_bank_aware_speed_scale),
@@ -687,6 +709,28 @@ else:
                 self._missions = [None] * num_envs
             if len(self._path_managers) != num_envs:
                 self._path_managers = [None] * num_envs
+            if len(self._estimated_missions) != num_envs:
+                self._estimated_missions = [None] * num_envs
+            if len(self._estimated_path_managers) != num_envs:
+                self._estimated_path_managers = [None] * num_envs
+            if self._estimated_path_query is None:
+                self._estimated_path_query = {
+                    "closest_point_xyz": torch.zeros((num_envs, 3), device=device),
+                    "closest_point_body_xyz": torch.zeros((num_envs, 3), device=device),
+                    "tangent_xy": torch.zeros((num_envs, 2), device=device),
+                    "curvature_m_inv": torch.zeros((num_envs,), device=device),
+                    "progress_s": torch.zeros((num_envs,), device=device),
+                    "height_sp_m": torch.full((num_envs,), float(self.cfg.height_cmd), device=device),
+                    "lateral_error_m": torch.zeros((num_envs,), device=device),
+                    "height_error_m": torch.zeros((num_envs,), device=device),
+                    "align_error_rad": torch.zeros((num_envs,), device=device),
+                    "preview_points_xyz": torch.zeros((num_envs, 5, 3), device=device),
+                    "preview_points_body_xyz": torch.zeros((num_envs, 5, 3), device=device),
+                    "is_loiter": torch.zeros((num_envs,), device=device, dtype=torch.bool),
+                    "loiter_radial_error_m": torch.full((num_envs,), float("nan"), device=device),
+                    "loiter_progress_ratio": torch.full((num_envs,), float("nan"), device=device),
+                    "loiter_quarter_turn_complete": torch.zeros((num_envs,), device=device, dtype=torch.bool),
+                }
 
         def _normalize_env_ids(self, env_ids: torch.Tensor | list[int] | None) -> torch.Tensor:
             if env_ids is None:
@@ -792,6 +836,7 @@ else:
             else:
                 self._path_action_delta.copy_(self._act_cmd - prev_act_cmd)
             self._path_query_dirty = True
+            self._estimated_path_query_dirty = True
 
         def _reset_idx(self, env_ids: torch.Tensor | list[int]):
             env_ids = self._normalize_env_ids(env_ids)
@@ -833,6 +878,8 @@ else:
                 self._missions[env_id] = mission
                 manager = self._make_path_manager(mission, env_id)
                 self._path_managers[env_id] = manager
+                self._estimated_missions[env_id] = mission
+                self._estimated_path_managers[env_id] = self._make_path_manager(mission, env_id)
                 self._path_score_start_progress_s[env_id] = float(manager.score_start_progress_s)
                 self._path_scored_total_length_m[env_id] = float(manager.scored_total_length_m)
                 episode_length_s = _compute_path_episode_length_s(
@@ -875,6 +922,7 @@ else:
             self._stall_window_start_progress_s[env_ids] = 0.0
             self._stalled[env_ids] = False
             self._path_query_dirty = True
+            self._estimated_path_query_dirty = True
 
         def _refresh_path_state(self) -> None:
             if not self._path_query_dirty:
@@ -1008,6 +1056,123 @@ else:
             )
             self._path_query_dirty = False
 
+        def _refresh_estimated_path_state(self) -> None:
+            if not self._estimated_path_query_dirty:
+                return
+            if self._runtime_estimated_state is None or self._estimated_path_query is None:
+                return
+
+            self._ensure_path_buffers()
+            query_state = self._estimated_path_query
+            pos_local = self._runtime_estimated_state["pos_local"]
+            ground_vel_local = self._runtime_estimated_state["ground_vel_local"]
+            quat_w = self._get_runtime_estimated_quat_w()
+
+            for env_id in range(self.num_envs):
+                manager = self._estimated_path_managers[env_id]
+                if manager is None:
+                    mission = self._estimated_missions[env_id]
+                    if mission is None:
+                        mission = self._prepare_mission_for_execution(self._sample_mission_for_env(env_id))
+                        self._estimated_missions[env_id] = mission
+                    manager = self._make_path_manager(mission, env_id)
+                    self._estimated_path_managers[env_id] = manager
+
+                query = manager.query(
+                    position_xy=(float(pos_local[env_id, 0].item()), float(pos_local[env_id, 1].item())),
+                    altitude_m=float(pos_local[env_id, 2].item()),
+                    speed_mps=float(torch.linalg.norm(ground_vel_local[env_id, 0:2]).item()),
+                )
+
+                closest_point_xyz = getattr(query, "closest_point_xyz", None)
+                if closest_point_xyz is None:
+                    height_sp_m = float(getattr(query, "height_sp_m", pos_local[env_id, 2].item()))
+                    preview_points_xyz = getattr(query, "preview_points_xyz")
+                    first_preview = preview_points_xyz[0]
+                    closest_point_xyz = (float(first_preview[0]), float(first_preview[1]), height_sp_m)
+                height_sp_m = float(getattr(query, "height_sp_m", closest_point_xyz[2]))
+                tangent_xy = getattr(query, "tangent_xy", None)
+                if tangent_xy is None:
+                    preview_points_xyz = getattr(query, "preview_points_xyz")
+                    if len(preview_points_xyz) >= 2:
+                        dx = float(preview_points_xyz[1][0]) - float(preview_points_xyz[0][0])
+                        dy = float(preview_points_xyz[1][1]) - float(preview_points_xyz[0][1])
+                        tangent_xy = (dx, dy)
+                    else:
+                        tangent_xy = (1.0, 0.0)
+
+                tangent = torch.tensor(tangent_xy, device=self.device, dtype=pos_local.dtype)
+                tangent_norm = torch.linalg.norm(tangent).clamp_min(1.0e-6)
+                tangent = tangent / tangent_norm
+                closest_xy = torch.tensor(closest_point_xyz[:2], device=self.device, dtype=pos_local.dtype)
+                preview_points = torch.tensor(query.preview_points_xyz, device=self.device, dtype=pos_local.dtype)
+
+                signed_lateral_error = getattr(query, "signed_lateral_error_m", None)
+                if signed_lateral_error is None:
+                    offset_xy = pos_local[env_id, 0:2] - closest_xy
+                    signed_lateral_error = float(tangent[0] * offset_xy[1] - tangent[1] * offset_xy[0])
+
+                query_state["closest_point_xyz"][env_id] = torch.tensor(
+                    closest_point_xyz, device=self.device, dtype=pos_local.dtype
+                )
+                query_state["tangent_xy"][env_id] = tangent
+                query_state["curvature_m_inv"][env_id] = float(query.curvature_m_inv)
+                query_state["progress_s"][env_id] = float(query.progress_s)
+                query_state["height_sp_m"][env_id] = height_sp_m
+                query_state["lateral_error_m"][env_id] = float(signed_lateral_error)
+                query_state["preview_points_xyz"][env_id] = preview_points
+                is_loiter = str(getattr(query, "segment_kind", "")) == "loiter"
+                query_state["is_loiter"][env_id] = is_loiter
+                if is_loiter and query.loiter_center_xy is not None and query.loiter_radius_m is not None:
+                    position_xy = pos_local[env_id : env_id + 1, 0:2]
+                    center_xy = torch.tensor([query.loiter_center_xy], device=self.device, dtype=pos_local.dtype)
+                    radius_m = torch.tensor([float(query.loiter_radius_m)], device=self.device, dtype=pos_local.dtype)
+                    loiter_radial_error = torch.abs(
+                        _compute_loiter_radial_error(position_xy=position_xy, center_xy=center_xy, radius_m=radius_m)
+                    )
+                    loiter_total_turns = float(getattr(query, "loiter_total_turns", 1.0) or 1.0)
+                    loiter_turn_direction = int(getattr(query, "loiter_turn_direction", 1) or 1)
+                    segment_progress_ratio = float(getattr(query, "segment_progress_ratio", 0.0))
+                    start_angle_rad = torch.tensor(
+                        [float(query.loiter_start_angle_rad or 0.0)], device=self.device, dtype=pos_local.dtype
+                    )
+                    relative_xy = position_xy - center_xy
+                    current_angle_rad = torch.atan2(relative_xy[:, 1], relative_xy[:, 0])
+                    loiter_progress_ratio = _compute_loiter_angular_progress(
+                        start_angle_rad=start_angle_rad,
+                        current_angle_rad=current_angle_rad,
+                        turn_direction=torch.tensor([loiter_turn_direction], device=self.device, dtype=torch.long),
+                        total_turns=torch.tensor([loiter_total_turns], device=self.device, dtype=pos_local.dtype),
+                        reference_progress_ratio=torch.tensor(
+                            [segment_progress_ratio], device=self.device, dtype=pos_local.dtype
+                        ),
+                    )
+                    query_state["loiter_radial_error_m"][env_id] = loiter_radial_error[0]
+                    query_state["loiter_progress_ratio"][env_id] = loiter_progress_ratio[0]
+                    query_state["loiter_quarter_turn_complete"][env_id] = _compute_loiter_milestone_mask(
+                        progress_ratio=loiter_progress_ratio, threshold=0.25
+                    )[0]
+                else:
+                    query_state["loiter_radial_error_m"][env_id] = float("nan")
+                    query_state["loiter_progress_ratio"][env_id] = float("nan")
+                    query_state["loiter_quarter_turn_complete"][env_id] = False
+
+            query_state["height_error_m"].copy_(pos_local[:, 2] - query_state["height_sp_m"])
+            query_state["align_error_rad"].copy_(
+                _compute_alignment_error(
+                    tangent_xy=query_state["tangent_xy"],
+                    ground_vel_xy=ground_vel_local[:, 0:2],
+                )
+            )
+            rel_preview_xyz = query_state["preview_points_xyz"] - pos_local.unsqueeze(1)
+            rel_closest_xyz = query_state["closest_point_xyz"] - pos_local
+            quat_batch = quat_w.repeat_interleave(query_state["preview_points_xyz"].shape[1], dim=0)
+            query_state["closest_point_body_xyz"].copy_(quat_apply_inverse(quat_w, rel_closest_xyz))
+            query_state["preview_points_body_xyz"].copy_(
+                quat_apply_inverse(quat_batch, rel_preview_xyz.reshape(-1, 3)).reshape(self.num_envs, -1, 3)
+            )
+            self._estimated_path_query_dirty = False
+
         def _capture_eval_metrics(self) -> None:
             assert self._path_lateral_error_m is not None
             assert self._path_height_error_m is not None
@@ -1094,37 +1259,50 @@ else:
             if self._teacher_controller is None:
                 raise RuntimeError("Teacher controller is not initialized.")
 
-            self._refresh_path_state()
-            assert self._path_closest_point_xyz is not None
-            assert self._path_tangent_xy is not None
-            assert self._path_curvature_m_inv is not None
-            assert self._path_progress_s is not None
-            assert self._path_height_sp_m is not None
-            assert self._path_preview_points_xyz is not None
-
-            pos_local = self._robot.data.root_pos_w - self.scene.env_origins
-            ground_vel_local = self._robot.data.root_lin_vel_w
-            roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
-            ang_vel_body = self._robot.data.root_ang_vel_b
             state_inputs = resolve_teacher_state_inputs(
                 self.cfg.teacher_state_source,
                 self.cfg.policy_state_source,
                 self.cfg.teacher_guidance_use_wind_truth,
             )
-            if state_inputs.teacher_uses_truth_wind:
-                wind_xy = self._wind_w[:, 0:2]
+            if state_inputs.teacher_state_source == "estimated":
+                self._refresh_estimated_path_state()
+                if self._runtime_estimated_state is None or self._estimated_path_query is None:
+                    raise RuntimeError("Estimated path-query state is unavailable for teacher guidance.")
+                path_query = self._estimated_path_query
+                pos_local = self._runtime_estimated_state["pos_local"]
+                ground_vel_local = self._runtime_estimated_state["ground_vel_local"]
+                roll = self._runtime_estimated_state["roll"]
+                pitch = self._runtime_estimated_state["pitch"]
+                yaw = self._runtime_estimated_state["yaw"]
+                ang_vel_body = self._runtime_estimated_state["ang_vel_body"]
+                wind_xy = self._runtime_estimated_state["wind_xy"]
             else:
-                wind_xy = torch.zeros((self.num_envs, 2), device=self.device)
-
-            return self._teacher_controller.compute_actions_from_query(
-                path_query={
+                self._refresh_path_state()
+                assert self._path_closest_point_xyz is not None
+                assert self._path_tangent_xy is not None
+                assert self._path_curvature_m_inv is not None
+                assert self._path_progress_s is not None
+                assert self._path_height_sp_m is not None
+                assert self._path_preview_points_xyz is not None
+                path_query = {
                     "closest_point_xyz": self._path_closest_point_xyz,
                     "tangent_xy": self._path_tangent_xy,
                     "curvature_m_inv": self._path_curvature_m_inv,
                     "progress_s": self._path_progress_s,
                     "height_sp_m": self._path_height_sp_m,
                     "preview_points_xyz": self._path_preview_points_xyz,
-                },
+                }
+                pos_local = self._robot.data.root_pos_w - self.scene.env_origins
+                ground_vel_local = self._robot.data.root_lin_vel_w
+                roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
+                ang_vel_body = self._robot.data.root_ang_vel_b
+                if state_inputs.teacher_uses_truth_wind:
+                    wind_xy = self._wind_w[:, 0:2]
+                else:
+                    wind_xy = torch.zeros((self.num_envs, 2), device=self.device)
+
+            return self._teacher_controller.compute_actions_from_query(
+                path_query=path_query,
                 pos_local=pos_local,
                 ground_vel_local=ground_vel_local,
                 wind_vel_local=wind_xy,
@@ -1153,29 +1331,50 @@ else:
             assert self._path_lateral_error_m is not None
             assert self._path_height_error_m is not None
             assert self._teacher_recovery_active_mask is not None
+            if self._teacher_uses_estimated_state():
+                self._refresh_estimated_path_state()
+                if self._runtime_estimated_state is None or self._estimated_path_query is None:
+                    raise RuntimeError("Estimated path-query state is unavailable for teacher-delta computation.")
+                curvature_m_inv = self._estimated_path_query["curvature_m_inv"]
+                is_loiter = self._estimated_path_query["is_loiter"]
+                lateral_error = torch.abs(self._estimated_path_query["lateral_error_m"])
+                height_error = torch.abs(self._estimated_path_query["height_error_m"])
+            else:
+                curvature_m_inv = self._path_curvature_m_inv
+                is_loiter = self._path_is_loiter
+                lateral_error = torch.abs(self._path_lateral_error_m)
+                height_error = torch.abs(self._path_height_error_m)
             curve_delta = _compute_curve_aware_teacher_delta(
                 base_delta=base_delta,
-                curvature_m_inv=self._path_curvature_m_inv,
+                curvature_m_inv=curvature_m_inv,
                 curvature_ref_m_inv=float(self.cfg.curve_teacher_curvature_ref_m_inv),
                 min_scale=float(self.cfg.curve_teacher_delta_scale),
             )
             delta = _compute_segment_aware_teacher_delta(
                 base_delta=curve_delta,
-                is_loiter=self._path_is_loiter,
+                is_loiter=is_loiter,
                 loiter_min_scale=float(self.cfg.loiter_teacher_delta_scale),
             )
             if not bool(self.cfg.recovery_teacher_enabled):
                 self._teacher_recovery_active_mask.zero_()
                 return delta
 
-            airspeed = torch.linalg.norm(self._robot.data.root_lin_vel_w - self._wind_w, dim=1)
-            g_b = self._robot.data.projected_gravity_b
+            if self._teacher_uses_estimated_state() and self._runtime_estimated_state is not None:
+                quat_est = self._get_runtime_estimated_quat_w()
+                gravity_w = torch.zeros((self.num_envs, 3), device=self.device, dtype=quat_est.dtype)
+                gravity_w[:, 2] = -1.0
+                g_b = quat_apply_inverse(quat_est, gravity_w)
+                airspeed = self._runtime_estimated_state["airspeed"]
+                ang_rate_deg_s = torch.rad2deg(torch.linalg.norm(self._runtime_estimated_state["ang_vel_body"], dim=1))
+            else:
+                airspeed = torch.linalg.norm(self._robot.data.root_lin_vel_w - self._wind_w, dim=1)
+                g_b = self._robot.data.projected_gravity_b
+                ang_rate_deg_s = torch.rad2deg(torch.linalg.norm(self._robot.data.root_ang_vel_b, dim=1))
             tilt_sin = torch.sqrt(g_b[:, 0] ** 2 + g_b[:, 1] ** 2).clamp(0.0, 1.0)
             tilt_deg = torch.rad2deg(torch.asin(tilt_sin))
-            ang_rate_deg_s = torch.rad2deg(torch.linalg.norm(self._robot.data.root_ang_vel_b, dim=1))
             recovery_mask = _teacher_recovery_mask(
-                lateral_error=torch.abs(self._path_lateral_error_m),
-                height_error=torch.abs(self._path_height_error_m),
+                lateral_error=lateral_error,
+                height_error=height_error,
                 airspeed=airspeed,
                 tilt_deg=tilt_deg,
                 ang_rate_deg_s=ang_rate_deg_s,
@@ -1186,7 +1385,7 @@ else:
                 ang_rate_trigger_deg_s=float(self.cfg.recovery_teacher_ang_rate_trigger_deg_s),
             )
             if bool(self.cfg.recovery_teacher_loiter_only):
-                recovery_mask = recovery_mask & self._path_is_loiter
+                recovery_mask = recovery_mask & is_loiter
             self._teacher_recovery_active_mask.copy_(recovery_mask)
             return _apply_recovery_teacher_delta(
                 base_delta=delta,
@@ -1195,22 +1394,39 @@ else:
             )
 
         def _get_observations(self) -> dict[str, torch.Tensor]:
+            self._refresh_runtime_estimated_state()
             self._refresh_path_state()
-            assert self._path_height_sp_m is not None
-            assert self._path_closest_point_body_xyz is not None
-            assert self._path_preview_points_body_xyz is not None
-            assert self._path_lateral_error_m is not None
-            assert self._path_height_error_m is not None
-            assert self._path_curvature_m_inv is not None
-            assert self._path_progress_s is not None
-            assert self._path_align_error_rad is not None
+            self._refresh_estimated_path_state()
 
-            lin_vel_b = self._robot.data.root_lin_vel_b
-            ang_vel_b = self._robot.data.root_ang_vel_b
-            g_b = self._robot.data.projected_gravity_b
+            if self._policy_uses_estimated_state():
+                if self._runtime_estimated_state is None or self._estimated_path_query is None:
+                    raise RuntimeError("Estimated policy path-query state is unavailable.")
+                path_query = self._estimated_path_query
+            else:
+                assert self._path_height_sp_m is not None
+                assert self._path_closest_point_body_xyz is not None
+                assert self._path_preview_points_body_xyz is not None
+                assert self._path_lateral_error_m is not None
+                assert self._path_height_error_m is not None
+                assert self._path_curvature_m_inv is not None
+                assert self._path_progress_s is not None
+                assert self._path_align_error_rad is not None
+                path_query = {
+                    "height_sp_m": self._path_height_sp_m,
+                    "closest_point_body_xyz": self._path_closest_point_body_xyz,
+                    "preview_points_body_xyz": self._path_preview_points_body_xyz,
+                    "lateral_error_m": self._path_lateral_error_m,
+                    "height_error_m": self._path_height_error_m,
+                    "curvature_m_inv": self._path_curvature_m_inv,
+                    "progress_s": self._path_progress_s,
+                    "align_error_rad": self._path_align_error_rad,
+                    "tangent_xy": self._path_tangent_xy,
+                }
+
+            _, lin_vel_b, ang_vel_b, g_b = self._get_policy_observation_state()
             jpos = self._robot.data.joint_pos[:, self._joint_ids]
 
-            z_s = self._path_height_error_m.unsqueeze(1) / 20.0
+            z_s = path_query["height_error_m"].unsqueeze(1) / 20.0
             lin_s = lin_vel_b[:, 0:3] / 10.0
             ang_s = ang_vel_b[:, 0:3] / 10.0
             g_s = g_b[:, 0:3]
@@ -1261,13 +1477,13 @@ else:
             )
             preview_obs = _build_preview_observation(
                 {
-                    "closest_point_body_xyz": self._path_closest_point_body_xyz,
-                    "tangent_xy": self._path_tangent_xy,
-                    "preview_points_body_xyz": self._path_preview_points_body_xyz,
-                    "lateral_error_m": self._path_lateral_error_m,
-                    "height_error_m": self._path_height_error_m,
-                    "align_error_rad": self._path_align_error_rad,
-                    "curvature_m_inv": self._path_curvature_m_inv,
+                    "closest_point_body_xyz": path_query["closest_point_body_xyz"],
+                    "tangent_xy": path_query["tangent_xy"],
+                    "preview_points_body_xyz": path_query["preview_points_body_xyz"],
+                    "lateral_error_m": path_query["lateral_error_m"],
+                    "height_error_m": path_query["height_error_m"],
+                    "align_error_rad": path_query["align_error_rad"],
+                    "curvature_m_inv": path_query["curvature_m_inv"],
                     "previous_action": self._act_cmd,
                 }
             )

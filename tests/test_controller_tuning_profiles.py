@@ -70,6 +70,22 @@ def test_estimated_profile_can_apply_loiter_only_roll_rate_override() -> None:
     assert loiter_result["inner_elevon_roll_rate_limit_per_s"] == 16.0
 
 
+def test_estimated_profile_applies_path_tracking_heading_fusion_overrides() -> None:
+    result = apply_controller_tuning_profile(
+        {
+            "heading_p_gain": 1.8,
+            "lateral_heading_yaw_blend": 0.0,
+            "lateral_heading_yaw_correction_limit_deg": 180.0,
+        },
+        controller_state_source="estimated",
+        controller_kind="path_tracking",
+    )
+
+    assert result["heading_p_gain"] == 1.4
+    assert result["lateral_heading_yaw_blend"] == 0.75
+    assert result["lateral_heading_yaw_correction_limit_deg"] == 20.0
+
+
 def test_truth_profile_does_not_apply_loiter_roll_rate_override() -> None:
     kwargs = {
         "max_roll_deg": 45.0,

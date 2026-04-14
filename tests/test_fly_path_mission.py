@@ -11,6 +11,7 @@ import gymnasium as gym
 from flapping_bot.direct.flapping_bot.path_tracking_env import _compute_path_episode_length_s
 from flapping_bot.path_tracking.path_manager import PathManager, PathManagerCfg
 from scripts.flapping_px4.fly_path_mission import (
+    _build_estimator_diag_row,
     _configure_env,
     _inject_mission,
     build_path_mission_parser,
@@ -182,6 +183,76 @@ def test_path_mission_logs_inner_pitch_filter_diagnostics() -> None:
     assert "pitch_err_filt_deg" in string_constants
 
 
+def test_build_estimator_diag_row_exports_estimated_and_sensor_fields() -> None:
+    pos_local = torch.tensor([[1.0, 2.0, 3.0]], dtype=torch.float32)
+    vel_w = torch.tensor([[4.0, 5.0, 6.0]], dtype=torch.float32)
+    yaw = torch.tensor([math.radians(20.0)], dtype=torch.float32)
+    est_state = {
+        "pos_local": torch.tensor([[1.5, 1.5, 2.5]], dtype=torch.float32),
+        "ground_vel_local": torch.tensor([[4.0, 6.0, 6.0]], dtype=torch.float32),
+        "wind_xy": torch.tensor([[0.25, -0.5]], dtype=torch.float32),
+        "airspeed": torch.tensor([7.5], dtype=torch.float32),
+        "roll": torch.tensor([math.radians(3.0)], dtype=torch.float32),
+        "pitch": torch.tensor([math.radians(-4.0)], dtype=torch.float32),
+        "yaw": torch.tensor([math.radians(22.0)], dtype=torch.float32),
+    }
+    est_diag = {
+        "gps_x": torch.tensor([10.0], dtype=torch.float32),
+        "gps_y": torch.tensor([11.0], dtype=torch.float32),
+        "gps_z": torch.tensor([12.0], dtype=torch.float32),
+        "baro_alt": torch.tensor([13.0], dtype=torch.float32),
+        "airspeed_meas": torch.tensor([14.0], dtype=torch.float32),
+        "mag_yaw": torch.tensor([math.radians(23.0)], dtype=torch.float32),
+        "gyro_x": torch.tensor([math.radians(1.0)], dtype=torch.float32),
+        "gyro_y": torch.tensor([math.radians(2.0)], dtype=torch.float32),
+        "gyro_z": torch.tensor([math.radians(3.0)], dtype=torch.float32),
+        "accel_x": torch.tensor([0.1], dtype=torch.float32),
+        "accel_y": torch.tensor([0.2], dtype=torch.float32),
+        "accel_z": torch.tensor([9.7], dtype=torch.float32),
+        "accel_norm": torch.tensor([9.8], dtype=torch.float32),
+        "accel_gate_lpf_norm": torch.tensor([9.75], dtype=torch.float32),
+        "att_corr_gain": torch.tensor([0.04], dtype=torch.float32),
+        "att_corr_scale": torch.tensor([0.8], dtype=torch.float32),
+    }
+
+    row = _build_estimator_diag_row(
+        idx=0,
+        pos_local=pos_local,
+        vel_w=vel_w,
+        yaw=yaw,
+        est_state=est_state,
+        est_diag=est_diag,
+    )
+
+    assert row["x_est"] == pytest.approx(1.5)
+    assert row["y_est"] == pytest.approx(1.5)
+    assert row["z_est"] == pytest.approx(2.5)
+    assert row["wind_x_est_mps"] == pytest.approx(0.25)
+    assert row["wind_y_est_mps"] == pytest.approx(-0.5)
+    assert row["roll_est_deg"] == pytest.approx(3.0)
+    assert row["pitch_est_deg"] == pytest.approx(-4.0)
+    assert row["yaw_est_deg"] == pytest.approx(22.0)
+    assert row["est_pos_xy_err_m"] == pytest.approx(math.sqrt(0.5))
+    assert row["est_vel_xyz_err_mps"] == pytest.approx(1.0)
+    assert row["est_yaw_err_deg"] == pytest.approx(2.0)
+    assert row["sensor_gps_x"] == pytest.approx(10.0)
+    assert row["sensor_gps_y"] == pytest.approx(11.0)
+    assert row["sensor_gps_z"] == pytest.approx(12.0)
+    assert row["sensor_baro_alt"] == pytest.approx(13.0)
+    assert row["sensor_airspeed"] == pytest.approx(14.0)
+    assert row["sensor_mag_yaw_deg"] == pytest.approx(23.0)
+    assert row["sensor_gyro_x_dps"] == pytest.approx(1.0)
+    assert row["sensor_gyro_y_dps"] == pytest.approx(2.0)
+    assert row["sensor_gyro_z_dps"] == pytest.approx(3.0)
+    assert row["sensor_accel_x_mps2"] == pytest.approx(0.1)
+    assert row["sensor_accel_y_mps2"] == pytest.approx(0.2)
+    assert row["sensor_accel_z_mps2"] == pytest.approx(9.7)
+    assert row["sensor_accel_norm_mps2"] == pytest.approx(9.8)
+    assert row["sensor_accel_gate_lpf_norm_mps2"] == pytest.approx(9.75)
+    assert row["sensor_att_corr_gain"] == pytest.approx(0.04)
+    assert row["sensor_att_corr_scale"] == pytest.approx(0.8)
+
+
 def test_path_mission_parser_accepts_teacher_tecs_overrides() -> None:
     parser = build_path_mission_parser()
     args = parser.parse_args(
@@ -320,6 +391,70 @@ def test_path_mission_parser_accepts_tail_aero_compatibility_overrides() -> None
     assert args.tail_elevon_effectiveness == pytest.approx(1.4)
     assert args.tail_elevon_alpha_limit_deg == pytest.approx(38.0)
     assert args.tail_horizontal_tail_q_scale == pytest.approx(1.15)
+
+
+def test_path_mission_parser_accepts_estimated_runtime_contract_overrides() -> None:
+    parser = build_path_mission_parser()
+    args = parser.parse_args(
+        [
+            "--phase",
+            "level_turn",
+            "--teacher_state_source",
+            "estimated",
+            "--policy_state_source",
+            "estimated",
+            "--imu_source",
+            "isaacsim",
+            "--seed",
+            "123",
+            "--total_mass_kg_override",
+            "0.95",
+            "--controller_tuning_profile",
+            "estimated_teacher",
+            "--teacher_lateral_heading_yaw_blend",
+            "0.75",
+            "--teacher_lateral_heading_yaw_correction_limit_deg",
+            "20.0",
+            "--teacher_inner_elevon_pitch_rate_limit_per_s",
+            "2.0",
+            "--teacher_inner_elevon_roll_rate_limit_per_s",
+            "16.0",
+        ]
+    )
+
+    assert args.teacher_state_source == "estimated"
+    assert args.policy_state_source == "estimated"
+    assert args.imu_source == "isaacsim"
+    assert args.seed == 123
+    assert args.total_mass_kg_override == pytest.approx(0.95)
+    assert args.controller_tuning_profile == "estimated_teacher"
+    assert args.teacher_lateral_heading_yaw_blend == pytest.approx(0.75)
+    assert args.teacher_lateral_heading_yaw_correction_limit_deg == pytest.approx(20.0)
+    assert args.teacher_inner_elevon_pitch_rate_limit_per_s == pytest.approx(2.0)
+    assert args.teacher_inner_elevon_roll_rate_limit_per_s == pytest.approx(16.0)
+
+
+def test_path_mission_parser_accepts_explicit_wind_clip_ranges() -> None:
+    parser = build_path_mission_parser()
+    args = parser.parse_args(
+        [
+            "--phase",
+            "level_turn",
+            "--wind_x_range_min_mps",
+            "-3.0",
+            "--wind_x_range_max_mps",
+            "3.0",
+            "--wind_y_range_min_mps",
+            "-4.5",
+            "--wind_y_range_max_mps",
+            "4.5",
+        ]
+    )
+
+    assert args.wind_x_range_min_mps == pytest.approx(-3.0)
+    assert args.wind_x_range_max_mps == pytest.approx(3.0)
+    assert args.wind_y_range_min_mps == pytest.approx(-4.5)
+    assert args.wind_y_range_max_mps == pytest.approx(4.5)
 
 
 def test_path_mission_parser_accepts_base_body_com_override_x() -> None:
@@ -559,6 +694,200 @@ def test_configure_env_applies_teacher_tecs_overrides(monkeypatch: pytest.Monkey
     assert configured_env_cfg.teacher_tecs_pitch_damping_gain == pytest.approx(0.1)
     assert configured_env_cfg.path_manager_max_roll_deg == pytest.approx(32.0)
     assert configured_env_cfg.path_manager_max_flight_path_angle_deg == pytest.approx(9.0)
+    assert env_step_dt == pytest.approx((1.0 / 240.0) * 2.0)
+
+
+def test_configure_env_applies_estimated_runtime_contract_and_tuning_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_cfg = SimpleNamespace(
+        randomize_commands=True,
+        height_cmd=0.0,
+        action_space=0,
+        act_lpf_tau_s=0.1,
+        act_rate_limit_per_s=2.0,
+        sim=SimpleNamespace(dt=1.0 / 240.0),
+        decimation=2,
+        episode_length_s=18.0,
+        completion_ratio=0.98,
+        path_episode_max_s=36.0,
+        teacher_guidance_enabled=False,
+        teacher_guidance_delta_init=0.2,
+        teacher_guidance_delta_final=2.0,
+        teacher_guidance_schedule_steps=(0, 1),
+        teacher_guidance_schedule_deltas=(0.1, 0.2),
+        teacher_guidance_disable_after_steps=100,
+        teacher_state_source="truth",
+        policy_state_source="truth",
+        imu_source="synthetic",
+        total_mass_kg_override=None,
+        wind_enabled=False,
+        randomize_wind=True,
+        wind_xy_mps=(0.0, 0.0),
+        wind_x_range_mps=(0.0, 0.0),
+        wind_y_range_mps=(0.0, 0.0),
+        wind_ou_enabled=False,
+        wind_ou_tau_s=2.0,
+        wind_ou_sigma_xy_mps=(0.0, 0.0),
+        wind_ou_clip_to_range=False,
+        path_manager_max_roll_deg=35.0,
+        path_manager_max_flight_path_angle_deg=10.0,
+        teacher_use_tecs_load_factor_compensation=False,
+        teacher_tecs_roll_throttle_compensation=0.0,
+        teacher_tecs_load_factor_clamp_max=2.0,
+        teacher_tecs_load_factor_use_roll_sp=True,
+        teacher_tecs_load_factor_pitch_compensation_gain=0.75,
+        teacher_pitch_kp=2.5,
+        teacher_roll_kp=4.5,
+        teacher_roll_kd=0.85,
+        teacher_max_roll_deg=45.0,
+        teacher_guidance_period_s=2.2,
+        teacher_guidance_damping=0.7071,
+        teacher_guidance_roll_time_const_s=0.18,
+        teacher_heading_p_gain=1.8,
+        teacher_lateral_heading_yaw_blend=0.0,
+        teacher_lateral_heading_yaw_correction_limit_deg=180.0,
+        teacher_inner_pitch_ki=1.0,
+        teacher_inner_pitch_cycle_mean_enabled=True,
+        teacher_inner_pitch_cycle_mean_tau_s=0.30,
+        teacher_inner_pitch_rate_cycle_mean_tau_s=0.24,
+        teacher_inner_elevon_pitch_rate_limit_per_s=2.0,
+        teacher_inner_elevon_roll_rate_limit_per_s=6.0,
+        teacher_use_tecs_bank_aware_speed_sp=True,
+        teacher_tecs_bank_aware_speed_scale=1.0,
+        teacher_tecs_bank_aware_speed_clamp_mps=2.0,
+        teacher_use_tecs_bank_aware_min_airspeed=True,
+        teacher_tecs_bank_aware_min_airspeed_mps=8.0,
+        teacher_tecs_bank_aware_min_airspeed_scale=1.0,
+        teacher_tecs_bank_aware_min_airspeed_clamp_mps=2.0,
+        teacher_tecs_altitude_hold_error_band_m=0.05,
+        teacher_tecs_altitude_capture_error_m=0.8,
+        teacher_tecs_altitude_capture_time_const_s=0.45,
+        teacher_tecs_altitude_capture_release_error_m=0.03,
+        teacher_tecs_altitude_capture_release_time_s=0.35,
+        teacher_tecs_altitude_capture_persistence_gain=1.0,
+        teacher_tecs_altitude_error_gain=3.0,
+        teacher_tecs_pitch_speed_weight=0.35,
+        teacher_tecs_pitch_speed_weight_capture=0.10,
+        teacher_tecs_capture_extra_climb_rate_mps=1.4,
+        teacher_tecs_capture_extra_sink_rate_mps=0.2,
+        teacher_tecs_pitch_damping_gain=0.26,
+    )
+
+    parse_cfg_mod = ModuleType("isaaclab_tasks.utils.parse_cfg")
+    parse_cfg_mod.parse_env_cfg = lambda *args, **kwargs: env_cfg
+    monkeypatch.setitem(sys.modules, "isaaclab_tasks", ModuleType("isaaclab_tasks"))
+    monkeypatch.setitem(sys.modules, "isaaclab_tasks.utils", ModuleType("isaaclab_tasks.utils"))
+    monkeypatch.setitem(sys.modules, "isaaclab_tasks.utils.parse_cfg", parse_cfg_mod)
+
+    captured: dict[str, object] = {}
+
+    def _fake_make(task: str, cfg):
+        captured["task"] = task
+        captured["cfg"] = cfg
+        return "dummy-env"
+
+    monkeypatch.setattr(gym, "make", _fake_make)
+
+    args = SimpleNamespace(
+        task="Isaac-FlappingBot-PathTracking-DeLaurier-Direct-v0",
+        device="cpu",
+        num_envs=1,
+        height_sp=10.0,
+        steps=5200,
+        episode_length_s=None,
+        seed=123,
+        teacher_state_source="estimated",
+        policy_state_source="estimated",
+        imu_source="synthetic",
+        total_mass_kg_override=0.95,
+        controller_tuning_profile="estimated_teacher",
+        wind_x_mps=0.0,
+        wind_y_mps=0.0,
+        wind_ou=False,
+        wind_ou_tau_s=2.0,
+        wind_ou_sigma_x_mps=0.0,
+        wind_ou_sigma_y_mps=0.0,
+        wind_ou_clip_to_range=False,
+        wind_x_range_min_mps=-3.0,
+        wind_x_range_max_mps=3.0,
+        wind_y_range_min_mps=-4.5,
+        wind_y_range_max_mps=4.5,
+        path_manager_max_roll_deg=35.0,
+        path_manager_max_flight_path_angle_deg=10.0,
+        path_warmup_enabled=True,
+        path_warmup_straight_length_m=25.0,
+        teacher_use_tecs_load_factor_compensation=None,
+        teacher_tecs_roll_throttle_compensation=None,
+        teacher_tecs_load_factor_clamp_max=None,
+        teacher_tecs_load_factor_use_roll_sp=None,
+        teacher_tecs_load_factor_pitch_compensation_gain=None,
+        teacher_pitch_kp=None,
+        teacher_roll_kp=None,
+        teacher_roll_kd=None,
+        teacher_max_roll_deg=None,
+        teacher_guidance_period_s=None,
+        teacher_guidance_damping=None,
+        teacher_guidance_roll_time_const_s=None,
+        teacher_heading_p_gain=None,
+        teacher_lateral_heading_yaw_blend=None,
+        teacher_lateral_heading_yaw_correction_limit_deg=None,
+        teacher_inner_pitch_ki=None,
+        teacher_inner_pitch_cycle_mean_enabled=None,
+        teacher_inner_pitch_cycle_mean_tau_s=None,
+        teacher_inner_pitch_rate_cycle_mean_tau_s=None,
+        teacher_inner_elevon_pitch_rate_limit_per_s=None,
+        teacher_inner_elevon_roll_rate_limit_per_s=None,
+        teacher_use_tecs_bank_aware_speed_sp=None,
+        teacher_tecs_bank_aware_speed_scale=None,
+        teacher_tecs_bank_aware_speed_clamp_mps=None,
+        teacher_use_tecs_bank_aware_min_airspeed=None,
+        teacher_tecs_bank_aware_min_airspeed_mps=None,
+        teacher_tecs_bank_aware_min_airspeed_scale=None,
+        teacher_tecs_bank_aware_min_airspeed_clamp_mps=None,
+        teacher_tecs_altitude_hold_error_band_m=None,
+        teacher_tecs_altitude_capture_error_m=None,
+        teacher_tecs_altitude_capture_time_const_s=None,
+        teacher_tecs_altitude_capture_release_error_m=None,
+        teacher_tecs_altitude_capture_release_time_s=None,
+        teacher_tecs_altitude_capture_persistence_gain=None,
+        teacher_tecs_altitude_error_gain=None,
+        teacher_tecs_pitch_speed_weight=None,
+        teacher_tecs_pitch_speed_weight_capture=None,
+        teacher_tecs_capture_extra_climb_rate_mps=None,
+        teacher_tecs_capture_extra_sink_rate_mps=None,
+        teacher_tecs_pitch_damping_gain=None,
+        tail_horizontal_tail_incidence_bias_deg=None,
+        tail_fixed_horizontal_effectiveness=None,
+        tail_elevon_effectiveness=None,
+        tail_elevon_alpha_limit_deg=None,
+        tail_horizontal_tail_q_scale=None,
+        base_body_com_override_x_m=None,
+        reset_pitch_deg=None,
+        reset_flap_hz=None,
+        reset_elevon_pitch_deg=None,
+        reset_forward_speed_mps=None,
+    )
+
+    env, configured_env_cfg, env_step_dt = _configure_env(args)
+
+    assert env == "dummy-env"
+    assert captured["task"] == args.task
+    assert captured["cfg"] is configured_env_cfg
+    assert configured_env_cfg.teacher_state_source == "estimated"
+    assert configured_env_cfg.policy_state_source == "estimated"
+    assert configured_env_cfg.imu_source == "synthetic"
+    assert configured_env_cfg.seed == 123
+    assert configured_env_cfg.total_mass_kg_override == pytest.approx(0.95)
+    assert configured_env_cfg.wind_x_range_mps == pytest.approx((-3.0, 3.0))
+    assert configured_env_cfg.wind_y_range_mps == pytest.approx((-4.5, 4.5))
+    assert configured_env_cfg.teacher_roll_kd == pytest.approx(0.55)
+    assert configured_env_cfg.teacher_max_roll_deg == pytest.approx(35.0)
+    assert configured_env_cfg.teacher_heading_p_gain == pytest.approx(1.4)
+    assert configured_env_cfg.teacher_lateral_heading_yaw_blend == pytest.approx(0.75)
+    assert configured_env_cfg.teacher_lateral_heading_yaw_correction_limit_deg == pytest.approx(20.0)
+    assert configured_env_cfg.teacher_inner_elevon_pitch_rate_limit_per_s == pytest.approx(2.0)
+    assert configured_env_cfg.teacher_inner_elevon_roll_rate_limit_per_s == pytest.approx(16.0)
     assert env_step_dt == pytest.approx((1.0 / 240.0) * 2.0)
 
 
@@ -1011,6 +1340,8 @@ def test_inject_mission_recomputes_path_episode_horizon_for_replaced_mission() -
             self._height_cmd = torch.tensor([10.0], dtype=torch.float32)
             self._missions = [None]
             self._path_managers = [None]
+            self._estimated_missions = [None]
+            self._estimated_path_managers = [None]
             self._path_progress_prev_s = torch.zeros(1, dtype=torch.float32)
             self._path_delta_s = torch.zeros(1, dtype=torch.float32)
             self._path_progress_s = torch.zeros(1, dtype=torch.float32)
@@ -1063,6 +1394,8 @@ def test_inject_mission_recomputes_path_episode_horizon_for_replaced_mission() -
 
     assert int(env._path_episode_horizon_steps[0].item()) == expected_horizon_steps
     assert env._teacher_controller.reset_calls == 1
+    assert env._estimated_missions[0] is not None
+    assert env._estimated_path_managers[0] is not None
 
 
 def test_fly_path_mission_trajectory_rows_include_longitudinal_diagnostics() -> None:
@@ -1100,6 +1433,15 @@ def test_fly_path_mission_summary_records_tail_aero_compatibility_and_failure_au
     module = _fly_path_mission_module_ast()
 
     required_keys = {
+        "teacher_state_source",
+        "policy_state_source",
+        "imu_source",
+        "env_seed",
+        "total_mass_kg_override",
+        "mass_total_kg",
+        "controller_tuning_profile",
+        "teacher_inner_elevon_pitch_rate_limit_per_s",
+        "teacher_inner_elevon_roll_rate_limit_per_s",
         "tail_horizontal_tail_incidence_bias_deg",
         "tail_fixed_horizontal_effectiveness",
         "tail_elevon_effectiveness",

@@ -16,6 +16,12 @@ _ESTIMATED_TEACHER_CONTROLLER_KIND_OVERRIDES: dict[str, dict[str, float]] = {
         "roll_kd": 0.45,
         "inner_elevon_roll_rate_limit_per_s": 16.0,
     },
+    "path_tracking": {
+        "heading_p_gain": 1.4,
+        "lateral_heading_yaw_blend": 0.75,
+        "lateral_heading_yaw_correction_limit_deg": 20.0,
+        "inner_elevon_roll_rate_limit_per_s": 16.0,
+    },
 }
 
 
