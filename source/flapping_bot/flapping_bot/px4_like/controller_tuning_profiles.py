@@ -8,19 +8,28 @@ from typing import Any
 _ESTIMATED_TEACHER_LATERAL_OVERRIDES: dict[str, float] = {
     "max_roll_deg": 35.0,
     "roll_kd": 0.55,
+    "tecs_load_factor_use_roll_sp": False,
 }
 
-_ESTIMATED_TEACHER_CONTROLLER_KIND_OVERRIDES: dict[str, dict[str, float]] = {
+_ESTIMATED_TEACHER_CONTROLLER_KIND_OVERRIDES: dict[str, dict[str, float | bool]] = {
     "loiter": {
         "max_roll_deg": 40.0,
         "roll_kd": 0.45,
         "inner_elevon_roll_rate_limit_per_s": 16.0,
+        "guidance_min_ground_speed_mps": 2.0,
+        "lateral_guidance_uncertainty_start_deg": 8.0,
+        "lateral_guidance_uncertainty_full_deg": 25.0,
+        "lateral_guidance_uncertainty_min_scale": 0.6,
     },
     "path_tracking": {
         "heading_p_gain": 1.4,
         "lateral_heading_yaw_blend": 0.75,
         "lateral_heading_yaw_correction_limit_deg": 20.0,
         "inner_elevon_roll_rate_limit_per_s": 16.0,
+        "guidance_min_ground_speed_mps": 2.0,
+        "lateral_guidance_uncertainty_start_deg": 8.0,
+        "lateral_guidance_uncertainty_full_deg": 25.0,
+        "lateral_guidance_uncertainty_min_scale": 0.6,
     },
 }
 

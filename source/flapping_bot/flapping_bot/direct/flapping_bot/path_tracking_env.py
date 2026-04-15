@@ -205,6 +205,10 @@ except ModuleNotFoundError as exc:
         teacher_heading_p_gain: float = 1.8
         teacher_lateral_heading_yaw_blend: float = 0.0
         teacher_lateral_heading_yaw_correction_limit_deg: float = 180.0
+        teacher_guidance_min_ground_speed_mps: float = 0.0
+        teacher_lateral_guidance_uncertainty_start_deg: float = 0.0
+        teacher_lateral_guidance_uncertainty_full_deg: float = 0.0
+        teacher_lateral_guidance_uncertainty_min_scale: float = 1.0
         teacher_inner_pitch_cycle_mean_enabled: bool = True
         teacher_inner_pitch_cycle_mean_tau_s: float = 0.30
         teacher_inner_pitch_rate_cycle_mean_tau_s: float = 0.24
@@ -277,6 +281,10 @@ else:
         teacher_tecs_roll_throttle_compensation: float = 30.0
         teacher_tecs_load_factor_clamp_max: float = 2.0
         teacher_tecs_load_factor_use_roll_sp: bool = True
+        teacher_guidance_min_ground_speed_mps: float = 0.0
+        teacher_lateral_guidance_uncertainty_start_deg: float = 0.0
+        teacher_lateral_guidance_uncertainty_full_deg: float = 0.0
+        teacher_lateral_guidance_uncertainty_min_scale: float = 1.0
         teacher_tecs_load_factor_pitch_compensation_gain: float = 0.75
         teacher_pitch_kp: float = 2.5
         teacher_roll_kp: float = 4.5
@@ -586,6 +594,16 @@ else:
                         tecs_roll_throttle_compensation=float(self.cfg.teacher_tecs_roll_throttle_compensation),
                         tecs_load_factor_clamp_max=float(self.cfg.teacher_tecs_load_factor_clamp_max),
                         tecs_load_factor_use_roll_sp=bool(self.cfg.teacher_tecs_load_factor_use_roll_sp),
+                        guidance_min_ground_speed_mps=float(self.cfg.teacher_guidance_min_ground_speed_mps),
+                        lateral_guidance_uncertainty_start_deg=float(
+                            self.cfg.teacher_lateral_guidance_uncertainty_start_deg
+                        ),
+                        lateral_guidance_uncertainty_full_deg=float(
+                            self.cfg.teacher_lateral_guidance_uncertainty_full_deg
+                        ),
+                        lateral_guidance_uncertainty_min_scale=float(
+                            self.cfg.teacher_lateral_guidance_uncertainty_min_scale
+                        ),
                         load_factor_pitch_compensation_gain=float(
                             self.cfg.teacher_tecs_load_factor_pitch_compensation_gain
                         ),

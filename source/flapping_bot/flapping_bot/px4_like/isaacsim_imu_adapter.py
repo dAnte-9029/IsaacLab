@@ -26,6 +26,16 @@ class IsaacSimImuSensorSpec:
     prim_path: str
     update_period: float = 0.0
     gravity_bias: tuple[float, float, float] = (0.0, 0.0, 9.81)
+    offset_pos_b: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
+def resolve_base_body_com_offset_b(robot, base_body_ids) -> tuple[float, float, float]:
+    """Return the first base-body COM offset in the base-link frame."""
+    if base_body_ids is None or len(base_body_ids) == 0:
+        return (0.0, 0.0, 0.0)
+    base_body_id = int(base_body_ids[0])
+    body_com_pos_b = robot.data.body_com_pos_b
+    return tuple(float(v) for v in body_com_pos_b[0, base_body_id, 0:3].tolist())
 
 
 class IsaacSimImuProvider(ImuProvider):
@@ -60,6 +70,9 @@ class IsaacSimImuProvider(ImuProvider):
             prim_path=str(spec.prim_path),
             update_period=float(spec.update_period),
             gravity_bias=tuple(float(v) for v in spec.gravity_bias),
+            offset=ImuCfg.OffsetCfg(
+                pos=tuple(float(v) for v in spec.offset_pos_b),
+            ),
         )
 
     def create_sensor(self, spec: IsaacSimImuSensorSpec):

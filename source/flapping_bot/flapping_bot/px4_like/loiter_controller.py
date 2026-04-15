@@ -86,9 +86,14 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
         ground_speed_along_bearing = torch.clamp(wind_dot_bearing + sqrt_term, min=0.0)
         v_a_sp = bearing_unit * ground_speed_along_bearing.unsqueeze(1) - wind_xy
         heading_sp = torch.atan2(v_a_sp[:, 1], v_a_sp[:, 0])
+        guidance_min_airspeed = self._resolve_guidance_min_airspeed(bearing_unit=bearing_unit, wind_xy=wind_xy)
 
         lateral_accel_fb = self._heading_controller.control_heading(heading_sp, heading_used, airspeed)
-        lateral_accel_sp = lateral_accel_fb + guidance.lateral_acceleration_feedforward
+        lateral_accel_sp_unc = lateral_accel_fb + guidance.lateral_acceleration_feedforward
+        lateral_guidance_quality_scale = self._resolve_lateral_guidance_quality_scale(
+            heading_yaw_correction=heading_diag["heading_yaw_correction"]
+        )
+        lateral_accel_sp = lateral_accel_sp_unc * lateral_guidance_quality_scale
         roll_sp = -torch.atan(lateral_accel_sp / 9.81)
 
         dt = float(self.cfg.control_dt_s)
@@ -146,7 +151,12 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
 
         height_err = float(self.cfg.height_sp_m) - pos_local[:, 2]
         if bool(self.cfg.enable_tecs):
-            tecs_turn = self._resolve_tecs_turn_inputs(airspeed=airspeed, roll=roll, roll_sp=roll_sp)
+            tecs_turn = self._resolve_tecs_turn_inputs(
+                airspeed=airspeed,
+                roll=roll,
+                roll_sp=roll_sp,
+                guidance_min_airspeed=guidance_min_airspeed,
+            )
             pitch_sp, throttle_sp, tecs_diag = self._tecs.update(
                 dt=float(self.cfg.control_dt_s),
                 altitude=pos_local[:, 2],
@@ -259,6 +269,9 @@ class PX4LikeLoiterController(PX4LikeStraightLineController):
             "course_err": course_err,
             "signed_track_error": guidance.signed_track_error,
             "track_error_bound": guidance.track_error_bound,
+            "guidance_min_airspeed_mps": guidance_min_airspeed,
+            "lateral_guidance_quality_scale": lateral_guidance_quality_scale,
+            "lateral_accel_sp_unscaled": lateral_accel_sp_unc,
             "roll_sp": roll_sp,
             "pitch_sp": pitch_sp,
             "freq_hz": freq_hz,

@@ -177,6 +177,19 @@ def _apply_env_controller_tuning_profile(env_cfg, args: argparse.Namespace) -> s
             "lateral_heading_yaw_correction_limit_deg": float(
                 getattr(env_cfg, "teacher_lateral_heading_yaw_correction_limit_deg", 180.0)
             ),
+            "tecs_load_factor_use_roll_sp": bool(getattr(env_cfg, "teacher_tecs_load_factor_use_roll_sp", True)),
+            "guidance_min_ground_speed_mps": float(
+                getattr(env_cfg, "teacher_guidance_min_ground_speed_mps", 0.0)
+            ),
+            "lateral_guidance_uncertainty_start_deg": float(
+                getattr(env_cfg, "teacher_lateral_guidance_uncertainty_start_deg", 0.0)
+            ),
+            "lateral_guidance_uncertainty_full_deg": float(
+                getattr(env_cfg, "teacher_lateral_guidance_uncertainty_full_deg", 0.0)
+            ),
+            "lateral_guidance_uncertainty_min_scale": float(
+                getattr(env_cfg, "teacher_lateral_guidance_uncertainty_min_scale", 1.0)
+            ),
             "inner_elevon_pitch_rate_limit_per_s": float(
                 getattr(env_cfg, "teacher_inner_elevon_pitch_rate_limit_per_s", 2.0)
             ),
@@ -193,6 +206,17 @@ def _apply_env_controller_tuning_profile(env_cfg, args: argparse.Namespace) -> s
     env_cfg.teacher_lateral_heading_yaw_blend = float(tuned_kwargs["lateral_heading_yaw_blend"])
     env_cfg.teacher_lateral_heading_yaw_correction_limit_deg = float(
         tuned_kwargs["lateral_heading_yaw_correction_limit_deg"]
+    )
+    env_cfg.teacher_tecs_load_factor_use_roll_sp = bool(tuned_kwargs["tecs_load_factor_use_roll_sp"])
+    env_cfg.teacher_guidance_min_ground_speed_mps = float(tuned_kwargs["guidance_min_ground_speed_mps"])
+    env_cfg.teacher_lateral_guidance_uncertainty_start_deg = float(
+        tuned_kwargs["lateral_guidance_uncertainty_start_deg"]
+    )
+    env_cfg.teacher_lateral_guidance_uncertainty_full_deg = float(
+        tuned_kwargs["lateral_guidance_uncertainty_full_deg"]
+    )
+    env_cfg.teacher_lateral_guidance_uncertainty_min_scale = float(
+        tuned_kwargs["lateral_guidance_uncertainty_min_scale"]
     )
     env_cfg.teacher_inner_elevon_pitch_rate_limit_per_s = float(
         tuned_kwargs["inner_elevon_pitch_rate_limit_per_s"]
@@ -1282,6 +1306,12 @@ def main() -> None:
                 )
                 if "tecs_bank_aware_min_airspeed_delta_mps" in diag
                 else float("nan"),
+                "guidance_min_airspeed_mps": float(diag["guidance_min_airspeed_mps"][idx].item())
+                if "guidance_min_airspeed_mps" in diag
+                else float("nan"),
+                "lateral_guidance_quality_scale": float(diag["lateral_guidance_quality_scale"][idx].item())
+                if "lateral_guidance_quality_scale" in diag
+                else float("nan"),
                 "tecs_throttle_sp": float(diag["tecs_throttle_sp"][idx].item())
                 if "tecs_throttle_sp" in diag
                 else float("nan"),
@@ -1427,6 +1457,18 @@ def main() -> None:
         ),
         "teacher_tecs_load_factor_clamp_max": float(getattr(env_cfg, "teacher_tecs_load_factor_clamp_max", 2.0)),
         "teacher_tecs_load_factor_use_roll_sp": bool(getattr(env_cfg, "teacher_tecs_load_factor_use_roll_sp", True)),
+        "teacher_guidance_min_ground_speed_mps": float(
+            getattr(env_cfg, "teacher_guidance_min_ground_speed_mps", 0.0)
+        ),
+        "teacher_lateral_guidance_uncertainty_start_deg": float(
+            getattr(env_cfg, "teacher_lateral_guidance_uncertainty_start_deg", 0.0)
+        ),
+        "teacher_lateral_guidance_uncertainty_full_deg": float(
+            getattr(env_cfg, "teacher_lateral_guidance_uncertainty_full_deg", 0.0)
+        ),
+        "teacher_lateral_guidance_uncertainty_min_scale": float(
+            getattr(env_cfg, "teacher_lateral_guidance_uncertainty_min_scale", 1.0)
+        ),
         "teacher_tecs_load_factor_pitch_compensation_gain": float(
             getattr(env_cfg, "teacher_tecs_load_factor_pitch_compensation_gain", 0.0)
         ),

@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 
+import pytest
 import torch
 
 
@@ -355,11 +356,15 @@ def test_fly_straight_line_create_isaacsim_imu_sensor_uses_first_body_name(monke
     fake_px4_like = ModuleType("flapping_bot.px4_like")
 
     class FakeSpec:
-        def __init__(self, prim_path, update_period):
+        def __init__(self, prim_path, update_period, offset_pos_b=(0.0, 0.0, 0.0)):
             self.prim_path = prim_path
             self.update_period = update_period
+            self.offset_pos_b = offset_pos_b
 
     fake_px4_like.IsaacSimImuSensorSpec = FakeSpec
+    fake_px4_like.resolve_base_body_com_offset_b = lambda robot, base_body_ids: tuple(
+        float(v) for v in robot.data.body_com_pos_b[0, int(base_body_ids[0]), 0:3].tolist()
+    )
     monkeypatch.setitem(sys.modules, "flapping_bot.px4_like", fake_px4_like)
 
     created = {}
@@ -377,19 +382,25 @@ def test_fly_straight_line_create_isaacsim_imu_sensor_uses_first_body_name(monke
         def create_sensor(self, spec):
             created["prim_path"] = spec.prim_path
             created["update_period"] = spec.update_period
+            created["offset_pos_b"] = spec.offset_pos_b
             return FakeSensor()
 
     fake_env = SimpleNamespace(
         unwrapped=SimpleNamespace(
             _robot=SimpleNamespace(body_names=["base_link", "left_wing"]),
+            _base_body_ids=[0],
             cfg=SimpleNamespace(robot=SimpleNamespace(prim_path="/World/envs/env_.*/Robot")),
         )
+    )
+    fake_env.unwrapped._robot.data = SimpleNamespace(
+        body_com_pos_b=torch.tensor([[[0.15, -0.02, 0.03]]], dtype=torch.float32)
     )
 
     sensor = module._create_isaacsim_imu_sensor(FakeProvider(), fake_env, env_step_dt=0.02)
     assert sensor is not None
     assert created["prim_path"] == "/World/envs/env_.*/Robot/base_link"
     assert created["update_period"] == 0.02
+    assert created["offset_pos_b"] == pytest.approx((0.15, -0.02, 0.03))
     assert created["reset"] is True
     assert created["update"] == (0.02, True)
 
@@ -403,11 +414,15 @@ def test_fly_straight_line_create_isaacsim_imu_sensor_initializes_late_sensor(mo
     fake_px4_like = ModuleType("flapping_bot.px4_like")
 
     class FakeSpec:
-        def __init__(self, prim_path, update_period):
+        def __init__(self, prim_path, update_period, offset_pos_b=(0.0, 0.0, 0.0)):
             self.prim_path = prim_path
             self.update_period = update_period
+            self.offset_pos_b = offset_pos_b
 
     fake_px4_like.IsaacSimImuSensorSpec = FakeSpec
+    fake_px4_like.resolve_base_body_com_offset_b = lambda robot, base_body_ids: tuple(
+        float(v) for v in robot.data.body_com_pos_b[0, int(base_body_ids[0]), 0:3].tolist()
+    )
     monkeypatch.setitem(sys.modules, "flapping_bot.px4_like", fake_px4_like)
 
     created = {"initialize_impl": 0, "reset": 0, "update": 0}
@@ -433,8 +448,12 @@ def test_fly_straight_line_create_isaacsim_imu_sensor_initializes_late_sensor(mo
     fake_env = SimpleNamespace(
         unwrapped=SimpleNamespace(
             _robot=SimpleNamespace(body_names=["base_link"]),
+            _base_body_ids=[0],
             cfg=SimpleNamespace(robot=SimpleNamespace(prim_path="/World/envs/env_.*/Robot")),
         )
+    )
+    fake_env.unwrapped._robot.data = SimpleNamespace(
+        body_com_pos_b=torch.tensor([[[0.05, 0.01, -0.02]]], dtype=torch.float32)
     )
 
     sensor = module._create_isaacsim_imu_sensor(FakeProvider(), fake_env, env_step_dt=0.02)
@@ -454,8 +473,12 @@ def test_fly_loiter_create_isaacsim_imu_sensor_returns_none_for_non_isaacsim_bac
     fake_env = SimpleNamespace(
         unwrapped=SimpleNamespace(
             _robot=SimpleNamespace(body_names=["base_link"]),
+            _base_body_ids=[0],
             cfg=SimpleNamespace(robot=SimpleNamespace(prim_path="/World/envs/env_.*/Robot")),
         )
+    )
+    fake_env.unwrapped._robot.data = SimpleNamespace(
+        body_com_pos_b=torch.tensor([[[0.0, 0.0, 0.0]]], dtype=torch.float32)
     )
 
     class FakeProvider:

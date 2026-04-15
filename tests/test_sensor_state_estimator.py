@@ -182,3 +182,49 @@ def test_estimator_gravity_vector_correction_tracks_static_tilt() -> None:
     assert state["roll"].item() > 0.08
     assert torch.allclose(state["pitch"], torch.zeros((1,), dtype=torch.float32), atol=1.0e-5)
     assert diag["att_corr_gain"].item() > 0.0
+
+
+def test_estimator_reset_can_reinitialize_subset_without_clobbering_other_envs() -> None:
+    estimator = SensorStateEstimator(
+        sensor_cfg=SensorSuiteCfg(),
+        estimator_cfg=StateEstimatorCfg(),
+        num_envs=2,
+        device=torch.device("cpu"),
+        control_dt_s=0.01,
+        noise_scale=0.0,
+        bias_scale=0.0,
+    )
+    initial_pos = torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=torch.float32)
+    initial_vel = torch.zeros((2, 3), dtype=torch.float32)
+    initial_angles = torch.zeros((2,), dtype=torch.float32)
+    initial_airspeed = torch.zeros((2,), dtype=torch.float32)
+
+    estimator.reset(
+        pos_local_true=initial_pos,
+        vel_local_true=initial_vel,
+        roll_true=initial_angles,
+        pitch_true=initial_angles,
+        yaw_true=initial_angles,
+        airspeed_true=initial_airspeed,
+    )
+    pos_before = estimator._pos_est.clone()
+    yaw_before = estimator._yaw_est.clone()
+
+    updated_pos = torch.tensor([[0.0, 0.0, 0.0], [5.0, -1.0, 2.0]], dtype=torch.float32)
+    updated_yaw = torch.tensor([0.0, 0.7], dtype=torch.float32)
+    updated_airspeed = torch.tensor([0.0, 3.5], dtype=torch.float32)
+    estimator.reset(
+        env_ids=torch.tensor([1], dtype=torch.long),
+        pos_local_true=updated_pos,
+        vel_local_true=initial_vel,
+        roll_true=initial_angles,
+        pitch_true=initial_angles,
+        yaw_true=updated_yaw,
+        airspeed_true=updated_airspeed,
+    )
+
+    assert torch.allclose(estimator._pos_est[0], pos_before[0])
+    assert torch.allclose(estimator._yaw_est[0:1], yaw_before[0:1])
+    assert torch.allclose(estimator._pos_est[1], updated_pos[1])
+    assert torch.allclose(estimator._yaw_est[1:2], updated_yaw[1:2])
+    assert torch.allclose(estimator._airspeed_est[1:2], updated_airspeed[1:2])

@@ -48,7 +48,9 @@ from ...px4_like.rl_training_utils import (
     resolve_teacher_guidance_mode,
     teacher_guidance_is_active,
 )
+from ...px4_like.state_estimation import SensorStateEstimator, SensorSuiteCfg, StateEstimatorCfg
 from ...px4_like.straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
+from ...px4_like import build_imu_provider, resolve_base_body_com_offset_b
 from ...scenes import FlappingRoomSceneCfg
 from .state_source_contract import (
     TeacherStateInputs,
@@ -427,6 +429,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_exec_rudder_rad: Tensor | None = None
         self._debug_last_exec_left_elevon_rad: Tensor | None = None
         self._debug_last_exec_right_elevon_rad: Tensor | None = None
+        self._runtime_imu_provider = None
+        self._runtime_imu_sensor = None
+        self._runtime_state_estimator: SensorStateEstimator | None = None
+        self._runtime_estimated_state: dict[str, Tensor] | None = None
+        self._runtime_estimator_diag: dict[str, Tensor] = {}
 
         # indices
         self._IDX_LEFT_WING = None
@@ -647,6 +654,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 ),
                 device=self.device,
             )
+        self._initialize_runtime_state_estimation()
 
     def _override_appendage_mass_properties(self) -> None:
         """Optionally scale wing/tail masses to reduce rigid-body reaction torques from prescribed joint motion."""
@@ -750,6 +758,163 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     # ------------------------------------------------------------------
     # Control
     # ------------------------------------------------------------------
+    def _runtime_requires_estimated_state(self) -> bool:
+        assert self._teacher_state_inputs is not None
+        return (
+            self._teacher_state_inputs.teacher_state_source == "estimated"
+            or self._teacher_state_inputs.policy_state_source == "estimated"
+        )
+
+    def _teacher_uses_estimated_state(self) -> bool:
+        assert self._teacher_state_inputs is not None
+        return self._teacher_state_inputs.teacher_state_source == "estimated"
+
+    def _policy_uses_estimated_state(self) -> bool:
+        assert self._teacher_state_inputs is not None
+        return self._teacher_state_inputs.policy_state_source == "estimated"
+
+    def _initialize_runtime_state_estimation(self) -> None:
+        if not self._runtime_requires_estimated_state():
+            return
+        self._runtime_imu_provider = build_imu_provider(self._resolved_imu_source or self.cfg.imu_source)
+        self._runtime_state_estimator = SensorStateEstimator(
+            sensor_cfg=SensorSuiteCfg(),
+            estimator_cfg=StateEstimatorCfg(),
+            num_envs=int(self.num_envs),
+            device=self.device,
+            control_dt_s=float(self.step_dt),
+        )
+        self._runtime_imu_sensor = self._create_runtime_imu_sensor()
+
+    def _create_runtime_imu_sensor(self):
+        if getattr(self._runtime_imu_provider, "backend_name", "") != "isaacsim":
+            return None
+
+        try:
+            from ...px4_like import IsaacSimImuSensorSpec
+        except ModuleNotFoundError:
+            from ...px4_like import IsaacSimImuSensorSpec
+
+        body_name = str(self._robot.body_names[0]) if len(self._robot.body_names) > 0 else "base_link"
+        prim_path = f"{self.cfg.robot.prim_path}/{body_name}"
+        offset_pos_b = resolve_base_body_com_offset_b(self._robot, self._base_body_ids)
+        sensor = self._runtime_imu_provider.create_sensor(
+            IsaacSimImuSensorSpec(
+                prim_path=prim_path,
+                update_period=float(self.step_dt),
+                offset_pos_b=offset_pos_b,
+            )
+        )
+        if hasattr(sensor, "is_initialized") and not sensor.is_initialized:
+            sensor._initialize_impl()
+            sensor._is_initialized = True
+        sensor.reset()
+        sensor.update(dt=float(self.step_dt), force_recompute=True)
+        return sensor
+
+    def _reset_runtime_state_estimation(self, env_ids: Tensor | None = None) -> None:
+        if self._runtime_state_estimator is None:
+            return
+        if self._runtime_imu_sensor is not None:
+            self._runtime_imu_sensor.reset()
+            self._runtime_imu_sensor.update(dt=float(self.step_dt), force_recompute=True)
+
+        pos_local = self._robot.data.root_pos_w - self.scene.env_origins
+        vel_w = self._robot.data.root_lin_vel_w
+        roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
+        wind_w = self._wind_w if self._wind_w is not None else torch.zeros_like(vel_w)
+        airspeed = torch.linalg.norm(vel_w - wind_w, dim=1)
+        self._runtime_state_estimator.reset(
+            env_ids=env_ids,
+            pos_local_true=pos_local,
+            vel_local_true=vel_w,
+            roll_true=roll,
+            pitch_true=pitch,
+            yaw_true=yaw,
+            airspeed_true=airspeed,
+            wind_local_true=wind_w,
+        )
+        self._runtime_estimated_state = None
+        self._runtime_estimator_diag = {}
+
+    def _refresh_runtime_estimated_state(self) -> None:
+        if self._runtime_state_estimator is None:
+            return
+
+        pos_local = self._robot.data.root_pos_w - self.scene.env_origins
+        vel_w = self._robot.data.root_lin_vel_w
+        roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
+        ang_vel_b = self._robot.data.root_ang_vel_b
+        wind_w = self._wind_w if self._wind_w is not None else torch.zeros_like(vel_w)
+        airspeed = torch.linalg.norm(vel_w - wind_w, dim=1)
+
+        imu_measurement = None
+        if self._runtime_imu_sensor is not None and self._runtime_imu_provider is not None:
+            self._runtime_imu_sensor.update(dt=float(self.step_dt), force_recompute=True)
+            imu_measurement = self._runtime_imu_provider.build_from_sensor(self._runtime_imu_sensor)
+
+        self._runtime_estimated_state, self._runtime_estimator_diag = self._runtime_state_estimator.step(
+            pos_local_true=pos_local,
+            vel_local_true=vel_w,
+            roll_true=roll,
+            pitch_true=pitch,
+            yaw_true=yaw,
+            ang_vel_body_true=ang_vel_b,
+            airspeed_true=airspeed,
+            imu_measurement=imu_measurement,
+        )
+
+    def _get_runtime_estimated_quat_w(self) -> Tensor:
+        if self._runtime_estimated_state is None:
+            raise RuntimeError("Estimated runtime state is unavailable.")
+        return quat_from_euler_xyz(
+            roll=self._runtime_estimated_state["roll"],
+            pitch=self._runtime_estimated_state["pitch"],
+            yaw=self._runtime_estimated_state["yaw"],
+        )
+
+    def _get_runtime_teacher_inputs(self) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+        if self._teacher_uses_estimated_state() and self._runtime_estimated_state is not None:
+            estimated = self._runtime_estimated_state
+            return (
+                estimated["pos_local"],
+                estimated["ground_vel_local"],
+                estimated["roll"],
+                estimated["pitch"],
+                estimated["yaw"],
+                estimated["ang_vel_body"],
+                estimated["wind_xy"],
+            )
+
+        pos_local = self._robot.data.root_pos_w - self.scene.env_origins
+        ground_vel_local = self._robot.data.root_lin_vel_w
+        roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
+        ang_vel_body = self._robot.data.root_ang_vel_b
+        if self._teacher_state_inputs is not None and self._teacher_state_inputs.teacher_uses_truth_wind:
+            wind_xy = self._wind_w[:, 0:2]
+        else:
+            wind_xy = torch.zeros((self.num_envs, 2), device=self.device, dtype=ground_vel_local.dtype)
+        return pos_local, ground_vel_local, roll, pitch, yaw, ang_vel_body, wind_xy
+
+    def _get_policy_observation_state(self) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        if self._policy_uses_estimated_state() and self._runtime_estimated_state is not None:
+            quat_est = self._get_runtime_estimated_quat_w()
+            gravity_w = torch.zeros((self.num_envs, 3), device=self.device, dtype=quat_est.dtype)
+            gravity_w[:, 2] = -1.0
+            return (
+                self._runtime_estimated_state["pos_local"],
+                quat_apply_inverse(quat_est, self._runtime_estimated_state["ground_vel_local"]),
+                self._runtime_estimated_state["ang_vel_body"],
+                quat_apply_inverse(quat_est, gravity_w),
+            )
+
+        return (
+            self._robot.data.root_pos_w - self.scene.env_origins,
+            self._robot.data.root_lin_vel_b,
+            self._robot.data.root_ang_vel_b,
+            self._robot.data.projected_gravity_b,
+        )
+
     def _get_wind_curriculum_scale(self) -> float:
         if not bool(self.cfg.wind_enabled):
             return 0.0
@@ -803,20 +968,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if self._teacher_controller is None:
             raise RuntimeError("Teacher controller is not initialized.")
 
-        pos_local = self._robot.data.root_pos_w - self.scene.env_origins
-        ground_vel_local = self._robot.data.root_lin_vel_w
-        roll, pitch, yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
-        ang_vel_body = self._robot.data.root_ang_vel_b
         state_inputs = resolve_teacher_state_inputs(
             self.cfg.teacher_state_source,
             self.cfg.policy_state_source,
             self.cfg.teacher_guidance_use_wind_truth,
         )
         self._teacher_state_inputs = state_inputs
-        if state_inputs.teacher_uses_truth_wind:
-            wind_xy = self._wind_w[:, 0:2]
-        else:
-            wind_xy = torch.zeros((self.num_envs, 2), device=self.device)
+        pos_local, ground_vel_local, roll, pitch, yaw, ang_vel_body, wind_xy = self._get_runtime_teacher_inputs()
 
         return self._teacher_controller.compute_actions(
             pos_local=pos_local,
@@ -1364,14 +1522,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._roll_cmd[env_ids] = 0.5 * (left0 - right0)
         if self._teacher_controller is not None:
             self._teacher_controller.reset(env_ids)
+        self._reset_runtime_state_estimation(env_ids)
         self._hist_valid[env_ids] = False
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
     def _get_observations(self) -> dict[str, Tensor]:
-        pos_w = self._robot.data.root_pos_w - self.scene.env_origins
-        lin_vel_b = self._robot.data.root_lin_vel_b
-        ang_vel_b = self._robot.data.root_ang_vel_b
-        g_b = self._robot.data.projected_gravity_b
+        self._refresh_runtime_estimated_state()
+        pos_w, lin_vel_b, ang_vel_b, g_b = self._get_policy_observation_state()
         jpos = self._robot.data.joint_pos[:, self._joint_ids]
 
         # normalized/scaled observations + command targets

@@ -119,6 +119,14 @@ class _DelayBuffer:
     def reset(self) -> None:
         self._queue.clear()
 
+    def reset_env_ids(self, env_ids: Tensor, sample: Tensor) -> None:
+        if self.delay_updates <= 0 or len(self._queue) == 0:
+            return
+        for idx, queued in enumerate(self._queue):
+            queued = queued.clone()
+            queued[env_ids] = sample[env_ids]
+            self._queue[idx] = queued
+
     def push(self, sample: Tensor) -> Tensor:
         if self.delay_updates <= 0:
             return sample
@@ -274,16 +282,17 @@ class SensorStateEstimator:
     def _randn_like(self, ref: Tensor) -> Tensor:
         return torch.randn_like(ref, device=self.device)
 
-    def _sample_biases(self) -> None:
+    def _sample_biases(self, env_ids: Tensor | None = None) -> None:
+        ids = slice(None) if env_ids is None else env_ids
         c = self.sensor_cfg
         s = self.bias_scale
-        self._gps_pos_bias = self._randn_like(self._gps_pos_bias) * (float(c.gps_pos_bias_std_m) * s)
-        self._gps_vel_bias = self._randn_like(self._gps_vel_bias) * (float(c.gps_vel_bias_std_mps) * s)
-        self._baro_bias = self._randn_like(self._baro_bias) * (float(c.baro_alt_bias_std_m) * s)
-        self._airspeed_bias = self._randn_like(self._airspeed_bias) * (float(c.airspeed_bias_std_mps) * s)
-        self._mag_bias = self._randn_like(self._mag_bias) * (math.radians(float(c.mag_heading_bias_std_deg)) * s)
-        self._gyro_bias = self._randn_like(self._gyro_bias) * (math.radians(float(c.gyro_bias_std_dps)) * s)
-        self._accel_bias = self._randn_like(self._accel_bias) * (float(c.accel_bias_std_mps2) * s)
+        self._gps_pos_bias[ids] = self._randn_like(self._gps_pos_bias[ids]) * (float(c.gps_pos_bias_std_m) * s)
+        self._gps_vel_bias[ids] = self._randn_like(self._gps_vel_bias[ids]) * (float(c.gps_vel_bias_std_mps) * s)
+        self._baro_bias[ids] = self._randn_like(self._baro_bias[ids]) * (float(c.baro_alt_bias_std_m) * s)
+        self._airspeed_bias[ids] = self._randn_like(self._airspeed_bias[ids]) * (float(c.airspeed_bias_std_mps) * s)
+        self._mag_bias[ids] = self._randn_like(self._mag_bias[ids]) * (math.radians(float(c.mag_heading_bias_std_deg)) * s)
+        self._gyro_bias[ids] = self._randn_like(self._gyro_bias[ids]) * (math.radians(float(c.gyro_bias_std_dps)) * s)
+        self._accel_bias[ids] = self._randn_like(self._accel_bias[ids]) * (float(c.accel_bias_std_mps2) * s)
 
     def reset(
         self,
@@ -295,46 +304,59 @@ class SensorStateEstimator:
         yaw_true: Tensor,
         airspeed_true: Tensor,
         wind_local_true: Tensor | None = None,
+        env_ids: Tensor | None = None,
     ) -> None:
-        self._sample_biases()
+        ids = torch.arange(self.num_envs, device=self.device, dtype=torch.long) if env_ids is None else env_ids.to(
+            device=self.device, dtype=torch.long
+        )
+        reset_all = ids.numel() == self.num_envs
 
-        self._pos_est = pos_local_true.clone()
-        self._vel_est = vel_local_true.clone()
-        self._roll_est = roll_true.clone()
-        self._pitch_est = pitch_true.clone()
-        self._yaw_est = yaw_true.clone()
-        self._alt_est = pos_local_true[:, 2].clone()
-        self._alt_rate_est = vel_local_true[:, 2].clone()
-        self._airspeed_est = airspeed_true.clone()
+        self._sample_biases(None if reset_all else ids)
+
+        self._pos_est[ids] = pos_local_true[ids].clone()
+        self._vel_est[ids] = vel_local_true[ids].clone()
+        self._roll_est[ids] = roll_true[ids].clone()
+        self._pitch_est[ids] = pitch_true[ids].clone()
+        self._yaw_est[ids] = yaw_true[ids].clone()
+        self._alt_est[ids] = pos_local_true[ids, 2].clone()
+        self._alt_rate_est[ids] = vel_local_true[ids, 2].clone()
+        self._airspeed_est[ids] = airspeed_true[ids].clone()
         if wind_local_true is None:
-            self._wind_est_xy.zero_()
+            self._wind_est_xy[ids] = 0.0
         else:
-            self._wind_est_xy = wind_local_true[:, 0:2].clone()
+            self._wind_est_xy[ids] = wind_local_true[ids, 0:2].clone()
 
-        self._gps_pos_meas = pos_local_true.clone()
-        self._gps_vel_meas = vel_local_true.clone()
-        self._baro_alt_meas = pos_local_true[:, 2].clone()
-        self._airspeed_meas = airspeed_true.clone()
-        self._mag_yaw_meas = yaw_true.clone()
+        self._gps_pos_meas[ids] = pos_local_true[ids].clone()
+        self._gps_vel_meas[ids] = vel_local_true[ids].clone()
+        self._baro_alt_meas[ids] = pos_local_true[ids, 2].clone()
+        self._airspeed_meas[ids] = airspeed_true[ids].clone()
+        self._mag_yaw_meas[ids] = yaw_true[ids].clone()
 
-        self._baro_alt_prev_meas = self._baro_alt_meas.clone()
-        self._vel_prev_true = vel_local_true.clone()
-        self._gyro_meas.zero_()
-        self._accel_meas.zero_()
+        self._baro_alt_prev_meas[ids] = self._baro_alt_meas[ids].clone()
+        self._vel_prev_true[ids] = vel_local_true[ids].clone()
+        self._gyro_meas[ids] = 0.0
+        self._accel_meas[ids] = 0.0
         gravity_world = torch.zeros_like(pos_local_true)
         gravity_world[:, 2] = 9.81
-        self._accel_gate_lpf = _body_from_world(roll_true, pitch_true, yaw_true, gravity_world)
-        self._acc_world_est.zero_()
+        self._accel_gate_lpf[ids] = _body_from_world(roll_true, pitch_true, yaw_true, gravity_world)[ids]
+        self._acc_world_est[ids] = 0.0
 
-        self._gps_timer_s = self._gps_period_s
-        self._baro_timer_s = self._baro_period_s
-        self._airspeed_timer_s = self._airspeed_period_s
-        self._mag_timer_s = self._mag_period_s
-        self._gps_pos_delay.reset()
-        self._gps_vel_delay.reset()
-        self._baro_delay.reset()
-        self._airspeed_delay.reset()
-        self._mag_delay.reset()
+        if reset_all:
+            self._gps_timer_s = self._gps_period_s
+            self._baro_timer_s = self._baro_period_s
+            self._airspeed_timer_s = self._airspeed_period_s
+            self._mag_timer_s = self._mag_period_s
+            self._gps_pos_delay.reset()
+            self._gps_vel_delay.reset()
+            self._baro_delay.reset()
+            self._airspeed_delay.reset()
+            self._mag_delay.reset()
+        else:
+            self._gps_pos_delay.reset_env_ids(ids, self._gps_pos_meas)
+            self._gps_vel_delay.reset_env_ids(ids, self._gps_vel_meas)
+            self._baro_delay.reset_env_ids(ids, self._baro_alt_meas)
+            self._airspeed_delay.reset_env_ids(ids, self._airspeed_meas)
+            self._mag_delay.reset_env_ids(ids, self._mag_yaw_meas)
         self._initialized = True
 
     def step(

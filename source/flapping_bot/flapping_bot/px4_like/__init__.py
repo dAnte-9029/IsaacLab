@@ -15,6 +15,7 @@ from .isaacsim_imu_adapter import (
     ISAACSIM_IMU_RUNTIME_AVAILABLE,
     IsaacSimImuProvider,
     IsaacSimImuSensorSpec,
+    resolve_base_body_com_offset_b,
 )
 from .loiter_controller import PX4LikeLoiterController, PX4LikeLoiterControllerCfg
 from .line_navigation import navigate_line
@@ -36,6 +37,7 @@ __all__ = [
     "ImuProvider",
     "IsaacSimImuProvider",
     "IsaacSimImuSensorSpec",
+    "resolve_base_body_com_offset_b",
     "PX4LikeLoiterController",
     "PX4LikeLoiterControllerCfg",
     "PX4LikePathTrackingController",

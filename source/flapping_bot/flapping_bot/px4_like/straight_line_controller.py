@@ -87,6 +87,7 @@ class PX4LikeStraightLineControllerCfg:
     tecs_roll_throttle_compensation: float = 0.0
     tecs_load_factor_clamp_max: float = 2.0
     tecs_load_factor_use_roll_sp: bool = True
+    guidance_min_ground_speed_mps: float = 0.0
     use_tecs_bank_aware_speed_sp: bool = False
     tecs_bank_aware_speed_scale: float = 1.0
     tecs_bank_aware_speed_clamp_mps: float = 2.0
@@ -94,6 +95,9 @@ class PX4LikeStraightLineControllerCfg:
     tecs_bank_aware_min_airspeed_mps: float = 8.0
     tecs_bank_aware_min_airspeed_scale: float = 1.0
     tecs_bank_aware_min_airspeed_clamp_mps: float = 2.0
+    lateral_guidance_uncertainty_start_deg: float = 0.0
+    lateral_guidance_uncertainty_full_deg: float = 0.0
+    lateral_guidance_uncertainty_min_scale: float = 1.0
 
     inner_pitch_lpf_tau_s: float = 0.12
     inner_pitch_rate_lpf_tau_s: float = 0.1
@@ -223,7 +227,14 @@ class PX4LikeStraightLineController:
         self._action_elevon_roll_prev = None
         self._action_elevon_pitch_integ = None
 
-    def _resolve_tecs_turn_inputs(self, *, airspeed: Tensor, roll: Tensor, roll_sp: Tensor) -> dict[str, Tensor]:
+    def _resolve_tecs_turn_inputs(
+        self,
+        *,
+        airspeed: Tensor,
+        roll: Tensor,
+        roll_sp: Tensor,
+        guidance_min_airspeed: Tensor | None = None,
+    ) -> dict[str, Tensor]:
         """Return the bank-aware TECS inputs shared by straight/loiter/path tracking."""
         if bool(self.cfg.use_tecs_load_factor_compensation):
             bank_for_load = roll_sp if bool(self.cfg.tecs_load_factor_use_roll_sp) else roll
@@ -262,6 +273,12 @@ class PX4LikeStraightLineController:
             bank_min_delta = torch.zeros_like(airspeed)
             bank_min_airspeed = torch.zeros_like(airspeed)
 
+        if guidance_min_airspeed is None:
+            guidance_min_airspeed = torch.zeros_like(airspeed)
+        else:
+            guidance_min_airspeed = torch.clamp(guidance_min_airspeed, min=0.0)
+            speed_sp_cmd = torch.maximum(speed_sp_cmd, guidance_min_airspeed)
+
         return {
             "load_factor": load_factor,
             "load_factor_correction": load_factor_correction,
@@ -269,6 +286,7 @@ class PX4LikeStraightLineController:
             "bank_speed_delta": bank_speed_delta,
             "bank_min_airspeed": bank_min_airspeed,
             "bank_min_delta": bank_min_delta,
+            "guidance_min_airspeed": guidance_min_airspeed,
         }
 
     def _resolve_lateral_heading(self, *, air_vel_xy: Tensor, yaw: Tensor) -> dict[str, Tensor]:
@@ -293,6 +311,35 @@ class PX4LikeStraightLineController:
             "heading_from_velocity": heading_from_velocity,
             "heading_yaw_correction": heading_yaw_correction,
         }
+
+    def _resolve_guidance_min_airspeed(self, *, bearing_unit: Tensor, wind_xy: Tensor) -> Tensor:
+        """Return the minimum airspeed needed to guarantee forward progress along the desired bearing."""
+        min_ground_speed = max(float(self.cfg.guidance_min_ground_speed_mps), 0.0)
+        if min_ground_speed <= 0.0:
+            return torch.zeros((bearing_unit.shape[0],), device=bearing_unit.device, dtype=bearing_unit.dtype)
+
+        wind_dot_bearing = (wind_xy * bearing_unit).sum(dim=1)
+        wind_sq = (wind_xy * wind_xy).sum(dim=1)
+        wind_cross_sq = torch.clamp(wind_sq - wind_dot_bearing * wind_dot_bearing, min=0.0)
+        return torch.sqrt(
+            torch.clamp((min_ground_speed - wind_dot_bearing) * (min_ground_speed - wind_dot_bearing) + wind_cross_sq, min=0.0)
+        )
+
+    def _resolve_lateral_guidance_quality_scale(self, *, heading_yaw_correction: Tensor) -> Tensor:
+        """Return a PX4-inspired confidence scale for lateral guidance under heading/velocity disagreement."""
+        start_deg = max(float(self.cfg.lateral_guidance_uncertainty_start_deg), 0.0)
+        full_deg = max(float(self.cfg.lateral_guidance_uncertainty_full_deg), 0.0)
+        min_scale = min(max(float(self.cfg.lateral_guidance_uncertainty_min_scale), 0.0), 1.0)
+        if full_deg <= start_deg or min_scale >= 1.0:
+            return torch.ones_like(heading_yaw_correction)
+
+        heading_uncertainty_deg = torch.abs(torch.rad2deg(heading_yaw_correction))
+        blend = torch.clamp(
+            (heading_uncertainty_deg - start_deg) / max(full_deg - start_deg, 1.0e-6),
+            min=0.0,
+            max=1.0,
+        )
+        return 1.0 - (1.0 - min_scale) * blend
 
     def compute_actions(
         self,
@@ -346,9 +393,14 @@ class PX4LikeStraightLineController:
         ground_speed_along_bearing = torch.clamp(wind_dot_bearing + sqrt_term, min=0.0)
         v_a_sp = bearing_unit * ground_speed_along_bearing.unsqueeze(1) - wind_xy
         heading_sp = torch.atan2(v_a_sp[:, 1], v_a_sp[:, 0])
+        guidance_min_airspeed = self._resolve_guidance_min_airspeed(bearing_unit=bearing_unit, wind_xy=wind_xy)
 
         lateral_accel_fb = self._heading_controller.control_heading(heading_sp, heading_used, airspeed)
-        lateral_accel_sp = lateral_accel_fb + guidance.lateral_acceleration_feedforward
+        lateral_accel_sp_unc = lateral_accel_fb + guidance.lateral_acceleration_feedforward
+        lateral_guidance_quality_scale = self._resolve_lateral_guidance_quality_scale(
+            heading_yaw_correction=heading_diag["heading_yaw_correction"]
+        )
+        lateral_accel_sp = lateral_accel_sp_unc * lateral_guidance_quality_scale
         roll_sp = -torch.atan(lateral_accel_sp / 9.81)
 
         dt = float(self.cfg.control_dt_s)
@@ -406,7 +458,12 @@ class PX4LikeStraightLineController:
 
         height_err = float(self.cfg.height_sp_m) - pos_local[:, 2]
         if bool(self.cfg.enable_tecs):
-            tecs_turn = self._resolve_tecs_turn_inputs(airspeed=airspeed, roll=roll, roll_sp=roll_sp)
+            tecs_turn = self._resolve_tecs_turn_inputs(
+                airspeed=airspeed,
+                roll=roll,
+                roll_sp=roll_sp,
+                guidance_min_airspeed=guidance_min_airspeed,
+            )
             pitch_sp, throttle_sp, tecs_diag = self._tecs.update(
                 dt=float(self.cfg.control_dt_s),
                 altitude=pos_local[:, 2],
@@ -521,6 +578,9 @@ class PX4LikeStraightLineController:
             "course_err": course_err,
             "signed_track_error": guidance.signed_track_error,
             "track_error_bound": guidance.track_error_bound,
+            "guidance_min_airspeed_mps": guidance_min_airspeed,
+            "lateral_guidance_quality_scale": lateral_guidance_quality_scale,
+            "lateral_accel_sp_unscaled": lateral_accel_sp_unc,
             "roll_sp": roll_sp,
             "pitch_sp": pitch_sp,
             "freq_hz": freq_hz,

@@ -322,17 +322,19 @@ def _create_isaacsim_imu_sensor(imu_provider, env, *, env_step_dt: float):
         return None
 
     try:
-        from flapping_bot.px4_like import IsaacSimImuSensorSpec
+        from flapping_bot.px4_like import IsaacSimImuSensorSpec, resolve_base_body_com_offset_b
     except ModuleNotFoundError:
-        from flapping_bot.flapping_bot.px4_like import IsaacSimImuSensorSpec
+        from flapping_bot.flapping_bot.px4_like import IsaacSimImuSensorSpec, resolve_base_body_com_offset_b
 
     robot = env.unwrapped._robot
     body_name = str(robot.body_names[0]) if len(robot.body_names) > 0 else "base_link"
     prim_path = f"{env.unwrapped.cfg.robot.prim_path}/{body_name}"
+    offset_pos_b = resolve_base_body_com_offset_b(robot, getattr(env.unwrapped, "_base_body_ids", None))
     sensor = imu_provider.create_sensor(
         IsaacSimImuSensorSpec(
             prim_path=prim_path,
             update_period=float(env_step_dt),
+            offset_pos_b=offset_pos_b,
         )
     )
     if hasattr(sensor, "is_initialized") and not sensor.is_initialized:

@@ -338,6 +338,118 @@ def test_generic_controller_enforces_bank_aware_min_airspeed_floor_for_curved_pa
     assert float(diag_curved["tecs_bank_aware_min_airspeed_mps"][0]) > 8.0
 
 
+def test_path_tracking_controller_uses_actual_roll_for_tecs_when_roll_sp_compensation_disabled() -> None:
+    controller = PX4LikePathTrackingController(
+        PX4LikePathTrackingControllerCfg(
+            use_tecs_load_factor_compensation=True,
+            tecs_roll_throttle_compensation=30.0,
+            tecs_load_factor_clamp_max=2.0,
+            tecs_load_factor_use_roll_sp=False,
+        ),
+        device=torch.device("cpu"),
+    )
+    query = {
+        "closest_point_xyz": torch.zeros((1, 3)),
+        "tangent_xy": torch.tensor([[1.0, 0.0]]),
+        "curvature_m_inv": torch.tensor([0.08]),
+        "height_sp_m": torch.tensor([10.0]),
+        "progress_s": torch.zeros((1,)),
+        "preview_points_xyz": torch.zeros((1, 5, 3)),
+    }
+
+    _, diag = controller.compute_actions_from_query(
+        path_query=query,
+        pos_local=torch.tensor([[0.0, 0.0, 10.0]]),
+        ground_vel_local=torch.tensor([[7.0, 0.0, 0.0]]),
+        wind_vel_local=torch.zeros((1, 2)),
+        roll=torch.zeros((1,)),
+        pitch=torch.tensor([-torch.deg2rad(torch.tensor(10.0)).item()]),
+        yaw=torch.zeros((1,)),
+        ang_vel_body=torch.zeros((1, 3)),
+    )
+
+    assert float(diag["roll_sp"][0]) != 0.0
+    assert float(diag["tecs_load_factor"][0]) == 1.0
+    assert float(diag["tecs_load_factor_energy_bias"][0]) == 0.0
+
+
+def test_path_tracking_controller_guidance_min_airspeed_floor_raises_tecs_target_in_crosswind() -> None:
+    controller = PX4LikePathTrackingController(
+        PX4LikePathTrackingControllerCfg(
+            speed_sp_mps=7.0,
+            guidance_min_ground_speed_mps=4.0,
+        ),
+        device=torch.device("cpu"),
+    )
+    query = {
+        "closest_point_xyz": torch.zeros((1, 3)),
+        "tangent_xy": torch.tensor([[0.0, 1.0]]),
+        "curvature_m_inv": torch.zeros((1,)),
+        "height_sp_m": torch.tensor([10.0]),
+        "progress_s": torch.zeros((1,)),
+        "preview_points_xyz": torch.zeros((1, 5, 3)),
+    }
+
+    _, diag = controller.compute_actions_from_query(
+        path_query=query,
+        pos_local=torch.tensor([[0.0, 0.0, 10.0]]),
+        ground_vel_local=torch.tensor([[0.0, 7.0, 0.0]]),
+        wind_vel_local=torch.tensor([[6.0, 0.0]], dtype=torch.float32),
+        roll=torch.zeros((1,)),
+        pitch=torch.tensor([-torch.deg2rad(torch.tensor(10.0)).item()]),
+        yaw=torch.tensor([math.pi / 2.0], dtype=torch.float32),
+        ang_vel_body=torch.zeros((1, 3)),
+    )
+
+    assert float(diag["guidance_min_airspeed_mps"][0]) > 7.0
+    assert float(diag["tecs_tas_sp"][0]) == pytest.approx(float(diag["guidance_min_airspeed_mps"][0]), abs=1.0e-5)
+
+
+def test_path_tracking_controller_scales_lateral_accel_when_heading_becomes_uncertain() -> None:
+    baseline = PX4LikePathTrackingController(
+        PX4LikePathTrackingControllerCfg(
+            enable_tecs=False,
+            lateral_guidance_uncertainty_start_deg=0.0,
+            lateral_guidance_uncertainty_full_deg=0.0,
+            lateral_guidance_uncertainty_min_scale=1.0,
+        ),
+        device=torch.device("cpu"),
+    )
+    protected = PX4LikePathTrackingController(
+        PX4LikePathTrackingControllerCfg(
+            enable_tecs=False,
+            lateral_guidance_uncertainty_start_deg=10.0,
+            lateral_guidance_uncertainty_full_deg=30.0,
+            lateral_guidance_uncertainty_min_scale=0.5,
+        ),
+        device=torch.device("cpu"),
+    )
+    query = {
+        "closest_point_xyz": torch.zeros((1, 3)),
+        "tangent_xy": torch.tensor([[0.0, 1.0]]),
+        "curvature_m_inv": torch.zeros((1,)),
+        "height_sp_m": torch.tensor([10.0]),
+        "progress_s": torch.zeros((1,)),
+        "preview_points_xyz": torch.zeros((1, 5, 3)),
+    }
+    kwargs = dict(
+        path_query=query,
+        pos_local=torch.tensor([[0.0, 0.0, 10.0]], dtype=torch.float32),
+        ground_vel_local=torch.tensor([[8.0, 0.0, 0.0]], dtype=torch.float32),
+        wind_vel_local=torch.zeros((1, 2), dtype=torch.float32),
+        roll=torch.zeros((1,), dtype=torch.float32),
+        pitch=torch.zeros((1,), dtype=torch.float32),
+        yaw=torch.tensor([math.pi / 2.0], dtype=torch.float32),
+        ang_vel_body=torch.zeros((1, 3), dtype=torch.float32),
+    )
+
+    _, baseline_diag = baseline.compute_actions_from_query(**kwargs)
+    _, protected_diag = protected.compute_actions_from_query(**kwargs)
+
+    assert float(protected_diag["lateral_guidance_quality_scale"][0]) < 1.0
+    assert abs(float(protected_diag["roll_sp"][0])) < abs(float(baseline_diag["roll_sp"][0]))
+
+
 def test_path_tracking_controller_passes_capture_pitch_tuning_to_tecs() -> None:
     controller = PX4LikePathTrackingController(
         PX4LikePathTrackingControllerCfg(
