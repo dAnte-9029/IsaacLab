@@ -1,0 +1,19 @@
+{
+  "aligned_rows": 58639,
+  "horizons_s": [
+    0.5,
+    1.0
+  ],
+  "methods": [
+    "label_oracle",
+    "delaurier_uncalibrated",
+    "delaurier_gain_calibrated",
+    "delaurier_physically_calibrated",
+    "nn_effective_wrench"
+  ],
+  "model_bundle": "/home/zn/flap-system-identification/artifacts/20260507_temporal_backbone_final/runs/final_transformer_d64_l2_h4_hist128/causal_transformer_paper_no_accel_v2_phase_actuator_airdata/model_bundle.pt",
+  "rollout_type": "teacher_forced_wrench_sequence",
+  "split": "test",
+  "split_root": "/home/zn/flap-system-identification/dataset/canonical_v0.2_training_ready_split_hq_v4_direct_airspeed_logsplit_paper_alt5_v1",
+  "windows_per_horizon": 40
+}
