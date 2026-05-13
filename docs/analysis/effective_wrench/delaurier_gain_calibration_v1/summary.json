@@ -1,0 +1,26 @@
+{
+  "gains": {
+    "fx_b": 0.35064019378420985,
+    "fy_b": -0.00033604468152323425,
+    "fz_b": 0.32161721786702874,
+    "mx_b": -0.0015017122465222253,
+    "my_b": -1.1135219735928632e-05,
+    "mz_b": 7.649217327407353e-06
+  },
+  "output_dir": "docs/analysis/effective_wrench/delaurier_gain_calibration_v1",
+  "rows_by_split": {
+    "test": 60671,
+    "train": 308702,
+    "val": 79587
+  },
+  "save_predictions": false,
+  "split_root": "/home/zn/flap-system-identification/dataset/canonical_v0.2_training_ready_split_hq_v4_direct_airspeed_logsplit_paper_alt5_v1",
+  "target_columns": [
+    "fx_b",
+    "fy_b",
+    "fz_b",
+    "mx_b",
+    "my_b",
+    "mz_b"
+  ]
+}
