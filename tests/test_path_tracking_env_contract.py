@@ -11,6 +11,7 @@ from flapping_bot.direct.flapping_bot.path_tracking_env import (
     _compute_mission_seed,
     _resolve_loiter_curriculum_stage,
     _resolve_path_tracking_curriculum,
+    _resolve_single_segment_sampling_weights,
 )
 
 
@@ -943,7 +944,7 @@ def test_path_tracking_primitive_pure_rl_cfg_uses_single_segment_primitives() ->
     }
 
 
-def test_path_tracking_primitive_pure_rl_cfg_slows_curriculum_for_continuation() -> None:
+def test_path_tracking_primitive_pure_rl_cfg_reaches_full_mix_by_early_checkpoint_window() -> None:
     module = ast.parse(
         (
             Path(__file__).resolve().parents[1]
@@ -969,8 +970,46 @@ def test_path_tracking_primitive_pure_rl_cfg_slows_curriculum_for_continuation()
         break
 
     assert found == {
-        "mission_curriculum_stage_steps": (0, 400_000, 800_000, 1_200_000),
-        "loiter_curriculum_stage_steps": (0, 400_000, 800_000, 1_200_000),
+        "mission_curriculum_stage_steps": (0, 50_000, 100_000, 150_000),
+        "loiter_curriculum_stage_steps": (0, 50_000, 100_000, 150_000),
+    }
+
+
+def test_path_tracking_primitive_pure_rl_cfg_preserves_turn_during_loiter_stages() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source"
+            / "flapping_bot"
+            / "flapping_bot"
+            / "direct"
+            / "flapping_bot"
+            / "path_tracking_env.py"
+        ).read_text()
+    )
+
+    found = {}
+    for node in ast.walk(module):
+        if not isinstance(node, ast.ClassDef) or node.name != "FlappingBotPathTrackingPrimitivePureRLEnvCfg":
+            continue
+        for item in node.body:
+            if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+                continue
+            if item.target.id not in {"mission_curriculum_stage_modes", "loiter_curriculum_stage_modes"}:
+                continue
+            assert isinstance(item.value, ast.Tuple)
+            found[item.target.id] = tuple(elt.value for elt in item.value.elts)
+        break
+
+    expected = (
+        "turn_only",
+        "turn_loiter_quarter",
+        "turn_loiter_half",
+        "turn_loiter_full_with_straight_rehearsal",
+    )
+    assert found == {
+        "mission_curriculum_stage_modes": expected,
+        "loiter_curriculum_stage_modes": expected,
     }
 
 
@@ -1075,6 +1114,30 @@ def test_resolve_loiter_curriculum_stage_maps_quarter_half_and_full() -> None:
     assert full_stage.straight_rehearsal_prob == 0.2
 
 
+def test_resolve_loiter_curriculum_stage_supports_turn_loiter_modes() -> None:
+    quarter_stage = _resolve_loiter_curriculum_stage(
+        step=15_000,
+        enabled=True,
+        stage_steps=(0, 12_000, 24_000, 36_000),
+        stage_modes=("turn_only", "turn_loiter_quarter", "turn_loiter_half", "turn_loiter_full_with_straight_rehearsal"),
+        default_loiter_turns=1.0,
+        straight_rehearsal_prob=0.2,
+    )
+    full_stage = _resolve_loiter_curriculum_stage(
+        step=40_000,
+        enabled=True,
+        stage_steps=(0, 12_000, 24_000, 36_000),
+        stage_modes=("turn_only", "turn_loiter_quarter", "turn_loiter_half", "turn_loiter_full_with_straight_rehearsal"),
+        default_loiter_turns=1.0,
+        straight_rehearsal_prob=0.2,
+    )
+
+    assert quarter_stage.loiter_turns == 0.25
+    assert quarter_stage.straight_rehearsal_prob == 0.0
+    assert full_stage.loiter_turns == 1.0
+    assert full_stage.straight_rehearsal_prob == 0.2
+
+
 def test_resolve_path_tracking_curriculum_supports_loiter_progressive_modes() -> None:
     quarter_flags = _resolve_path_tracking_curriculum(
         step=15_000,
@@ -1097,6 +1160,43 @@ def test_resolve_path_tracking_curriculum_supports_loiter_progressive_modes() ->
 
     assert quarter_flags == (False, False, True)
     assert full_flags == (True, False, True)
+
+
+def test_resolve_path_tracking_curriculum_supports_turn_loiter_progressive_modes() -> None:
+    quarter_flags = _resolve_path_tracking_curriculum(
+        step=15_000,
+        enabled=True,
+        stage_steps=(0, 12_000, 24_000, 36_000),
+        stage_modes=("turn_only", "turn_loiter_quarter", "turn_loiter_half", "turn_loiter_full_with_straight_rehearsal"),
+        allow_straight=True,
+        allow_turn=True,
+        allow_loiter=True,
+    )
+    full_flags = _resolve_path_tracking_curriculum(
+        step=40_000,
+        enabled=True,
+        stage_steps=(0, 12_000, 24_000, 36_000),
+        stage_modes=("turn_only", "turn_loiter_quarter", "turn_loiter_half", "turn_loiter_full_with_straight_rehearsal"),
+        allow_straight=True,
+        allow_turn=True,
+        allow_loiter=True,
+    )
+
+    assert quarter_flags == (False, True, True)
+    assert full_flags == (True, True, True)
+
+
+def test_resolve_single_segment_sampling_weights_keep_turn_during_straight_rehearsal() -> None:
+    straight_weight, turn_weight, loiter_weight = _resolve_single_segment_sampling_weights(
+        allow_straight=True,
+        allow_turn=True,
+        allow_loiter=True,
+        straight_rehearsal_prob=0.2,
+    )
+
+    assert straight_weight == 0.5
+    assert turn_weight == 1.0
+    assert loiter_weight == 1.0
 
 
 def test_resolve_path_tracking_curriculum_preserves_explicit_eval_loiter_case() -> None:

@@ -16,13 +16,22 @@ path_tracking_eval_common = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(path_tracking_eval_common)
 
 
-def test_resolve_eval_suite_defaults_path_tracking_task_to_truth_suite() -> None:
+def test_resolve_eval_suite_defaults_path_tracking_task_to_estimated_suite() -> None:
     resolved = path_tracking_eval_common.resolve_eval_suite(
         "Isaac-FlappingBot-PathTracking-DeLaurier-TeacherRL-Direct-v0",
         "straight_standard",
     )
 
-    assert resolved == "path_tracking_truth_nowind_v1"
+    assert resolved == "path_tracking_estimated_nowind_v1"
+
+
+def test_resolve_eval_suite_defaults_primitive_path_tracking_task_to_estimated_primitive_suite() -> None:
+    resolved = path_tracking_eval_common.resolve_eval_suite(
+        "Isaac-FlappingBot-PathTracking-DeLaurier-PrimitiveWeakTeacherRL-Direct-v0",
+        "straight_standard",
+    )
+
+    assert resolved == "path_tracking_estimated_primitives_nowind_v1"
 
 
 def test_aggregate_case_row_reports_completion_and_path_errors() -> None:

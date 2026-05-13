@@ -49,6 +49,11 @@ def test_shared_flapping_asset_points_to_latest_robot() -> None:
     assert '"flap_robot_552.urdf"' in text
 
 
+def test_shared_flapping_asset_does_not_force_runtime_urdf_conversion() -> None:
+    text = _cfg_text()
+    assert "force_usd_conversion=False" in text
+
+
 def test_shared_flapping_asset_declares_all_expected_joint_defaults() -> None:
     text = _cfg_text()
     for joint_name in ("left_wing", "right_wing", "rudder", "left_tail", "right_tail"):

@@ -46,6 +46,7 @@ except Exception:  # pragma: no cover - best-effort path fix for local dev
 from .agents.rsl_rl_ppo_cfg import FlappingBotPPORunnerCfg  # noqa: E402
 from .agents.rsl_rl_ppo_straightflight_cfg import (  # noqa: E402
     FlappingBotPathTrackingPPORunnerCfg,
+    FlappingBotPathTrackingPrimitivePurePPORunnerCfg,
     FlappingBotStraightFlightPPORunnerCfg,
 )
 
@@ -208,6 +209,6 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlappingBotPathTrackingPrimitivePureRLEnvCfg,
-        "rsl_rl_cfg_entry_point": FlappingBotPathTrackingPPORunnerCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotPathTrackingPrimitivePurePPORunnerCfg,
     },
 )

@@ -446,17 +446,17 @@ else:
         mission_curriculum_stage_steps: tuple[int, ...] = (0, 12_000, 24_000, 36_000)
         mission_curriculum_stage_modes: tuple[str, ...] = (
             "turn_only",
-            "loiter_quarter",
-            "loiter_half",
-            "loiter_full_with_straight_rehearsal",
+            "turn_loiter_quarter",
+            "turn_loiter_half",
+            "turn_loiter_full_with_straight_rehearsal",
         )
         loiter_curriculum_enabled: bool = True
         loiter_curriculum_stage_steps: tuple[int, ...] = (0, 12_000, 24_000, 36_000)
         loiter_curriculum_stage_modes: tuple[str, ...] = (
             "turn_only",
-            "loiter_quarter",
-            "loiter_half",
-            "loiter_full_with_straight_rehearsal",
+            "turn_loiter_quarter",
+            "turn_loiter_half",
+            "turn_loiter_full_with_straight_rehearsal",
         )
         loiter_curriculum_stage_turns: tuple[float, ...] = (1.0, 0.25, 0.5, 1.0)
         loiter_curriculum_straight_rehearsal_prob: float = 0.2
@@ -476,17 +476,17 @@ else:
         mission_curriculum_stage_steps: tuple[int, ...] = (0, 12_000, 24_000, 36_000)
         mission_curriculum_stage_modes: tuple[str, ...] = (
             "turn_only",
-            "loiter_quarter",
-            "loiter_half",
-            "loiter_full_with_straight_rehearsal",
+            "turn_loiter_quarter",
+            "turn_loiter_half",
+            "turn_loiter_full_with_straight_rehearsal",
         )
         loiter_curriculum_enabled: bool = True
         loiter_curriculum_stage_steps: tuple[int, ...] = (0, 12_000, 24_000, 36_000)
         loiter_curriculum_stage_modes: tuple[str, ...] = (
             "turn_only",
-            "loiter_quarter",
-            "loiter_half",
-            "loiter_full_with_straight_rehearsal",
+            "turn_loiter_quarter",
+            "turn_loiter_half",
+            "turn_loiter_full_with_straight_rehearsal",
         )
         loiter_curriculum_stage_turns: tuple[float, ...] = (1.0, 0.25, 0.5, 1.0)
         loiter_curriculum_straight_rehearsal_prob: float = 0.2
@@ -503,20 +503,20 @@ else:
         mission_allow_loiter: bool = True
         mission_allow_climb_on_straight: bool = False
         mission_curriculum_enabled: bool = True
-        mission_curriculum_stage_steps: tuple[int, ...] = (0, 400_000, 800_000, 1_200_000)
+        mission_curriculum_stage_steps: tuple[int, ...] = (0, 50_000, 100_000, 150_000)
         mission_curriculum_stage_modes: tuple[str, ...] = (
             "turn_only",
-            "loiter_quarter",
-            "loiter_half",
-            "loiter_full_with_straight_rehearsal",
+            "turn_loiter_quarter",
+            "turn_loiter_half",
+            "turn_loiter_full_with_straight_rehearsal",
         )
         loiter_curriculum_enabled: bool = True
-        loiter_curriculum_stage_steps: tuple[int, ...] = (0, 400_000, 800_000, 1_200_000)
+        loiter_curriculum_stage_steps: tuple[int, ...] = (0, 50_000, 100_000, 150_000)
         loiter_curriculum_stage_modes: tuple[str, ...] = (
             "turn_only",
-            "loiter_quarter",
-            "loiter_half",
-            "loiter_full_with_straight_rehearsal",
+            "turn_loiter_quarter",
+            "turn_loiter_half",
+            "turn_loiter_full_with_straight_rehearsal",
         )
         loiter_curriculum_stage_turns: tuple[float, ...] = (1.0, 0.25, 0.5, 1.0)
         loiter_curriculum_straight_rehearsal_prob: float = 0.2
@@ -796,17 +796,16 @@ else:
             )
             assert self._path_loiter_turns is not None
             self._path_loiter_turns[env_id] = float(loiter_stage.loiter_turns)
-
-            if (
-                int(self.cfg.mission_num_segments_min) == 1
-                and int(self.cfg.mission_num_segments_max) == 1
-                and allow_loiter
-                and loiter_stage.straight_rehearsal_prob > 0.0
-            ):
-                rng = random.Random(seed ^ 104_729)
-                if allow_straight and rng.random() < loiter_stage.straight_rehearsal_prob:
-                    return Mission([MissionSegment(kind="straight", altitude_changes=False)])
-                return Mission([MissionSegment(kind="loiter", altitude_changes=False)])
+            straight_weight = 1.0
+            turn_weight = 1.0
+            loiter_weight = 1.0
+            if int(self.cfg.mission_num_segments_min) == 1 and int(self.cfg.mission_num_segments_max) == 1:
+                straight_weight, turn_weight, loiter_weight = _resolve_single_segment_sampling_weights(
+                    allow_straight=allow_straight,
+                    allow_turn=allow_turn,
+                    allow_loiter=allow_loiter,
+                    straight_rehearsal_prob=loiter_stage.straight_rehearsal_prob,
+                )
 
             return sample_mission(
                 MissionGeneratorCfg(
@@ -817,6 +816,9 @@ else:
                     allow_turn=allow_turn,
                     allow_loiter=allow_loiter,
                     allow_climb_on_straight=bool(self.cfg.mission_allow_climb_on_straight),
+                    straight_weight=straight_weight,
+                    turn_weight=turn_weight,
+                    loiter_weight=loiter_weight,
                 )
             )
 
@@ -1899,13 +1901,13 @@ def _resolve_loiter_curriculum_stage(
                 break
             active_idx = stage_idx
         loiter_turns = min(loiter_turns, max(float(stage_turns[active_idx]), 0.0))
-    elif active_mode == "loiter_quarter":
+    elif active_mode in {"loiter_quarter", "turn_loiter_quarter"}:
         loiter_turns = min(loiter_turns, 0.25)
-    elif active_mode == "loiter_half":
+    elif active_mode in {"loiter_half", "turn_loiter_half"}:
         loiter_turns = min(loiter_turns, 0.5)
 
     rehearsal_prob = 0.0
-    if active_mode == "loiter_full_with_straight_rehearsal":
+    if active_mode in {"loiter_full_with_straight_rehearsal", "turn_loiter_full_with_straight_rehearsal"}:
         rehearsal_prob = min(max(float(straight_rehearsal_prob), 0.0), 1.0)
 
     return _LoiterCurriculumStage(
@@ -1955,13 +1957,50 @@ def _resolve_path_tracking_curriculum(
     if active_mode == "loiter_half":
         resolved = (False, False, bool(allow_loiter))
         return resolved if any(resolved) else base_flags
+    if active_mode == "turn_loiter_quarter":
+        resolved = (False, bool(allow_turn), bool(allow_loiter))
+        return resolved if any(resolved) else base_flags
+    if active_mode == "turn_loiter_half":
+        resolved = (False, bool(allow_turn), bool(allow_loiter))
+        return resolved if any(resolved) else base_flags
     if active_mode == "loiter_full_with_straight_rehearsal":
         resolved = (bool(allow_straight), False, bool(allow_loiter))
+        return resolved if any(resolved) else base_flags
+    if active_mode == "turn_loiter_full_with_straight_rehearsal":
+        resolved = (bool(allow_straight), bool(allow_turn), bool(allow_loiter))
         return resolved if any(resolved) else base_flags
     if active_mode == "turn_loiter":
         resolved = (False, bool(allow_turn), bool(allow_loiter))
         return resolved if any(resolved) else base_flags
     raise ValueError(f"unsupported mission curriculum mode: {active_mode}")
+
+
+def _resolve_single_segment_sampling_weights(
+    *,
+    allow_straight: bool,
+    allow_turn: bool,
+    allow_loiter: bool,
+    straight_rehearsal_prob: float,
+) -> tuple[float, float, float]:
+    """Return single-segment primitive weights while preserving turn during straight rehearsal."""
+    straight_weight = 1.0 if bool(allow_straight) else 0.0
+    turn_weight = 1.0 if bool(allow_turn) else 0.0
+    loiter_weight = 1.0 if bool(allow_loiter) else 0.0
+
+    rehearsal_prob = min(max(float(straight_rehearsal_prob), 0.0), 1.0)
+    if rehearsal_prob <= 0.0 or straight_weight <= 0.0:
+        return straight_weight, turn_weight, loiter_weight
+
+    nonstraight_count = int(turn_weight > 0.0) + int(loiter_weight > 0.0)
+    if nonstraight_count <= 0:
+        return 1.0, 0.0, 0.0
+    if rehearsal_prob >= 1.0:
+        return 1.0, 0.0, 0.0
+
+    # Keep non-straight primitives equally likely while matching the requested
+    # aggregate straight rehearsal probability.
+    straight_weight = rehearsal_prob * float(nonstraight_count) / max(1.0 - rehearsal_prob, 1.0e-6)
+    return straight_weight, turn_weight, loiter_weight
 
 
 def _compute_curve_aware_teacher_delta(

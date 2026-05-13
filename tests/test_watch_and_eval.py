@@ -89,7 +89,7 @@ def test_watch_and_eval_parser_accepts_truth_primitives_nowind_suite(monkeypatch
     assert args.eval_suite == "path_tracking_truth_primitives_nowind_v1"
 
 
-def test_watch_and_eval_resolves_path_tracking_task_to_truth_suite() -> None:
+def test_watch_and_eval_resolves_path_tracking_task_to_estimated_suite() -> None:
     watch_and_eval = _load_watch_and_eval_module()
 
     resolved = watch_and_eval._resolve_eval_suite(
@@ -97,7 +97,18 @@ def test_watch_and_eval_resolves_path_tracking_task_to_truth_suite() -> None:
         "straight_standard",
     )
 
-    assert resolved == "path_tracking_truth_nowind_v1"
+    assert resolved == "path_tracking_estimated_nowind_v1"
+
+
+def test_watch_and_eval_resolves_primitive_path_tracking_task_to_estimated_primitive_suite() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    resolved = watch_and_eval._resolve_eval_suite(
+        "Isaac-FlappingBot-PathTracking-DeLaurier-PrimitiveWeakTeacherRL-Direct-v0",
+        "straight_standard",
+    )
+
+    assert resolved == "path_tracking_estimated_primitives_nowind_v1"
 
 
 def test_watch_and_eval_applies_path_tracking_mission_overrides() -> None:

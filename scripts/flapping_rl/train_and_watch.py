@@ -40,6 +40,8 @@ from eval_suites import get_eval_suite_choices
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
     if eval_suite == "straight_standard" and "PathTracking" in str(task):
+        if "Primitive" in str(task):
+            return "path_tracking_estimated_primitives_nowind_v1"
         return "path_tracking_estimated_nowind_v1"
     return str(eval_suite)
 
@@ -57,6 +59,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-iterations", type=int, default=2000)
     parser.add_argument("--save-interval", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--mass-kg-override",
+        type=float,
+        default=None,
+        help="Optional total vehicle mass override passed as total_mass_kg_override=<value>.",
+    )
     parser.add_argument("--train-device", type=str, default="cuda:0")
     parser.add_argument("--eval-device", type=str, default="cuda:1")
     parser.add_argument("--eval-num-envs", type=int, default=1)
@@ -223,11 +231,14 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     if _should_apply_estimated_teacher_defaults(args.task):
         train_cmd.extend(
             [
-                "teacher_state_source=estimated",
-                "policy_state_source=estimated",
-                "imu_source=synthetic",
+                "env.teacher_state_source=estimated",
+                "env.policy_state_source=estimated",
+                "env.imu_source=synthetic",
             ]
         )
+    mass_kg_override = getattr(args, "mass_kg_override", None)
+    if mass_kg_override is not None:
+        train_cmd.append(f"env.total_mass_kg_override={float(mass_kg_override)}")
     if args.headless:
         train_cmd.append("--headless")
     return train_cmd

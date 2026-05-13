@@ -153,6 +153,20 @@ class BasicActuatorCfg:
     damping: float = 2.0
 
 
+@configclass
+class OptionalScalarCfg:
+    """Dummy configuration class with an optional scalar field."""
+
+    mass_override: float | None = None
+
+
+@configclass
+class OptionalScalarChildCfg(OptionalScalarCfg):
+    """Dummy configuration class inheriting an optional scalar field."""
+
+    pass
+
+
 """
 Dummy configuration to check type annotations ordering.
 """
@@ -613,6 +627,26 @@ def test_config_update_dict_with_none():
     cfg_dict = {"env": {"num_envs": 22, "viewer": None}}
     update_class_from_dict(cfg, cfg_dict)
     assert asdict(cfg) == basic_demo_cfg_change_with_none_correct
+
+
+def test_config_update_optional_scalar_from_none():
+    """Test updating an optional scalar field from None to a concrete value."""
+    cfg = OptionalScalarCfg()
+    cfg_dict = {"mass_override": 0.95}
+
+    update_class_from_dict(cfg, cfg_dict)
+
+    assert cfg.mass_override == pytest.approx(0.95)
+
+
+def test_config_update_inherited_optional_scalar_from_none():
+    """Test updating an inherited optional scalar field from None to a concrete value."""
+    cfg = OptionalScalarChildCfg()
+    cfg_dict = {"mass_override": 0.95}
+
+    update_class_from_dict(cfg, cfg_dict)
+
+    assert cfg.mass_override == pytest.approx(0.95)
 
 
 def test_config_update_dict_tuple():

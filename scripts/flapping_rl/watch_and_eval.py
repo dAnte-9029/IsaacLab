@@ -77,7 +77,7 @@ def _parse_args() -> argparse.Namespace:
         choices=get_eval_suite_choices(),
         help=(
             "Evaluation suite. `straight_standard` runs calm / steady-crosswind / OU-crosswind cases; "
-            "`path_tracking_truth_nowind_v1` freezes the first no-wind straight / loiter / random-mission target set."
+            "`path_tracking_estimated_nowind_v1` freezes the first no-wind straight / loiter / random-mission target set."
         ),
     )
     AppLauncher.add_app_launcher_args(parser)

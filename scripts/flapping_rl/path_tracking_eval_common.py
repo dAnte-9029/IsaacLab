@@ -91,6 +91,8 @@ def is_path_tracking_task(task: str) -> bool:
 def resolve_eval_suite(task: str, eval_suite: str) -> str:
     """Resolve the effective evaluation suite for the requested task."""
     if eval_suite == "straight_standard" and is_path_tracking_task(task):
+        if "Primitive" in str(task):
+            return "path_tracking_estimated_primitives_nowind_v1"
         return "path_tracking_estimated_nowind_v1"
     return str(eval_suite)
 

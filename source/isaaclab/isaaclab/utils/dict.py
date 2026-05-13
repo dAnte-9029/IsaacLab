@@ -10,7 +10,7 @@ import hashlib
 import json
 import torch
 from collections.abc import Iterable, Mapping, Sized
-from typing import Any
+from typing import Any, get_args, get_origin, get_type_hints
 
 from .array import TENSOR_TYPE_CONVERSIONS, TENSOR_TYPES
 from .string import callable_to_string, string_to_callable, string_to_slice
@@ -149,6 +149,10 @@ def update_class_from_dict(obj, data: dict[str, Any], _ns: str = "") -> None:
             elif value is None or isinstance(value, type(obj_mem)):
                 pass
 
+            # -- 4b) Optional / Union scalar with None default --------
+            elif obj_mem is None and _matches_annotation_type(value, _get_annotation_type_for_key(obj, key)):
+                pass
+
             # -- 5) type mismatch → abort -----------------------------
             else:
                 raise ValueError(
@@ -165,6 +169,57 @@ def update_class_from_dict(obj, data: dict[str, Any], _ns: str = "") -> None:
         # -- B) if key is not present ------------------------------------
         else:
             raise KeyError(f"[Config]: Key not found under namespace: {key_ns}.")
+
+
+def _matches_annotation_type(value: Any, annotation: Any) -> bool:
+    """Return whether ``value`` is compatible with a resolved type annotation."""
+    if annotation is None:
+        return False
+    if annotation is Any:
+        return True
+    if annotation is type(None):
+        return value is None
+
+    args = get_args(annotation)
+    if args:
+        return any(_matches_annotation_type(value, arg) for arg in args)
+
+    origin = get_origin(annotation)
+    if origin is not None:
+        try:
+            return isinstance(value, origin)
+        except TypeError:
+            return False
+
+    try:
+        return isinstance(value, annotation)
+    except TypeError:
+        return False
+
+
+def _get_annotation_type_for_key(obj: Any, key: str) -> Any:
+    """Resolve the declared type annotation for one attribute when available."""
+    if isinstance(obj, dict):
+        return None
+
+    cls = type(obj)
+    dataclass_fields = getattr(cls, "__dataclass_fields__", None)
+    if dataclass_fields is not None and key in dataclass_fields:
+        field_type = dataclass_fields[key].type
+        if field_type is not None and not isinstance(field_type, str):
+            return field_type
+
+    for mro_cls in cls.__mro__:
+        try:
+            hints = get_type_hints(mro_cls)
+        except Exception:
+            hints = getattr(mro_cls, "__annotations__", {})
+        if key in hints:
+            hint = hints[key]
+            if not isinstance(hint, str):
+                return hint
+
+    return None
 
 
 """

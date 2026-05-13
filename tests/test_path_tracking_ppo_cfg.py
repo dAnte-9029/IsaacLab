@@ -118,3 +118,54 @@ def test_path_tracking_ppo_cfg_preserves_long_horizon_loiter_settings() -> None:
     assert path_tracking_rollout >= 192
     assert path_tracking_gamma >= 0.999
     assert path_tracking_lam >= 0.97
+
+
+def test_primitive_path_tracking_ppo_cfg_is_more_conservative_than_generic_path_tracking() -> None:
+    module = _load_module()
+    path_tracking = _find_class(module, "FlappingBotPathTrackingPPORunnerCfg")
+    primitive = _find_class(module, "FlappingBotPathTrackingPrimitivePurePPORunnerCfg")
+
+    path_tracking_rollout = None
+    primitive_rollout = None
+    for node in path_tracking.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if node.targets[0].id == "num_steps_per_env":
+                assert isinstance(node.value, ast.Constant)
+                path_tracking_rollout = int(node.value.value)
+    for node in primitive.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if node.targets[0].id == "num_steps_per_env":
+                assert isinstance(node.value, ast.Constant)
+                primitive_rollout = int(node.value.value)
+
+    assert path_tracking_rollout is not None
+    assert primitive_rollout is not None
+    assert primitive_rollout < path_tracking_rollout
+
+    path_tracking_lr = _find_cfg_keyword_value(path_tracking, "algorithm", "learning_rate")
+    primitive_lr = _find_cfg_keyword_value(primitive, "algorithm", "learning_rate")
+    path_tracking_kl = _find_cfg_keyword_value(path_tracking, "algorithm", "desired_kl")
+    primitive_kl = _find_cfg_keyword_value(primitive, "algorithm", "desired_kl")
+
+    assert primitive_lr < path_tracking_lr
+    assert primitive_kl < path_tracking_kl
+
+
+def test_primitive_short_rollout_smoke_window_can_reach_full_curriculum_mix() -> None:
+    module = _load_module()
+    primitive = _find_class(module, "FlappingBotPathTrackingPrimitivePurePPORunnerCfg")
+
+    primitive_rollout = None
+    for node in primitive.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if node.targets[0].id == "num_steps_per_env":
+                assert isinstance(node.value, ast.Constant)
+                primitive_rollout = int(node.value.value)
+
+    assert primitive_rollout is not None
+
+    # The dedicated primitive smoke recipe uses 64 envs for 26 iterations.
+    # It must still accumulate enough total env-steps to reach the final
+    # curriculum stage so turn/loiter exposure is not starved.
+    total_smoke_env_steps = 64 * 26 * primitive_rollout
+    assert total_smoke_env_steps >= 150_000

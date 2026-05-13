@@ -1,0 +1,115 @@
+{
+  "baseline_execution_note": "Baseline no-wind evidence comes from the formal estimated+synthetic+0.95kg suite root.",
+  "baseline_suite_roots": [
+    "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736"
+  ],
+  "cases": [
+    {
+      "case_name": "multi_segment",
+      "summary_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/multi_segment/20260413_205521/summary.json",
+      "traj_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/multi_segment/20260413_205521/trajectory_env0.csv",
+      "mean_abs_lateral_error_m": 0.21343226262696058,
+      "p95_abs_lateral_error_m": 0.6489905714988708,
+      "mean_abs_height_error_m": 0.6105378314574325,
+      "p95_abs_height_error_m": 1.593117356300354,
+      "final_progress_ratio": 0.9950824459378087
+    },
+    {
+      "case_name": "case02_seed025",
+      "summary_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/random_seed_000025/20260413_210058/summary.json",
+      "traj_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/random_seed_000025/20260413_210058/trajectory_env0.csv",
+      "mean_abs_lateral_error_m": 0.24142919354548625,
+      "p95_abs_lateral_error_m": 0.6588575839996338,
+      "mean_abs_height_error_m": 0.5773320124177785,
+      "p95_abs_height_error_m": 1.4473992586135864,
+      "final_progress_ratio": 0.9951145204287595
+    },
+    {
+      "case_name": "case03_seed030",
+      "summary_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/random_seed_000030/20260413_211002/summary.json",
+      "traj_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/random_seed_000030/20260413_211002/trajectory_env0.csv",
+      "mean_abs_lateral_error_m": 0.30315001691165616,
+      "p95_abs_lateral_error_m": 0.6090344190597534,
+      "mean_abs_height_error_m": 0.6141963285601226,
+      "p95_abs_height_error_m": 1.3992295265197754,
+      "final_progress_ratio": 0.9950639175023357
+    },
+    {
+      "case_name": "case04_seed033",
+      "summary_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/random_seed_000033/20260413_211340/summary.json",
+      "traj_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/random_seed_000033/20260413_211340/trajectory_env0.csv",
+      "mean_abs_lateral_error_m": 0.18302262365804883,
+      "p95_abs_lateral_error_m": 0.7169103622436523,
+      "mean_abs_height_error_m": 0.5324656265229346,
+      "p95_abs_height_error_m": 1.5538244247436523,
+      "final_progress_ratio": 0.9951839650184994
+    },
+    {
+      "case_name": "case05_seed036",
+      "summary_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/random_seed_000036/20260413_211620/summary.json",
+      "traj_path": "logs/flapping_px4/estimated_path_tracking_complex_suite/baseline_nowind/20260413_204736/cases/random_seed_000036/20260413_211620/trajectory_env0.csv",
+      "mean_abs_lateral_error_m": 0.1433167108561282,
+      "p95_abs_lateral_error_m": 0.5600847005844116,
+      "mean_abs_height_error_m": 0.5378158485732007,
+      "p95_abs_height_error_m": 1.5950499773025513,
+      "final_progress_ratio": 0.9950992030358603
+    }
+  ],
+  "ranking": {
+    "worst_mean_lateral_case": "case03_seed030",
+    "worst_p95_lateral_case": "case04_seed033",
+    "worst_mean_height_case": "case03_seed030"
+  },
+  "selected_worst_cases": [
+    "case03_seed030",
+    "case04_seed033"
+  ],
+  "realism_gates": {
+    "steady_crosswind": {
+      "suite_root": "logs/flapping_px4/estimated_path_tracking_complex_suite/steady_crosswind/20260413_212156",
+      "cases_requested": 5,
+      "cases_attempted": 1,
+      "completion_rate": 0.0,
+      "first_case_name": "multi_segment",
+      "first_case_return_code": 124,
+      "timed_out": true,
+      "note": "The first formal case timed out at the suite wall-clock limit before any mission summary was produced."
+    },
+    "ou_gust_invalid_attempt": {
+      "suite_root": "logs/flapping_px4/estimated_path_tracking_complex_suite/ou_gust/20260413_212156",
+      "invalid": true,
+      "note": "Invalid evidence. The old runtime contract clipped zero-mean OU wind to zero; logged wind stayed zero and the first trajectory hash matched the no-wind baseline."
+    },
+    "ou_gust": {
+      "suite_root": "logs/flapping_px4/estimated_path_tracking_complex_suite/ou_gust/20260413_213511",
+      "cases": 5,
+      "completed_cases": 5,
+      "completion_rate": 1.0,
+      "mean_case_lateral_error_m": 0.264968595769,
+      "mean_case_height_error_m": 0.507808411358,
+      "mean_case_p95_lateral_error_m": 0.729072546959,
+      "mean_case_p95_height_error_m": 1.555182957649,
+      "worst_mean_lateral_case": "case04_seed033",
+      "worst_p95_lateral_case": "case04_seed033",
+      "worst_mean_height_case": "case04_seed033",
+      "multi_segment_wind_stats": {
+        "mean_abs_x_mps": 0.7905476267134863,
+        "mean_abs_y_mps": 1.0818380290972387,
+        "min_x_mps": -2.940340995788574,
+        "max_x_mps": 2.482963800430298,
+        "min_y_mps": -4.5,
+        "max_y_mps": 3.069478750228882
+      }
+    },
+    "live_imu_spotcheck": {
+      "suite_root": "logs/flapping_px4/estimated_path_tracking_complex_suite/live_imu_spotcheck/20260413_213757",
+      "cases_requested": 2,
+      "cases_attempted": 1,
+      "completion_rate": 0.0,
+      "first_case_name": "case01_seed030",
+      "first_case_return_code": 124,
+      "timed_out": true,
+      "note": "The first live-IMU worst-seed case timed out at the suite wall-clock limit before any mission summary was produced."
+    }
+  }
+}

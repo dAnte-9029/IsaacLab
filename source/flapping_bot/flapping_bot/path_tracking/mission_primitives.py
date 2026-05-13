@@ -33,6 +33,9 @@ class MissionGeneratorCfg:
     allow_turn: bool = True
     allow_loiter: bool = True
     allow_climb_on_straight: bool = True
+    straight_weight: float = 1.0
+    turn_weight: float = 1.0
+    loiter_weight: float = 1.0
 
 
 def sample_mission(cfg: MissionGeneratorCfg) -> Mission:
@@ -49,21 +52,28 @@ def sample_mission(cfg: MissionGeneratorCfg) -> Mission:
     if cfg.num_segments_min > cfg.num_segments_max:
         raise ValueError("num_segments_min must be <= num_segments_max")
 
-    enabled_kinds: list[str] = []
-    if cfg.allow_straight:
-        enabled_kinds.append("straight")
-    if cfg.allow_turn:
-        enabled_kinds.append("turn")
-    if cfg.allow_loiter:
-        enabled_kinds.append("loiter")
-    if not enabled_kinds:
-        raise ValueError("at least one segment type must be enabled")
+    weighted_kinds: list[tuple[str, float]] = []
+    for kind, enabled, weight in (
+        ("straight", bool(cfg.allow_straight), float(cfg.straight_weight)),
+        ("turn", bool(cfg.allow_turn), float(cfg.turn_weight)),
+        ("loiter", bool(cfg.allow_loiter), float(cfg.loiter_weight)),
+    ):
+        if not enabled:
+            continue
+        if weight < 0.0:
+            raise ValueError(f"{kind}_weight must be non-negative")
+        if weight > 0.0:
+            weighted_kinds.append((kind, weight))
+    if not weighted_kinds:
+        raise ValueError("at least one enabled segment type must have a positive sampling weight")
 
     rng = random.Random(cfg.seed)
     num_segments = rng.randint(cfg.num_segments_min, cfg.num_segments_max)
     segments: list[MissionSegment] = []
+    enabled_kinds = [kind for kind, _ in weighted_kinds]
+    enabled_weights = [weight for _, weight in weighted_kinds]
     for _ in range(num_segments):
-        kind = rng.choice(enabled_kinds)
+        kind = str(rng.choices(enabled_kinds, weights=enabled_weights, k=1)[0])
         altitude_changes = kind == "straight" and cfg.allow_climb_on_straight and bool(rng.getrandbits(1))
         segments.append(MissionSegment(kind=kind, altitude_changes=altitude_changes))
     return Mission(segments=segments)

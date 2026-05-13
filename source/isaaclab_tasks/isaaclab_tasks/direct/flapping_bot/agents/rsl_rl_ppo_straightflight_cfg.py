@@ -72,3 +72,27 @@ class FlappingBotPathTrackingPPORunnerCfg(FlappingBotStraightFlightPPORunnerCfg)
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class FlappingBotPathTrackingPrimitivePurePPORunnerCfg(FlappingBotPathTrackingPPORunnerCfg):
+    """More conservative PPO schedule for primitive pure-RL path-tracking."""
+
+    # Primitive single-segment missions are shorter and showed early regression
+    # under the generic path-tracking rollout/update schedule.
+    num_steps_per_env = 96
+
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=5.0e-4,
+        num_learning_epochs=4,
+        num_mini_batches=4,
+        learning_rate=1.0e-4,
+        schedule="adaptive",
+        gamma=0.999,
+        lam=0.97,
+        desired_kl=0.005,
+        max_grad_norm=1.0,
+    )

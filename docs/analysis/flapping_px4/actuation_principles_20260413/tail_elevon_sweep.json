@@ -1,0 +1,392 @@
+[
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": -30,
+    "force_x_N": -0.1791631430387497,
+    "force_y_N": 0.0,
+    "force_z_N": -0.85760897397995,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.47600722312927246,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": -25,
+    "force_x_N": -0.1791630983352661,
+    "force_y_N": 0.0,
+    "force_z_N": -0.8576088547706604,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.4760071635246277,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": -20,
+    "force_x_N": -0.12295309454202652,
+    "force_y_N": 0.0,
+    "force_z_N": -0.6860871315002441,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.38094544410705566,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": -15,
+    "force_x_N": -0.07923420518636703,
+    "force_y_N": 0.0,
+    "force_z_N": -0.5145653486251831,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.28584176301956177,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": -10,
+    "force_x_N": -0.04800643399357796,
+    "force_y_N": 0.0,
+    "force_z_N": -0.34304359555244446,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.19069631397724152,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": -5,
+    "force_x_N": -0.029269754886627197,
+    "force_y_N": 0.0,
+    "force_z_N": -0.17152178287506104,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.09550899267196655,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": 0,
+    "force_x_N": -0.023024199530482292,
+    "force_y_N": 0.0,
+    "force_z_N": 0.0,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.00027982681058347225,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": 5,
+    "force_x_N": -0.029269754886627197,
+    "force_y_N": 0.0,
+    "force_z_N": 0.17152178287506104,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.09499117732048035,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": 10,
+    "force_x_N": -0.04800643399357796,
+    "force_y_N": 0.0,
+    "force_z_N": 0.34304359555244446,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.19030405580997467,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": 15,
+    "force_x_N": -0.07923420518636703,
+    "force_y_N": 0.0,
+    "force_z_N": 0.5145653486251831,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.28565871715545654,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": 20,
+    "force_x_N": -0.12295309454202652,
+    "force_y_N": 0.0,
+    "force_z_N": 0.6860871315002441,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.38105523586273193,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": 25,
+    "force_x_N": -0.1791630983352661,
+    "force_y_N": 0.0,
+    "force_z_N": 0.8576088547706604,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.47649359703063965,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 4.0,
+    "elevon_deg": 30,
+    "force_x_N": -0.1791631430387497,
+    "force_y_N": 0.0,
+    "force_z_N": 0.85760897397995,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.4764936566352844,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": -30,
+    "force_x_N": -0.4031170904636383,
+    "force_y_N": 0.0,
+    "force_z_N": -1.9296202659606934,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -1.0710163116455078,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": -25,
+    "force_x_N": -0.40311697125434875,
+    "force_y_N": 0.0,
+    "force_z_N": -1.9296200275421143,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -1.0710161924362183,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": -20,
+    "force_x_N": -0.2766444981098175,
+    "force_y_N": 0.0,
+    "force_z_N": -1.5436960458755493,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.8571270704269409,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": -15,
+    "force_x_N": -0.17827698588371277,
+    "force_y_N": 0.0,
+    "force_z_N": -1.1577720642089844,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.6431439518928528,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": -10,
+    "force_x_N": -0.10801447927951813,
+    "force_y_N": 0.0,
+    "force_z_N": -0.7718481421470642,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.4290667474269867,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": -5,
+    "force_x_N": -0.0658569484949112,
+    "force_y_N": 0.0,
+    "force_z_N": -0.38592401146888733,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.21489523351192474,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": 0,
+    "force_x_N": -0.051804449409246445,
+    "force_y_N": 0.0,
+    "force_z_N": 0.0,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.0006296103238128126,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": 5,
+    "force_x_N": -0.0658569484949112,
+    "force_y_N": 0.0,
+    "force_z_N": 0.38592401146888733,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.21373014152050018,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": 10,
+    "force_x_N": -0.10801447927951813,
+    "force_y_N": 0.0,
+    "force_z_N": 0.7718481421470642,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.4281841218471527,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": 15,
+    "force_x_N": -0.17827698588371277,
+    "force_y_N": 0.0,
+    "force_z_N": 1.1577720642089844,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.6427322030067444,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": 20,
+    "force_x_N": -0.2766444981098175,
+    "force_y_N": 0.0,
+    "force_z_N": 1.5436960458755493,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.8573744297027588,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": 25,
+    "force_x_N": -0.40311697125434875,
+    "force_y_N": 0.0,
+    "force_z_N": 1.9296200275421143,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 1.0721107721328735,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 6.0,
+    "elevon_deg": 30,
+    "force_x_N": -0.4031170904636383,
+    "force_y_N": 0.0,
+    "force_z_N": 1.9296202659606934,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 1.072110891342163,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": -30,
+    "force_x_N": -0.7166525721549988,
+    "force_y_N": 0.0,
+    "force_z_N": -3.4304358959198,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -1.9040288925170898,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": -25,
+    "force_x_N": -0.7166523933410645,
+    "force_y_N": 0.0,
+    "force_z_N": -3.4304354190826416,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -1.9040286540985107,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": -20,
+    "force_x_N": -0.4918123781681061,
+    "force_y_N": 0.0,
+    "force_z_N": -2.7443485260009766,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -1.5237817764282227,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": -15,
+    "force_x_N": -0.31693682074546814,
+    "force_y_N": 0.0,
+    "force_z_N": -2.0582613945007324,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -1.143367052078247,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": -10,
+    "force_x_N": -0.19202573597431183,
+    "force_y_N": 0.0,
+    "force_z_N": -1.3721743822097778,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.7627852559089661,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": -5,
+    "force_x_N": -0.11707901954650879,
+    "force_y_N": 0.0,
+    "force_z_N": -0.6860871315002441,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.3820359706878662,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": 0,
+    "force_x_N": -0.09209679812192917,
+    "force_y_N": 0.0,
+    "force_z_N": 0.0,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": -0.001119307242333889,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": 5,
+    "force_x_N": -0.11707901954650879,
+    "force_y_N": 0.0,
+    "force_z_N": 0.6860871315002441,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.3799647092819214,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": 10,
+    "force_x_N": -0.19202573597431183,
+    "force_y_N": 0.0,
+    "force_z_N": 1.3721743822097778,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 0.7612162232398987,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": 15,
+    "force_x_N": -0.31693682074546814,
+    "force_y_N": 0.0,
+    "force_z_N": 2.0582613945007324,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 1.1426348686218262,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": 20,
+    "force_x_N": -0.4918123781681061,
+    "force_y_N": 0.0,
+    "force_z_N": 2.7443485260009766,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 1.5242209434509277,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": 25,
+    "force_x_N": -0.7166523933410645,
+    "force_y_N": 0.0,
+    "force_z_N": 3.4304354190826416,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 1.9059743881225586,
+    "torque_z_Nm": 0.0
+  },
+  {
+    "speed_mps": 8.0,
+    "elevon_deg": 30,
+    "force_x_N": -0.7166525721549988,
+    "force_y_N": 0.0,
+    "force_z_N": 3.4304358959198,
+    "torque_x_Nm": 0.0,
+    "torque_y_Nm": 1.9059746265411377,
+    "torque_z_Nm": 0.0
+  }
+]

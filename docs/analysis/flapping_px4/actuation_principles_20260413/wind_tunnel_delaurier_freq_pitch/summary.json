@@ -1,0 +1,83 @@
+[
+  {
+    "f_hz": 3.0,
+    "body_pitch_deg": 0.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": 1.5547179764343633,
+    "mean_lift_z_N": -1.351221494211091,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f3p0_pitch0.csv"
+  },
+  {
+    "f_hz": 4.0,
+    "body_pitch_deg": 0.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": 2.247322733451923,
+    "mean_lift_z_N": -0.7724619189898173,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f4p0_pitch0.csv"
+  },
+  {
+    "f_hz": 5.0,
+    "body_pitch_deg": 0.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": 3.538393273515006,
+    "mean_lift_z_N": -1.929491188791063,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f5p0_pitch0.csv"
+  },
+  {
+    "f_hz": 3.0,
+    "body_pitch_deg": 10.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": 0.25554414157652194,
+    "mean_lift_z_N": 3.7619734967334404,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f3p0_pitch10.csv"
+  },
+  {
+    "f_hz": 4.0,
+    "body_pitch_deg": 10.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": 0.5786676891768973,
+    "mean_lift_z_N": 4.5914025788505874,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f4p0_pitch10.csv"
+  },
+  {
+    "f_hz": 5.0,
+    "body_pitch_deg": 10.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": 1.539752835697598,
+    "mean_lift_z_N": 3.995093650288052,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f5p0_pitch10.csv"
+  },
+  {
+    "f_hz": 3.0,
+    "body_pitch_deg": 20.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": -2.044719843240455,
+    "mean_lift_z_N": 7.669516247883439,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f3p0_pitch20.csv"
+  },
+  {
+    "f_hz": 4.0,
+    "body_pitch_deg": 20.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": -2.196569815526406,
+    "mean_lift_z_N": 8.703719061613082,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f4p0_pitch20.csv"
+  },
+  {
+    "f_hz": 5.0,
+    "body_pitch_deg": 20.0,
+    "airspeed_mps": 6.5,
+    "mean_thrust_N": -1.6502257777584923,
+    "mean_lift_z_N": 8.620894804596901,
+    "samples": 180,
+    "csv": "/home/zn/IsaacLab/docs/analysis/flapping_px4/actuation_principles_20260413/wind_tunnel_delaurier_freq_pitch/f5p0_pitch20.csv"
+  }
+]
