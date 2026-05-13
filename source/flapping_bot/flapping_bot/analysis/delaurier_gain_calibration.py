@@ -5,11 +5,69 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
 
 TARGET_COLUMNS = ["fx_b", "fy_b", "fz_b", "mx_b", "my_b", "mz_b"]
+
+
+@dataclass(frozen=True)
+class ParameterBound:
+    """Bound and nominal value for one physical calibration parameter."""
+
+    low: float
+    high: float
+    nominal: float
+
+
+PHYSICAL_PARAMETER_BOUNDS: dict[str, ParameterBound] = {
+    "wing_normal_force_scale": ParameterBound(0.5, 1.8, 1.0),
+    "wing_chordwise_force_scale": ParameterBound(0.2, 2.0, 1.0),
+    "delaurier_theta_w_deg": ParameterBound(-8.0, 8.0, 0.0),
+    "twist_eta_max_deg": ParameterBound(0.0, 25.0, 10.0),
+    "delaurier_induced_drag_efficiency": ParameterBound(0.3, 1.2, 0.8),
+    "fuselage_drag_cda": ParameterBound(0.0001, 0.02, 0.005),
+    "tail_lift_scale": ParameterBound(0.3, 2.0, 1.0),
+    "phase_delay_s": ParameterBound(-0.04, 0.04, 0.0),
+}
+
+@dataclass(frozen=True)
+class PhysicalCalibrationParameters:
+    """Interpretable parameter vector for the physical DeLaurier calibration."""
+
+    wing_normal_force_scale: float
+    wing_chordwise_force_scale: float
+    delaurier_theta_w_deg: float
+    twist_eta_max_deg: float
+    delaurier_induced_drag_efficiency: float
+    fuselage_drag_cda: float
+    tail_lift_scale: float
+    phase_delay_s: float
+
+    @classmethod
+    def nominal(cls) -> "PhysicalCalibrationParameters":
+        return cls(**{name: bound.nominal for name, bound in PHYSICAL_PARAMETER_BOUNDS.items()})
+
+    @classmethod
+    def from_mapping(cls, values: dict[str, float] | pd.Series) -> "PhysicalCalibrationParameters":
+        return cls(**{name: float(values[name]) for name in PHYSICAL_PARAMETER_BOUNDS})
+
+    def as_dict(self) -> dict[str, float]:
+        return {name: float(getattr(self, name)) for name in PHYSICAL_PARAMETER_BOUNDS}
+
+
+PhysicalPredictor = Callable[[pd.DataFrame, PhysicalCalibrationParameters], pd.DataFrame]
+
+
+@dataclass(frozen=True)
+class PhysicalCalibrationSearchResult:
+    """Result of bounded physical-parameter search."""
+
+    best_parameters: PhysicalCalibrationParameters
+    best_objective: float
+    trace: pd.DataFrame
 
 
 @dataclass(frozen=True)
@@ -29,7 +87,10 @@ class OfflineDeLaurierConfig:
     twist_eta_limit_deg: float = 10.0
     twist_sign_left: float = 1.0
     twist_sign_right: float = 1.0
+    wing_normal_force_scale: float = 1.0
+    wing_chordwise_force_scale: float = 1.0
     wing_amplitude_rad: float = math.radians(30.0)
+    phase_delay_s: float = 0.0
     elevon_max_deg: float = 41.0
     rudder_max_deg: float = 25.0
     tail_elevator_bias_deg: float = 0.0
@@ -38,6 +99,7 @@ class OfflineDeLaurierConfig:
     tail_elevon_effectiveness: float = 1.2
     tail_elevon_alpha_limit_deg: float = 25.0
     tail_horizontal_tail_q_scale: float = 1.0
+    tail_force_scale: float = 1.0
     base_com_pos_b: tuple[float, float, float] = (-0.10, 0.0, 0.0)
     left_wing_origin_b: tuple[float, float, float] = (0.0, 0.056, 0.0)
     right_wing_origin_b: tuple[float, float, float] = (0.0, -0.056, 0.0)
@@ -52,6 +114,108 @@ class OfflineDeLaurierConfig:
     delaurier_c_mac: float = 0.0
     delaurier_nu: float = 1.5e-5
     delaurier_cd_f: float = 0.028
+
+
+def parameter_vector_to_config(
+    parameters: PhysicalCalibrationParameters,
+    base_cfg: OfflineDeLaurierConfig | None = None,
+) -> OfflineDeLaurierConfig:
+    """Map an interpretable calibration vector to an offline DeLaurier config."""
+
+    from dataclasses import replace
+
+    cfg = base_cfg or OfflineDeLaurierConfig()
+    twist_eta = float(parameters.twist_eta_max_deg)
+    return replace(
+        cfg,
+        theta_w_deg=float(parameters.delaurier_theta_w_deg),
+        twist_eta_max_deg=twist_eta,
+        twist_eta_limit_deg=max(float(cfg.twist_eta_limit_deg), twist_eta),
+        induced_drag_efficiency=float(parameters.delaurier_induced_drag_efficiency),
+        fuselage_drag_cda=float(parameters.fuselage_drag_cda),
+        tail_force_scale=float(parameters.tail_lift_scale),
+        wing_normal_force_scale=float(parameters.wing_normal_force_scale),
+        wing_chordwise_force_scale=float(parameters.wing_chordwise_force_scale),
+        phase_delay_s=float(parameters.phase_delay_s),
+    )
+
+
+def normalized_wrench_objective(
+    predictions: pd.DataFrame,
+    targets: pd.DataFrame,
+    scale: pd.Series,
+    parameters: PhysicalCalibrationParameters,
+    *,
+    regularization_weight: float = 0.0,
+    target_columns: list[str] | None = None,
+) -> float:
+    """Return normalized MSE plus weak nominal-parameter regularization."""
+
+    pred = _target_frame(predictions, target_columns)
+    truth = _target_frame(targets, list(pred.columns))
+    scale_series = pd.Series(scale, dtype=float).loc[pred.columns]
+    scale_values = np.maximum(scale_series.to_numpy(dtype=float), 1.0e-9)
+    residual = (pred.to_numpy(dtype=float) - truth.to_numpy(dtype=float)) / scale_values.reshape(1, -1)
+    valid = np.isfinite(residual)
+    if not valid.any():
+        return float("inf")
+    objective = float(np.mean(residual[valid] * residual[valid]))
+    if regularization_weight <= 0.0:
+        return objective
+
+    penalty_terms: list[float] = []
+    for name, bound in PHYSICAL_PARAMETER_BOUNDS.items():
+        span = max(float(bound.high) - float(bound.low), 1.0e-12)
+        distance = (float(getattr(parameters, name)) - float(bound.nominal)) / span
+        penalty_terms.append(distance * distance)
+    return objective + float(regularization_weight) * float(np.mean(penalty_terms))
+
+
+def random_search_physical_calibration(
+    calibration_frame: pd.DataFrame,
+    targets: pd.DataFrame,
+    scale: pd.Series,
+    *,
+    n_candidates: int,
+    seed: int,
+    predictor: PhysicalPredictor,
+    regularization_weight: float = 0.0,
+) -> PhysicalCalibrationSearchResult:
+    """Run deterministic bounded random search over physical DeLaurier parameters."""
+
+    rng = np.random.default_rng(seed)
+    candidates = [PhysicalCalibrationParameters.nominal()]
+    for _ in range(int(n_candidates)):
+        values = {
+            name: float(rng.uniform(bound.low, bound.high))
+            for name, bound in PHYSICAL_PARAMETER_BOUNDS.items()
+        }
+        candidates.append(PhysicalCalibrationParameters(**values))
+
+    rows: list[dict[str, float | int]] = []
+    best_parameters = candidates[0]
+    best_objective = float("inf")
+    for candidate_id, parameters in enumerate(candidates):
+        predictions = predictor(calibration_frame, parameters)
+        objective = normalized_wrench_objective(
+            predictions,
+            targets,
+            scale,
+            parameters,
+            regularization_weight=regularization_weight,
+        )
+        row: dict[str, float | int] = {"candidate": int(candidate_id), "objective": float(objective)}
+        row.update(parameters.as_dict())
+        rows.append(row)
+        if objective < best_objective:
+            best_objective = float(objective)
+            best_parameters = parameters
+
+    return PhysicalCalibrationSearchResult(
+        best_parameters=best_parameters,
+        best_objective=best_objective,
+        trace=pd.DataFrame(rows),
+    )
 
 
 def _target_frame(frame: pd.DataFrame, target_columns: list[str] | None = None) -> pd.DataFrame:
@@ -208,7 +372,7 @@ def _body_angular_velocity(frame: pd.DataFrame) -> np.ndarray:
     return np.zeros((len(frame), 3), dtype=np.float64)
 
 
-def _wing_state(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _wing_state(frame: pd.DataFrame, *, phase_delay_s: float = 0.0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     q_column = _first_existing(frame, ("wing_stroke_angle_rad", "q_cmd", "wing_angle_rad"))
     q = frame[q_column].to_numpy(dtype=np.float64)
 
@@ -226,7 +390,37 @@ def _wing_state(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray
     else:
         qdd = _grouped_gradient(frame, qd)
 
+    if abs(float(phase_delay_s)) > 1.0e-12:
+        q = _shift_by_time_within_logs(frame, q, float(phase_delay_s))
+        qd = _shift_by_time_within_logs(frame, qd, float(phase_delay_s))
+        qdd = _shift_by_time_within_logs(frame, qdd, float(phase_delay_s))
+
     return q, qd, qdd
+
+
+def _shift_by_time_within_logs(frame: pd.DataFrame, values: np.ndarray, delay_s: float) -> np.ndarray:
+    if "time_s" in frame.columns:
+        time = frame["time_s"].to_numpy(dtype=np.float64)
+    elif "timestamp_us" in frame.columns:
+        time = frame["timestamp_us"].to_numpy(dtype=np.float64) * 1.0e-6
+    else:
+        return values
+
+    shifted = np.empty_like(values, dtype=np.float64)
+    if "log_id" not in frame.columns:
+        return np.interp(time - delay_s, time, values, left=values[0], right=values[-1])
+
+    log_ids = frame["log_id"].to_numpy()
+    for log_id in pd.unique(log_ids):
+        mask = log_ids == log_id
+        shifted[mask] = np.interp(
+            time[mask] - delay_s,
+            time[mask],
+            values[mask],
+            left=float(values[mask][0]),
+            right=float(values[mask][-1]),
+        )
+    return shifted
 
 
 def _grouped_gradient(frame: pd.DataFrame, values: np.ndarray) -> np.ndarray:
@@ -339,7 +533,7 @@ def predict_delaurier_wrench(
 
     v_air_b_np = _relative_air_velocity_b(frame)
     w_b_np = _body_angular_velocity(frame)
-    q_np, qd_np, qdd_np = _wing_state(frame)
+    q_np, qd_np, qdd_np = _wing_state(frame, phase_delay_s=float(cfg.phase_delay_s))
     rho_np = _rho(frame, cfg.air_density)
     left_elevon_np = _servo_rad(frame, "servo_left_elevon", cfg.elevon_max_deg) + math.radians(
         cfg.tail_elevator_bias_deg
@@ -436,6 +630,9 @@ def predict_delaurier_wrench(
                 enable_separation=bool(cfg.enable_separation),
                 return_terms=False,
             )
+            F_c = F_c.clone()
+            F_c[:, 1] = F_c[:, 1] * float(cfg.wing_normal_force_scale)
+            F_c[:, 2] = F_c[:, 2] * float(cfg.wing_chordwise_force_scale)
 
             A_w2l = A_w2l_pair.repeat(n_env, 1, 1)
             F_l = torch.bmm(A_w2l, F_c.view(batch_wings, 3, 1)).view(batch_wings, 3)
@@ -471,8 +668,8 @@ def predict_delaurier_wrench(
                 rudder_rad=rudder,
                 base_com_pos_b=base_com_pos_b_pair.view(1, 3).expand(n_env, 3),
             )
-            F_b = F_b + f_tail
-            tau_b = tau_b + tau_tail
+            F_b = F_b + f_tail * float(cfg.tail_force_scale)
+            tau_b = tau_b + tau_tail * float(cfg.tail_force_scale)
 
             cda = float(cfg.fuselage_drag_cda)
             if cda > 0.0:
