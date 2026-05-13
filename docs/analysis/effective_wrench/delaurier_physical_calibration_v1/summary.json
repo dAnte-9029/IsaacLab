@@ -1,0 +1,33 @@
+{
+  "best_objective": 8938.379395952828,
+  "best_parameters": {
+    "delaurier_induced_drag_efficiency": 0.6782592545721453,
+    "delaurier_theta_w_deg": 0.5440542229090983,
+    "fuselage_drag_cda": 0.00962193852569255,
+    "phase_delay_s": 0.03418186931122997,
+    "tail_lift_scale": 0.46929097031809797,
+    "twist_eta_max_deg": 9.612326612862427,
+    "wing_chordwise_force_scale": 1.4434347570136055,
+    "wing_normal_force_scale": 0.5354481782461297
+  },
+  "calibration_rows_requested": 12000,
+  "calibration_rows_used": 12000,
+  "n_candidates": 48,
+  "output_dir": "docs/analysis/effective_wrench/delaurier_physical_calibration_v1",
+  "regularization_weight": 0.01,
+  "rows_by_split": {
+    "test": 60671,
+    "train": 308702,
+    "val": 79587
+  },
+  "seed": 13,
+  "split_root": "/home/zn/flap-system-identification/dataset/canonical_v0.2_training_ready_split_hq_v4_direct_airspeed_logsplit_paper_alt5_v1",
+  "target_columns": [
+    "fx_b",
+    "fy_b",
+    "fz_b",
+    "mx_b",
+    "my_b",
+    "mz_b"
+  ]
+}

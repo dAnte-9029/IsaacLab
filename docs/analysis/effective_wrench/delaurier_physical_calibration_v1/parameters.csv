@@ -1,0 +1,9 @@
+parameter,value,nominal,low,high,hit_low,hit_high
+wing_normal_force_scale,0.5354481782461297,1.0,0.5,1.8,False,False
+wing_chordwise_force_scale,1.4434347570136055,1.0,0.2,2.0,False,False
+delaurier_theta_w_deg,0.5440542229090983,0.0,-8.0,8.0,False,False
+twist_eta_max_deg,9.612326612862427,10.0,0.0,25.0,False,False
+delaurier_induced_drag_efficiency,0.6782592545721453,0.8,0.3,1.2,False,False
+fuselage_drag_cda,0.00962193852569255,0.005,0.0001,0.02,False,False
+tail_lift_scale,0.46929097031809797,1.0,0.3,2.0,False,False
+phase_delay_s,0.03418186931122997,0.0,-0.04,0.04,False,False
