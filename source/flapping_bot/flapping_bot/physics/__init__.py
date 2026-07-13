@@ -10,7 +10,16 @@ from .qsm_wang2016 import (
     rotation_matrix_i_from_c,
     transform_wrench_c_to_world,
 )
-from .qsm_delaurier1993 import DeLaurierParams, compute_aero_wrench_delaurier1993
+from .qsm_delaurier1993 import (
+    DeLaurierParams,
+    DeLaurierStripLoads,
+    DeLaurierStripWrench,
+    compute_aero_wrench_delaurier1993,
+    compute_delaurier_strip_loads,
+    integrate_delaurier_strip_wrench,
+    transform_wang_wrench_to_link,
+    translate_wrench_moment,
+)
 from .tail_aero import TailAeroCfg, TailAeroModel, TailSurfaceCfg
 from .tail_geometry import PlaceholderValue, TailGeometry, TailSurfaceGeometry, load_tail_geometry_from_urdf
 from .wing_equivalent_ac import compute_area_weighted_quarter_chord_link_points
@@ -29,7 +38,13 @@ __all__ = [
     "rotation_matrix_i_from_c",
     "transform_wrench_c_to_world",
     "DeLaurierParams",
+    "DeLaurierStripLoads",
+    "DeLaurierStripWrench",
     "compute_aero_wrench_delaurier1993",
+    "compute_delaurier_strip_loads",
+    "integrate_delaurier_strip_wrench",
+    "transform_wang_wrench_to_link",
+    "translate_wrench_moment",
     "TailSurfaceCfg",
     "TailAeroCfg",
     "TailAeroModel",

@@ -31,12 +31,18 @@ from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_apply_inve
 from ...assets import FlappingBotCfg
 from ...physics import (
     DeLaurierParams,
+    DeLaurierStripLoads,
+    DeLaurierStripWrench,
     compute_aero_wrench_delaurier1993,
     compute_area_weighted_quarter_chord_link_points,
+    compute_delaurier_strip_loads,
     FlappingQSMCfg,
+    integrate_delaurier_strip_wrench,
     QuasiSteadyWingModel,
     TailAeroCfg,
     TailAeroModel,
+    transform_wang_wrench_to_link,
+    translate_wrench_moment,
     WingQSMCfg,
     WingGeometry,
     build_wing_geometry_from_csv,
@@ -311,6 +317,12 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
         cd_f=0.028,
     )
     delaurier_enable_separation: bool = False
+    # ``strip_integrated`` is the physical default. The legacy fixed quarter-
+    # chord closure remains available for A/B regression only.
+    wing_moment_mode: str = "strip_integrated"
+    delaurier_include_aerodynamic_center_moment: bool = True
+    delaurier_include_apparent_mass_moment: bool = True
+    delaurier_store_strip_diagnostics: bool = False
     # Induced drag correction (simple Oswald efficiency model).
     # DeLaurier strip theory as used here does not include a finite-wing induced drag term, which can lead to
     # unrealistic positive chordwise force and runaway acceleration in free-flight simulations.
@@ -385,11 +397,7 @@ class FlappingBotStraightFlightDeLaurierPureRLEnvCfg(FlappingBotStraightFlightDe
 
 @configclass
 class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraightFlightDeLaurierPureRLEnvCfg):
-    """Pure-RL straight-flight config using measured whole-aircraft mass properties."""
-
-    total_mass_kg_override: float | None = 0.90415
-    base_body_com_override_m: tuple[float, float, float] | None = (-0.12154, 0.00541, -0.01298)
-    base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = (0.02329, 0.02573, 0.04270)
+    """Pure-RL measured-plant smoke config with a no-wind curriculum."""
 
     # Start the pure-RL smoke experiment without wind. Wind and dynamics randomization should be added only after
     # the policy can maintain basic height, speed, and attitude in the measured nominal model.
@@ -488,6 +496,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._base_body_ids: list[int] = []
         self._A_w2l_batch: Tensor | None = None  # (2,3,3) for left/right
         self._wing_application_point_link: Tensor | None = None  # (2,3) for left/right
+        self._debug_last_delaurier_strip_loads: DeLaurierStripLoads | None = None
+        self._debug_last_delaurier_strip_wrench: DeLaurierStripWrench | None = None
 
         super().__init__(cfg, render_mode, **kwargs)
         self._teacher_state_inputs = resolve_teacher_state_inputs(
@@ -1320,12 +1330,17 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         )
 
     def _compute_wing_delaurier_wrench(self, v_air_b: Tensor) -> tuple[Tensor, Tensor]:
-        """Compute net wing wrench about the base in the body frame (DeLaurier backend)."""
+        """Compute the net DeLaurier wing wrench about the base COM in body frame.
+
+        ``legacy_fixed_quarter_chord`` preserves the previous aggregate-force
+        closure. ``strip_integrated`` maps the force and axial moment of each
+        wing from the Wang frame, then translates the full wing wrench from the
+        wing-root pitching-axis origin to the base COM in world frame.
+        """
         assert self._wing_geom is not None
         assert self._wing_area is not None
         assert self._delaurier_params is not None
         assert self._A_w2l_batch is not None
-        assert self._wing_application_point_link is not None
         assert self._q_cmd is not None and self._qd_cmd is not None and self._qdd_cmd is not None
 
         # Batch with two wings per env: (env0_L, env0_R, env1_L, env1_R, ...)
@@ -1382,45 +1397,99 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         omega_ref = w.view(B, 1).expand(B, N_strip)
 
-        F_c, _tau_c, _p_in, _sep = compute_aero_wrench_delaurier1993(
-            h,
-            hdot,
-            hddot,
-            theta,
-            thetad,
-            thetadd,
-            self._wing_geom,
-            rho=float(self.cfg.qsm_wings.air_density),
-            U=U.view(B, 1),
-            theta_a=theta_a.view(B, 1),
-            theta_bar=theta_bar.view(B, 1),
-            omega_ref=omega_ref,
-            params=self._delaurier_params,
-            enable_separation=bool(self.cfg.delaurier_enable_separation),
-            return_terms=False,
-        )  # (B,3) in Wang co-rotating frame
+        moment_mode = str(self.cfg.wing_moment_mode)
+        if moment_mode not in {"legacy_fixed_quarter_chord", "strip_integrated"}:
+            raise ValueError(
+                "cfg.wing_moment_mode must be 'legacy_fixed_quarter_chord' or 'strip_integrated', "
+                f"got {moment_mode!r}."
+            )
+        if moment_mode == "strip_integrated" and bool(self.cfg.delaurier_enable_separation):
+            raise ValueError("strip_integrated DeLaurier moment requires delaurier_enable_separation=False.")
 
-        # Wang->link for each wing (repeat per env)
+        # Wang->link for each wing (repeat per environment). This polar-vector
+        # matrix has det=-1 for the mirrored right wing; the physics helper
+        # applies the required axial-vector parity for moments.
         A_w2l = self._A_w2l_batch.repeat(N_env, 1, 1)  # (B,3,3)
-        F_l = torch.bmm(A_w2l, F_c.view(B, 3, 1)).view(B, 3)
-
-        # Link->world
         q_w_link = self._robot.data.body_quat_w[:, self._wing_body_ids, :].reshape(B, 4)
         p_wing_origin_w = self._robot.data.body_pos_w[:, self._wing_body_ids, :].reshape(B, 3)
-        wing_application_point_link = self._wing_application_point_link.repeat(N_env, 1)
-        p_wing_w = p_wing_origin_w + quat_apply(q_w_link, wing_application_point_link)
-        F_w = quat_apply(q_w_link, F_l)
-
-        # World wrench about the base rigid-body COM.
         p_base_w = self._robot.data.root_com_pos_w
-        r_w = p_wing_w - torch.repeat_interleave(p_base_w, 2, dim=0)
-        tau_w = torch.linalg.cross(r_w, F_w)
-        F_w_sum = F_w.view(N_env, 2, 3).sum(dim=1)
-        tau_w_sum = tau_w.view(N_env, 2, 3).sum(dim=1)
+
+        if moment_mode == "legacy_fixed_quarter_chord":
+            assert self._wing_application_point_link is not None
+            force_wang, _legacy_zero_moment_wang, _power_in, _sep_ratio = compute_aero_wrench_delaurier1993(
+                h,
+                hdot,
+                hddot,
+                theta,
+                thetad,
+                thetadd,
+                self._wing_geom,
+                rho=float(self.cfg.qsm_wings.air_density),
+                U=U.view(B, 1),
+                theta_a=theta_a.view(B, 1),
+                theta_bar=theta_bar.view(B, 1),
+                omega_ref=omega_ref,
+                params=self._delaurier_params,
+                enable_separation=bool(self.cfg.delaurier_enable_separation),
+                return_terms=False,
+            )
+            force_link = torch.bmm(A_w2l, force_wang.unsqueeze(-1)).squeeze(-1)
+            force_world = quat_apply(q_w_link, force_link)
+            wing_application_point_link = self._wing_application_point_link.repeat(N_env, 1)
+            application_point_world = p_wing_origin_w + quat_apply(q_w_link, wing_application_point_link)
+            moment_world_about_base_com = torch.linalg.cross(
+                application_point_world - torch.repeat_interleave(p_base_w, 2, dim=0), force_world
+            )
+            self._debug_last_delaurier_strip_loads = None
+            self._debug_last_delaurier_strip_wrench = None
+        else:
+            strip_loads = compute_delaurier_strip_loads(
+                h,
+                hdot,
+                hddot,
+                theta,
+                thetad,
+                thetadd,
+                self._wing_geom,
+                rho=float(self.cfg.qsm_wings.air_density),
+                U=U.view(B, 1),
+                theta_a=theta_a.view(B, 1),
+                theta_bar=theta_bar.view(B, 1),
+                omega_ref=omega_ref,
+                params=self._delaurier_params,
+                enable_separation=False,
+            )
+            strip_wrench = integrate_delaurier_strip_wrench(
+                strip_loads,
+                include_aerodynamic_center_moment=bool(self.cfg.delaurier_include_aerodynamic_center_moment),
+                include_apparent_mass_moment=bool(self.cfg.delaurier_include_apparent_mass_moment),
+            )
+            force_link, moment_link_about_wing_origin = transform_wang_wrench_to_link(
+                strip_wrench.force_wang,
+                strip_wrench.moment_wang_about_wing_origin,
+                A_w2l,
+            )
+            force_world = quat_apply(q_w_link, force_link)
+            moment_world_about_wing_origin = quat_apply(q_w_link, moment_link_about_wing_origin)
+            moment_world_about_base_com = translate_wrench_moment(
+                force_world,
+                moment_world_about_wing_origin,
+                p_wing_origin_w,
+                torch.repeat_interleave(p_base_w, 2, dim=0),
+            )
+            if bool(self.cfg.delaurier_store_strip_diagnostics):
+                self._debug_last_delaurier_strip_loads = strip_loads
+                self._debug_last_delaurier_strip_wrench = strip_wrench
+            else:
+                self._debug_last_delaurier_strip_loads = None
+                self._debug_last_delaurier_strip_wrench = None
+
+        force_world_sum = force_world.view(N_env, 2, 3).sum(dim=1)
+        moment_world_sum_about_base_com = moment_world_about_base_com.view(N_env, 2, 3).sum(dim=1)
 
         # World->body
-        F_b = quat_apply_inverse(quat_w, F_w_sum)
-        tau_b = quat_apply_inverse(quat_w, tau_w_sum)
+        F_b = quat_apply_inverse(quat_w, force_world_sum)
+        tau_b = quat_apply_inverse(quat_w, moment_world_sum_about_base_com)
 
         # Induced drag correction (finite wing): D_i = L^2 / (q S pi AR e), applied opposite air-relative velocity.
         e = float(self.cfg.delaurier_induced_drag_efficiency)

@@ -193,6 +193,11 @@ except ModuleNotFoundError as exc:
         base_body_com_override_m: tuple[float, float, float] | None = (-0.12154, 0.00541, -0.01298)
         total_mass_kg_override: float | None = 0.90415
         base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = (0.02329, 0.02573, 0.04270)
+        wing_moment_mode: str = "strip_integrated"
+        delaurier_enable_separation: bool = False
+        delaurier_include_aerodynamic_center_moment: bool = True
+        delaurier_include_apparent_mass_moment: bool = True
+        delaurier_store_strip_diagnostics: bool = False
         reset_pitch_deg: float = 8.0
         reset_flap_hz: float = 4.0
         reset_elevon_pitch_deg: float = -18.0
