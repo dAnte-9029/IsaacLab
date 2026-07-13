@@ -1,44 +1,137 @@
-# Repository Guidelines
 
-## Project Structure & Module Organization
+# Repository Agent Guidelines
 
-- `source/` contains installable Python extensions:
-  - `source/isaaclab/isaaclab/`: core framework (simulation, sensors, env APIs).
-  - `source/isaaclab_tasks/isaaclab_tasks/`: prebuilt tasks/environments.
-  - `source/isaaclab_assets/isaaclab_assets/`: curated assets/configs.
-  - `source/flapping_bot/flapping_bot/`: custom flapping-wing project code (envs, physics, scripts).
-- Tests typically live under each extension or in `tests/` (e.g., `tests/test_qsm.py`).
-- Entry-point workflows and demos live in `scripts/` (e.g., `scripts/reinforcement_learning/`, `scripts/demos/`).
-- Papers and references live in `docs/` (e.g., `docs/papers/`).
+## 1. Repository purpose
 
-## Build, Test, and Development Commands
+This repository is a fork of Isaac Lab containing a custom bird-scale flapping-wing simulation and control project.
 
-Use the repo wrapper to run with the correct Isaac Sim / Python environment:
+The primary project code is under:
 
-- Install extensions: `./isaaclab.sh --install` (or `-i`).
-- Run a script: `./isaaclab.sh -p scripts/.../foo.py --args ...`
-- Format/lint (pre-commit): `./isaaclab.sh --format` (or `-f`).
-- Run pytest (recommended targeted): `./isaaclab.sh -p -m pytest tests -k <pattern>`
+* `source/flapping_bot/`
+* `scripts/flapping_px4/`
+* project-specific tests and documentation
 
-## Coding Style & Naming Conventions
+Treat upstream Isaac Lab code as externally maintained framework code.
 
-- Python 3.11, 4-space indentation, type hints, and short Google-style docstrings.
-- Formatting via `pre-commit` (Black line length 120, isort, flake8, codespell). Avoid noisy reformat-only diffs.
-- Naming: `snake_case` for functions/vars, `PascalCase` for classes, `test_*.py` for tests.
+## 2. Required context before work
 
-## Testing Guidelines
+Before planning or modifying project code:
 
-- Use `pytest`. Prefer small, deterministic unit tests for pure math/logic; mark IsaacSim-dependent tests with markers if needed.
-- Keep tests runnable headlessly and without network access.
+1. Read this file.
+2. Read `docs/PROJECT_STATE.md` if it exists.
+3. Read the active handoff referenced by `docs/PROJECT_STATE.md`.
+4. Read relevant architecture documents and ADRs referenced by the handoff.
+5. Read the nearest nested `AGENTS.md` for every directory that may be modified.
+6. Run `git status` and inspect recent commits.
 
-## Commit & Pull Request Guidelines
+If required context is missing or contradictory, report the inconsistency. Do not invent missing project decisions.
 
-- Write concise, imperative commit messages (e.g., `feat: add Wang2016 QSM`).
-- Keep commits focused; avoid mixing unrelated changes. Don’t commit generated caches or large binaries.
-- PRs should describe motivation, link issues (e.g., `Fixes #123`), and include reproduction steps/commands; add screenshots for visual changes.
+Do not rely on previous chat context as the source of truth. Repository code, committed documentation, tests, and approved ADRs are authoritative.
 
-## Agent-Specific Notes
+## 3. Modification boundaries
 
-- Prefer extending custom code under `source/flapping_bot/` over modifying upstream modules under `source/isaaclab/` unless necessary.
-- Keep task IDs and training entrypoints stable (e.g., `Isaac-FlappingBot-Direct-v0`, `scripts/reinforcement_learning/...`).
+By default, modifications are allowed only under:
 
+* `source/flapping_bot/`
+* `scripts/flapping_px4/`
+* project-specific files under `tests/`
+* project documentation under `docs/`
+
+Do not modify the following unless the user explicitly approves the exact files and reason:
+
+* `source/isaaclab/`
+* `source/isaaclab_tasks/`
+* `source/isaaclab_assets/`
+* upstream applications, framework APIs, or shared Isaac Lab infrastructure
+
+Prefer adapters and extensions inside `source/flapping_bot/` over changes to upstream Isaac Lab.
+
+Do not change unrelated files, perform broad formatting, rename public APIs, or reorganize directories unless explicitly requested.
+
+## 4. Work process
+
+For non-trivial tasks:
+
+1. Inspect the current implementation.
+2. State the proposed files and changes.
+3. Identify assumptions and unresolved decisions.
+4. Define tests and completion criteria.
+5. Wait for approval when the task is design-sensitive or the user requested staged approval.
+6. Implement only the approved scope.
+7. Run targeted validation.
+8. Review the final diff.
+9. Report completed work, tests, limitations, and unverified items.
+
+Do not silently expand scope.
+
+Do not automatically commit, merge, rebase, reset, delete branches, or discard user changes unless explicitly instructed.
+
+## 5. Git discipline
+
+* One branch should address one cohesive feature, fix, test addition, or documentation task.
+* Keep commits focused and independently understandable.
+* Do not mix plant-model changes, controller changes, parameter tuning, and mission evaluation in one commit.
+* Do not commit generated caches, simulation outputs, checkpoints, videos, large binaries, or temporary debug files.
+* Preserve uncommitted user changes.
+* Before finishing, show `git status` and summarize the diff.
+
+Recommended commit format:
+
+* `feat(physics): ...`
+* `feat(control): ...`
+* `fix(env): ...`
+* `test(physics): ...`
+* `docs(model): ...`
+* `refactor(path): ...`
+
+## 6. Build and test commands
+
+Use the repository wrapper so commands run in the configured Isaac Lab environment.
+
+Typical commands:
+
+```bash
+./isaaclab.sh -p <script.py> [arguments]
+./isaaclab.sh -p -m pytest <test-path> -k <pattern>
+./isaaclab.sh --format
+```
+
+On Windows, use the corresponding `isaaclab.bat` wrapper.
+
+Prefer targeted tests first. Do not launch expensive GPU simulations, large sweeps, or training runs unless they are necessary and explicitly within scope.
+
+## 7. Coding standards
+
+* Use Python type hints for new public functions and data structures.
+* Use 4-space indentation and concise Google-style docstrings.
+* Use `snake_case` for variables and functions and `PascalCase` for classes.
+* Avoid hidden global state and implicit device or dtype conversion.
+* Avoid hard-coded paths and unexplained numerical constants.
+* Preserve batch dimensions and GPU compatibility where relevant.
+* Avoid noisy format-only diffs.
+
+## 8. Baseline preservation
+
+Existing baseline behavior must remain available unless its removal is explicitly approved.
+
+When adding a new model or controller:
+
+* add an explicit configuration or feature-selection path;
+* retain the previous implementation for comparison;
+* document whether default behavior changes;
+* add regression checks where practical.
+
+Do not modify physical parameters or controller gains merely to make a new implementation appear successful.
+
+## 9. Completion report
+
+At the end of a task, report:
+
+* files added and modified;
+* behavior changed;
+* commands executed;
+* tests passed or failed;
+* tests not run and why;
+* remaining limitations;
+* whether baseline behavior changed;
+* any decisions still requiring user approval.
