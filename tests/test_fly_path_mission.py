@@ -924,6 +924,7 @@ def test_configure_env_applies_tail_aero_compatibility_overrides(monkeypatch: py
         tail_elevon_alpha_limit_deg=25.0,
         tail_horizontal_tail_q_scale=1.0,
         base_body_com_override_x_m=None,
+        base_body_com_override_m=(-0.12154, 0.00541, -0.01298),
     )
 
     parse_cfg_mod = ModuleType("isaaclab_tasks.utils.parse_cfg")
@@ -976,7 +977,8 @@ def test_configure_env_applies_tail_aero_compatibility_overrides(monkeypatch: py
         tail_elevon_effectiveness=1.4,
         tail_elevon_alpha_limit_deg=38.0,
         tail_horizontal_tail_q_scale=1.15,
-        base_body_com_override_x_m=-0.10,
+        base_body_com_override_x_m=None,
+        base_body_com_override_m=(-0.12154, 0.00541, -0.01298),
     )
 
     env, configured_env_cfg, env_step_dt = _configure_env(args)
@@ -989,11 +991,12 @@ def test_configure_env_applies_tail_aero_compatibility_overrides(monkeypatch: py
     assert configured_env_cfg.tail_elevon_effectiveness == pytest.approx(1.4)
     assert configured_env_cfg.tail_elevon_alpha_limit_deg == pytest.approx(38.0)
     assert configured_env_cfg.tail_horizontal_tail_q_scale == pytest.approx(1.15)
-    assert configured_env_cfg.base_body_com_override_x_m == pytest.approx(-0.10)
+    assert configured_env_cfg.base_body_com_override_x_m is None
+    assert configured_env_cfg.base_body_com_override_m == pytest.approx((-0.12154, 0.00541, -0.01298))
     assert env_step_dt == pytest.approx((1.0 / 240.0) * 2.0)
 
 
-def test_configure_env_preserves_default_base_body_com_without_cli_override(
+def test_configure_env_preserves_default_base_body_com_and_allows_legacy_x_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     env_cfg = SimpleNamespace(
@@ -1027,7 +1030,8 @@ def test_configure_env_preserves_default_base_body_com_without_cli_override(
         tail_elevon_effectiveness=1.0,
         tail_elevon_alpha_limit_deg=25.0,
         tail_horizontal_tail_q_scale=1.0,
-        base_body_com_override_x_m=-0.10,
+        base_body_com_override_x_m=None,
+        base_body_com_override_m=(-0.12154, 0.00541, -0.01298),
     )
 
     parse_cfg_mod = ModuleType("isaaclab_tasks.utils.parse_cfg")
@@ -1088,8 +1092,15 @@ def test_configure_env_preserves_default_base_body_com_without_cli_override(
     assert env == "dummy-env"
     assert captured["task"] == args.task
     assert captured["cfg"] is configured_env_cfg
-    assert configured_env_cfg.base_body_com_override_x_m == pytest.approx(-0.10)
+    assert configured_env_cfg.base_body_com_override_x_m is None
+    assert configured_env_cfg.base_body_com_override_m == pytest.approx((-0.12154, 0.00541, -0.01298))
     assert env_step_dt == pytest.approx((1.0 / 240.0) * 2.0)
+
+    args.base_body_com_override_x_m = -0.10
+    _, configured_env_cfg, _ = _configure_env(args)
+
+    assert configured_env_cfg.base_body_com_override_x_m == pytest.approx(-0.10)
+    assert configured_env_cfg.base_body_com_override_m is None
 
 
 def test_configure_env_applies_reset_trim_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1448,7 +1459,10 @@ def test_fly_path_mission_summary_records_tail_aero_compatibility_and_failure_au
         "tail_elevon_alpha_limit_deg",
         "tail_horizontal_tail_q_scale",
         "base_body_com_override_x_m",
+        "base_body_com_override_m",
+        "base_body_inertia_diag_override_kg_m2",
         "runtime_base_body_com_x_m",
+        "runtime_base_body_com_m",
         "failure_kind",
         "steps_completed",
     }

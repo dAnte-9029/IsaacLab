@@ -239,10 +239,13 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     tail_elevon_effectiveness: float = 1.2
     tail_elevon_alpha_limit_deg: float = 25.0
     tail_horizontal_tail_q_scale: float = 1.0
-    base_body_com_override_x_m: float | None = -0.10
-    base_body_com_override_m: tuple[float, float, float] | None = None
-    total_mass_kg_override: float | None = None
-    base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = None
+    # Measured whole-aircraft properties expressed in the base_link body frame.
+    # With appendage inertial coupling suppressed below, base_link represents the
+    # near-single-rigid-body plant used by the aerodynamic simulation.
+    base_body_com_override_x_m: float | None = None
+    base_body_com_override_m: tuple[float, float, float] | None = (-0.12154, 0.00541, -0.01298)
+    total_mass_kg_override: float | None = 0.90415
+    base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = (0.02329, 0.02573, 0.04270)
 
     # virtual roll control (decoupled from the aerodynamic tail model)
     # Differential elevons now generate a physical roll moment, so this surrogate is disabled by default.

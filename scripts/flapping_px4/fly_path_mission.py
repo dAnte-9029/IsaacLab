@@ -881,6 +881,10 @@ def _configure_env(args: argparse.Namespace):
     if hasattr(env_cfg, "tail_horizontal_tail_q_scale") and args.tail_horizontal_tail_q_scale is not None:
         env_cfg.tail_horizontal_tail_q_scale = float(args.tail_horizontal_tail_q_scale)
     if hasattr(env_cfg, "base_body_com_override_x_m") and args.base_body_com_override_x_m is not None:
+        # The legacy x-only debugging override must take precedence over the
+        # default measured three-dimensional COM override.
+        if hasattr(env_cfg, "base_body_com_override_m"):
+            env_cfg.base_body_com_override_m = None
         env_cfg.base_body_com_override_x_m = float(args.base_body_com_override_x_m)
     if hasattr(env_cfg, "reset_pitch_deg") and args.reset_pitch_deg is not None:
         env_cfg.reset_pitch_deg = float(args.reset_pitch_deg)
@@ -1037,12 +1041,15 @@ def main() -> None:
     controller_tuning_profile = str(
         getattr(env_cfg, "controller_tuning_profile", _resolve_controller_tuning_profile_name(args))
     )
+    runtime_base_body_com_m: list[float] | None = None
     runtime_base_body_com_x_m: float | None = None
     base_body_ids = getattr(env.unwrapped, "_base_body_ids", None)
     if base_body_ids is not None and len(base_body_ids) > 0:
-        runtime_base_body_com_x_m = float(
-            env.unwrapped._robot.data.body_com_pos_b[0, int(base_body_ids[0]), 0].item()
-        )
+        runtime_base_body_com_m = [
+            float(value)
+            for value in env.unwrapped._robot.data.body_com_pos_b[0, int(base_body_ids[0]), :].tolist()
+        ]
+        runtime_base_body_com_x_m = runtime_base_body_com_m[0]
 
     reference_rows = _sample_reference_path(manager0)
     total_path_length_m = float(manager0.total_length_m)
@@ -1586,7 +1593,18 @@ def main() -> None:
             if getattr(env_cfg, "base_body_com_override_x_m", None) is None
             else float(getattr(env_cfg, "base_body_com_override_x_m"))
         ),
+        "base_body_com_override_m": (
+            None
+            if getattr(env_cfg, "base_body_com_override_m", None) is None
+            else [float(value) for value in getattr(env_cfg, "base_body_com_override_m")]
+        ),
+        "base_body_inertia_diag_override_kg_m2": (
+            None
+            if getattr(env_cfg, "base_body_inertia_diag_override_kg_m2", None) is None
+            else [float(value) for value in getattr(env_cfg, "base_body_inertia_diag_override_kg_m2")]
+        ),
         "runtime_base_body_com_x_m": runtime_base_body_com_x_m,
+        "runtime_base_body_com_m": runtime_base_body_com_m,
         "mean_abs_lateral_error_m": _mean(abs_lateral_hist),
         "p95_abs_lateral_error_m": _quantile(abs_lateral_hist, 0.95),
         "max_abs_lateral_error_m": max(abs_lateral_hist) if abs_lateral_hist else float("nan"),

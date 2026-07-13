@@ -344,7 +344,10 @@ def test_path_tracking_env_inherits_tail_aero_compatibility_defaults() -> None:
     assert cfg.tail_elevon_effectiveness == 1.2
     assert cfg.tail_elevon_alpha_limit_deg == 25.0
     assert cfg.tail_horizontal_tail_q_scale == 1.0
-    assert cfg.base_body_com_override_x_m == -0.10
+    assert cfg.base_body_com_override_x_m is None
+    assert cfg.base_body_com_override_m == (-0.12154, 0.00541, -0.01298)
+    assert cfg.total_mass_kg_override == 0.90415
+    assert cfg.base_body_inertia_diag_override_kg_m2 == (0.02329, 0.02573, 0.04270)
 
 
 def test_path_tracking_env_inherits_retuned_reset_trim_defaults() -> None:

@@ -88,12 +88,19 @@ def test_straight_flight_env_exposes_tail_aero_compatibility_fields() -> None:
     assert found_fields == expected_fields
 
 
-def test_straight_flight_env_exposes_total_mass_override_field() -> None:
+def test_straight_flight_env_defaults_to_measured_whole_aircraft_mass_properties() -> None:
     module = _load_module()
     class_node = _find_class(module, "FlappingBotStraightFlightEnvCfg")
-    assign = _find_ann_assign(class_node, "total_mass_kg_override")
-    assert isinstance(assign.value, ast.Constant)
-    assert assign.value.value is None
+
+    total_mass = _find_ann_assign(class_node, "total_mass_kg_override")
+    com = _find_ann_assign(class_node, "base_body_com_override_m")
+    inertia = _find_ann_assign(class_node, "base_body_inertia_diag_override_kg_m2")
+    legacy_com_x = _find_ann_assign(class_node, "base_body_com_override_x_m")
+
+    assert ast.literal_eval(total_mass.value) == 0.90415
+    assert ast.literal_eval(com.value) == (-0.12154, 0.00541, -0.01298)
+    assert ast.literal_eval(inertia.value) == (0.02329, 0.02573, 0.04270)
+    assert ast.literal_eval(legacy_com_x.value) is None
 
 
 def test_straight_flight_env_init_calls_total_mass_override_hook() -> None:

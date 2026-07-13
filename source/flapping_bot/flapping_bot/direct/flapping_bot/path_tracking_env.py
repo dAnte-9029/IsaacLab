@@ -189,7 +189,10 @@ except ModuleNotFoundError as exc:
         tail_elevon_effectiveness: float = 1.2
         tail_elevon_alpha_limit_deg: float = 25.0
         tail_horizontal_tail_q_scale: float = 1.0
-        base_body_com_override_x_m: float | None = -0.10
+        base_body_com_override_x_m: float | None = None
+        base_body_com_override_m: tuple[float, float, float] | None = (-0.12154, 0.00541, -0.01298)
+        total_mass_kg_override: float | None = 0.90415
+        base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = (0.02329, 0.02573, 0.04270)
         reset_pitch_deg: float = 8.0
         reset_flap_hz: float = 4.0
         reset_elevon_pitch_deg: float = -18.0
@@ -328,7 +331,7 @@ else:
         tail_elevon_effectiveness: float = 1.2
         tail_elevon_alpha_limit_deg: float = 25.0
         tail_horizontal_tail_q_scale: float = 1.0
-        base_body_com_override_x_m: float | None = -0.10
+        base_body_com_override_x_m: float | None = None
         reset_pitch_deg: float = 8.0
         reset_flap_hz: float = 4.0
         reset_elevon_pitch_deg: float = -18.0
