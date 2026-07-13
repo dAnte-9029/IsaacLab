@@ -62,6 +62,7 @@ from flapping_bot import (  # noqa: E402
     FlappingBotPathTrackingPrimitiveWeakTeacherRLEnvCfg,
     FlappingBotPathTrackingPureRLEnvCfg,
     FlappingBotPathTrackingWeakTeacherRLEnvCfg,
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
     FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
     FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
     FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
@@ -132,6 +133,17 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
         "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
     },
 )

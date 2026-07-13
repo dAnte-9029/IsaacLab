@@ -37,6 +37,7 @@ __all__ = [
     "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
     "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
     "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg",
     "FlappingBotStraightFlightEnv",
 ]
 
@@ -92,8 +93,10 @@ def __getattr__(name: str):
         "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
         "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
         "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg",
     ):
         from .direct.flapping_bot import (
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
             FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
             FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
             FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
@@ -111,6 +114,7 @@ def __getattr__(name: str):
             "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg": FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
             "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg": FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
             "FlappingBotStraightFlightDeLaurierPureRLEnvCfg": FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
         }[name]
     if name == "FlappingRoomSceneCfg":
         from .scenes import FlappingRoomSceneCfg

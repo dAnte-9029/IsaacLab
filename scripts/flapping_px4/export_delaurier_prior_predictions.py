@@ -132,6 +132,8 @@ def compute_delaurier_force_prior(
     twist_eta_limit_deg: float = 10.0,
     twist_f_ref_hz: float = 4.0,
     enable_separation: bool = False,
+    stall_smoothing_width_deg: float = 0.0,
+    include_diagnostics: bool = False,
 ) -> pd.DataFrame:
     """Compute a body-frame wing-force prior with zero moment placeholder columns."""
 
@@ -158,6 +160,7 @@ def compute_delaurier_force_prior(
         c_mac=float(c_mac),
         nu=1.5e-5,
         cd_f=None if cd_f is None else float(cd_f),
+        stall_smoothing_width_rad=math.radians(float(stall_smoothing_width_deg)),
     )
     n_strips = int(wing_geom.x_mid.numel())
     y = wing_geom.x_mid.view(1, n_strips)
@@ -202,7 +205,7 @@ def compute_delaurier_force_prior(
         thetadd = etadd_tip.view(n, 1).expand(n, n_strips)
         omega_ref = omega_t.view(n, 1).expand(n, n_strips)
 
-        force_c, _tau_c, _power, _sep = compute_aero_wrench_delaurier1993(
+        result = compute_aero_wrench_delaurier1993(
             h,
             hdot,
             hddot,
@@ -217,8 +220,12 @@ def compute_delaurier_force_prior(
             omega_ref=omega_ref,
             params=delaurier_params,
             enable_separation=bool(enable_separation),
-            return_terms=False,
+            return_terms=bool(include_diagnostics),
         )
+        if include_diagnostics:
+            force_c, _tau_c, _power, sep_ratio, terms = result
+        else:
+            force_c, _tau_c, _power, sep_ratio = result
 
         force_np = force_c.detach().cpu().numpy()
         prediction = pd.DataFrame(
@@ -232,6 +239,10 @@ def compute_delaurier_force_prior(
             },
             index=chunk.index,
         )
+        if include_diagnostics:
+            prediction["sep_ratio"] = sep_ratio.detach().cpu().numpy()
+            for name, values in terms.items():
+                prediction[name] = values.detach().cpu().numpy()
         outputs.append(prediction)
 
     return pd.concat(outputs, axis=0).reset_index(drop=True)
@@ -261,6 +272,8 @@ def export_delaurier_prior_predictions(
     twist_eta_limit_deg: float = 10.0,
     twist_f_ref_hz: float = 4.0,
     enable_separation: bool = False,
+    stall_smoothing_width_deg: float = 0.0,
+    include_diagnostics: bool = False,
 ) -> dict[str, Any]:
     if output_root.exists():
         if not overwrite:
@@ -323,6 +336,8 @@ def export_delaurier_prior_predictions(
             twist_eta_limit_deg=twist_eta_limit_deg,
             twist_f_ref_hz=twist_f_ref_hz,
             enable_separation=enable_separation,
+            stall_smoothing_width_deg=stall_smoothing_width_deg,
+            include_diagnostics=include_diagnostics,
         )
         keys = [column for column in KEY_COLUMNS if column in samples.columns]
         prediction = pd.concat([samples.loc[:, keys].reset_index(drop=True), prior], axis=1)
@@ -357,7 +372,9 @@ def export_delaurier_prior_predictions(
             "twist_eta_limit_deg": float(twist_eta_limit_deg),
             "twist_f_ref_hz": float(twist_f_ref_hz),
             "enable_separation": bool(enable_separation),
+            "stall_smoothing_width_deg": float(stall_smoothing_width_deg),
         },
+        "include_diagnostics": bool(include_diagnostics),
         "row_counts": row_counts,
         "isaaclab_git": _git_status(PROJECT_ROOT),
     }
@@ -388,6 +405,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--twist-eta-limit-deg", type=float, default=10.0)
     parser.add_argument("--twist-f-ref-hz", type=float, default=4.0)
     parser.add_argument("--enable-separation", action="store_true")
+    parser.add_argument("--stall-smoothing-width-deg", type=float, default=0.0)
+    parser.add_argument("--include-diagnostics", action="store_true")
+    parser.add_argument("--max-rows-for-tests", type=int, default=None)
     args, _unknown = parser.parse_known_args()
     return args
 
@@ -416,6 +436,9 @@ def main() -> None:
         twist_eta_limit_deg=args.twist_eta_limit_deg,
         twist_f_ref_hz=args.twist_f_ref_hz,
         enable_separation=args.enable_separation,
+        stall_smoothing_width_deg=args.stall_smoothing_width_deg,
+        include_diagnostics=args.include_diagnostics,
+        max_rows_for_tests=args.max_rows_for_tests,
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))
 

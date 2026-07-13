@@ -240,7 +240,9 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     tail_elevon_alpha_limit_deg: float = 25.0
     tail_horizontal_tail_q_scale: float = 1.0
     base_body_com_override_x_m: float | None = -0.10
+    base_body_com_override_m: tuple[float, float, float] | None = None
     total_mass_kg_override: float | None = None
+    base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = None
 
     # virtual roll control (decoupled from the aerodynamic tail model)
     # Differential elevons now generate a physical roll moment, so this surrogate is disabled by default.
@@ -376,6 +378,22 @@ class FlappingBotStraightFlightDeLaurierPureRLEnvCfg(FlappingBotStraightFlightDe
 
     teacher_guidance_enabled: bool = False
     teacher_guidance_disable_after_steps: int = 0
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraightFlightDeLaurierPureRLEnvCfg):
+    """Pure-RL straight-flight config using measured whole-aircraft mass properties."""
+
+    total_mass_kg_override: float | None = 0.90415
+    base_body_com_override_m: tuple[float, float, float] | None = (-0.12154, 0.00541, -0.01298)
+    base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = (0.02329, 0.02573, 0.04270)
+
+    # Start the pure-RL smoke experiment without wind. Wind and dynamics randomization should be added only after
+    # the policy can maintain basic height, speed, and attitude in the measured nominal model.
+    wind_enabled: bool = False
+    randomize_wind: bool = False
+    wind_ou_enabled: bool = False
+    wind_curriculum_enabled: bool = False
 
 
 class FlappingBotStraightFlightEnv(DirectRLEnv):
@@ -555,6 +573,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._override_appendage_mass_properties()
         self._override_total_mass_properties()
         self._override_base_body_com()
+        self._override_base_body_inertia()
 
         # wing phase/frequency
         self._phase = torch.zeros(self.num_envs, device=self.device)
@@ -709,9 +728,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._mass_total = masses_new.sum(dim=1).to(device=self.device)
 
     def _override_base_body_com(self) -> None:
-        """Optionally override the base-body COM x offset in the base-link frame."""
+        """Optionally override the base-body COM offset in the base-link frame."""
+        override_xyz = self.cfg.base_body_com_override_m
         override_x = self.cfg.base_body_com_override_x_m
-        if override_x is None:
+        if override_xyz is None and override_x is None:
             return
         if len(self._base_body_ids) != 1:
             raise RuntimeError("Expected exactly one base_link body for COM override.")
@@ -719,8 +739,42 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         env_ids = torch.arange(self.num_envs, device="cpu", dtype=torch.int64)
         coms = self._robot.root_physx_view.get_coms().clone()
         base_id = int(self._base_body_ids[0])
-        coms[:, base_id, 0] = float(override_x)
+        if override_xyz is not None:
+            if len(override_xyz) != 3:
+                raise ValueError("cfg.base_body_com_override_m must contain exactly three values when provided.")
+            coms[:, base_id, 0:3] = torch.tensor(
+                tuple(float(v) for v in override_xyz),
+                dtype=coms.dtype,
+                device=coms.device,
+            )
+        else:
+            coms[:, base_id, 0] = float(override_x)
         self._robot.root_physx_view.set_coms(coms, env_ids)
+
+    def _override_base_body_inertia(self) -> None:
+        """Optionally override the base-body inertia diagonal about its COM in the base-link frame."""
+        inertia_diag = self.cfg.base_body_inertia_diag_override_kg_m2
+        if inertia_diag is None:
+            return
+        if len(inertia_diag) != 3:
+            raise ValueError("cfg.base_body_inertia_diag_override_kg_m2 must contain exactly three values when provided.")
+        if len(self._base_body_ids) != 1:
+            raise RuntimeError("Expected exactly one base_link body for inertia override.")
+
+        ixx, iyy, izz = (float(v) for v in inertia_diag)
+        if ixx <= 0.0 or iyy <= 0.0 or izz <= 0.0:
+            raise ValueError("cfg.base_body_inertia_diag_override_kg_m2 values must be positive.")
+
+        env_ids = torch.arange(self.num_envs, device="cpu", dtype=torch.int64)
+        inertias = self._robot.root_physx_view.get_inertias().clone()
+        base_id = int(self._base_body_ids[0])
+        inertia_flat = torch.tensor(
+            (ixx, 0.0, 0.0, 0.0, iyy, 0.0, 0.0, 0.0, izz),
+            dtype=inertias.dtype,
+            device=inertias.device,
+        )
+        inertias[:, base_id, :] = inertia_flat
+        self._robot.root_physx_view.set_inertias(inertias, env_ids)
 
     def _override_total_mass_properties(self) -> None:
         """Optionally scale all rigid-body masses/inertias to match a desired total vehicle mass."""
@@ -1288,7 +1342,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # and avoids large sign errors during dives/climbs where pitch!=AOA.
         quat_w = self._robot.data.root_quat_w  # (N,4)
         vx_b = torch.clamp(v_air_b[:, 0], min=1.0e-3)
-        theta_a_env = torch.atan2(-v_air_b[:, 2], vx_b)  # +theta_a => nose-up relative wind
+        # Match the flight-log FRD convention used by system-identification:
+        # alpha = atan2(v_air_b.z, v_air_b.x), with +z body-down.
+        theta_a_env = torch.atan2(v_air_b[:, 2], vx_b)
         theta_a = torch.repeat_interleave(theta_a_env, 2)  # (B,)
         theta_bar = theta_a + math.radians(float(self.cfg.delaurier_theta_w_deg))
 

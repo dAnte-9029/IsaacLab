@@ -26,6 +26,7 @@ class DeLaurierParams:
     c_mac: float = 0.025
     nu: float = 1.5e-5
     cd_f: float | None = None
+    stall_smoothing_width_rad: float = 0.0
 
 
 def _as_tensor(x: Any, *, device: torch.device, dtype: torch.dtype) -> Tensor:
@@ -174,10 +175,21 @@ def compute_aero_wrench_delaurier1993(
     dN_c_sep = params.cd_cf * (0.5 * rho_t * Vhat * Vn) * c * dx
     dN_sep = dN_c_sep + 0.5 * dN_a
 
-    if enable_separation:
+    smoothing_width = float(getattr(params, "stall_smoothing_width_rad", 0.0))
+    if enable_separation and smoothing_width > 0.0:
+        delta = torch.as_tensor(smoothing_width, device=device, dtype=dtype)
+        w_hi = torch.sigmoid((alpha_le - alpha_stall) / delta)
+        w_lo = torch.sigmoid((_as_tensor(params.alpha_stall_min_rad, device=device, dtype=dtype) - alpha_le) / delta)
+        sep_weight = torch.clamp(w_lo + w_hi - w_lo * w_hi, min=0.0, max=1.0)
+        att_weight = 1.0 - sep_weight
+        dN = att_weight * dN_att + sep_weight * dN_sep
+        dF_x = att_weight * dF_x_att
+    elif enable_separation:
+        sep_weight = torch.where(attached, torch.zeros_like(dN_att), torch.ones_like(dN_att))
         dN = torch.where(attached, dN_att, dN_sep)
         dF_x = torch.where(attached, dF_x_att, torch.zeros_like(dF_x_att))
     else:
+        sep_weight = torch.zeros_like(dN_att)
         dN = dN_att
         dF_x = dF_x_att
 
@@ -192,7 +204,10 @@ def compute_aero_wrench_delaurier1993(
         - dM_a * thetad
     )
     dP_sep = dN_sep * (hdot * torch.cos(theta_minus) + 0.5 * c * thetad)
-    dP_in = torch.where(attached, dP_att, dP_sep) if enable_separation else dP_att
+    if enable_separation and smoothing_width > 0.0:
+        dP_in = (1.0 - sep_weight) * dP_att + sep_weight * dP_sep
+    else:
+        dP_in = torch.where(attached, dP_att, dP_sep) if enable_separation else dP_att
 
     F_y = dN.sum(dim=1)
     F_z = dF_x.sum(dim=1)
@@ -201,15 +216,21 @@ def compute_aero_wrench_delaurier1993(
 
     area = (c * dx)
     area_sum = torch.clamp(area.sum(dim=1), min=1e-12)
-    if enable_separation:
-        sep_ratio = (torch.where(attached, torch.zeros_like(area), area).sum(dim=1)) / area_sum
-    else:
-        sep_ratio = torch.zeros_like(area_sum)
+    sep_ratio = (sep_weight * area).sum(dim=1) / area_sum if enable_separation else torch.zeros_like(area_sum)
     power_in = dP_in.sum(dim=1)
 
     if return_terms:
         def _wmean(x: Tensor) -> Tensor:
             return (x * area).sum(dim=1) / area_sum
+
+        if smoothing_width > 0.0:
+            lower_transition = (
+                alpha_le - _as_tensor(params.alpha_stall_min_rad, device=device, dtype=dtype)
+            ).abs() < 3.0 * smoothing_width
+            upper_transition = (alpha_le - alpha_stall).abs() < 3.0 * smoothing_width
+            transition_mask = lower_transition | upper_transition
+        else:
+            transition_mask = torch.zeros_like(area, dtype=torch.bool)
 
         terms = {
             "N_c": dN_c.sum(dim=1),
@@ -222,6 +243,16 @@ def compute_aero_wrench_delaurier1993(
             "k_mean": _wmean(k),
             "alpha_prime_mean": _wmean(alpha_prime),
             "alpha_le_mean": _wmean(alpha_le),
+            "alpha_stall_mean": _wmean(alpha_stall),
+            "sep_weight_mean": _wmean(sep_weight),
+            "sep_weight_mid_area_ratio": (
+                torch.where((sep_weight > 0.1) & (sep_weight < 0.9), area, torch.zeros_like(area)).sum(dim=1)
+            )
+            / area_sum,
+            "stall_transition_3delta_area_ratio": (
+                torch.where(transition_mask, area, torch.zeros_like(area)).sum(dim=1)
+            )
+            / area_sum,
             "alpha_tip": alpha[:, -1],
             "alpha_prime_tip": alpha_prime[:, -1],
             "alpha_le_tip": alpha_le[:, -1],

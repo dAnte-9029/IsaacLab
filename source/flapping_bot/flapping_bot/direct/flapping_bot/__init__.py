@@ -21,6 +21,7 @@ __all__ = [
     "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
     "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
     "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg",
 ]
 
 
@@ -67,8 +68,10 @@ def __getattr__(name: str):
         "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
         "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
         "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg",
     ):
         from .straight_flight_env import (
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
             FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
             FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
             FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
@@ -86,6 +89,7 @@ def __getattr__(name: str):
             "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg": FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
             "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg": FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
             "FlappingBotStraightFlightDeLaurierPureRLEnvCfg": FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
         }[name]
 
     raise AttributeError(name)
