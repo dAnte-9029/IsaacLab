@@ -33,16 +33,20 @@ from ...physics import (
     DeLaurierParams,
     DeLaurierStripLoads,
     DeLaurierStripWrench,
+    DeLaurierTwistKinematics,
     compute_aero_wrench_delaurier1993,
     compute_area_weighted_quarter_chord_link_points,
+    compute_delaurier_dynamic_twist,
     compute_delaurier_strip_loads,
     FlappingQSMCfg,
     integrate_delaurier_strip_wrench,
     QuasiSteadyWingModel,
+    resolve_delaurier_phase,
     TailAeroCfg,
     TailAeroModel,
     transform_wang_wrench_to_link,
     translate_wrench_moment,
+    validate_delaurier_dynamic_twist_mode,
     WingQSMCfg,
     WingGeometry,
     build_wing_geometry_from_csv,
@@ -332,7 +336,16 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # Use as a stabilizing term to prevent unbounded acceleration when combined aero models are missing body drag.
     fuselage_drag_cda: float = 0.0  # m^2 effective Cd*A
 
-    # Prescribed twist used with DeLaurier (qd_scaled proxy)
+    # Prescribed DeLaurier dynamic twist.  The default remains the rigid-wing
+    # prior; amplitudes are configured in degrees and converted to radians at
+    # the environment-to-physics boundary.
+    dynamic_twist_mode: str = "disabled"
+    dynamic_twist_tip_amplitude_deg: float = 0.0
+    dynamic_twist_phase_direction: float = 1.0
+    dynamic_twist_phase_offset_deg: float = 0.0
+
+    # Historical full-span-uniform qd-scaled proxy.  These fields are consumed
+    # only when ``dynamic_twist_mode='legacy_qd_scaled_proxy'``.
     twist_f_ref_hz: float = 4.0
     twist_eta_max_deg: float = 10.0
     twist_eta_limit_deg: float = 10.0
@@ -498,6 +511,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._wing_application_point_link: Tensor | None = None  # (2,3) for left/right
         self._debug_last_delaurier_strip_loads: DeLaurierStripLoads | None = None
         self._debug_last_delaurier_strip_wrench: DeLaurierStripWrench | None = None
+        self._debug_last_delaurier_twist_kinematics: DeLaurierTwistKinematics | None = None
 
         super().__init__(cfg, render_mode, **kwargs)
         self._teacher_state_inputs = resolve_teacher_state_inputs(
@@ -1374,26 +1388,75 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         hdot = -qd.view(B, 1) * y
         hddot = -qdd.view(B, 1) * y
 
-        # Prescribed twist: qd_scaled proxy (full-span uniform)
-        eta_max = torch.deg2rad(torch.tensor(float(self.cfg.twist_eta_max_deg), device=self.device))
-        eta_lim = torch.deg2rad(torch.tensor(float(self.cfg.twist_eta_limit_deg), device=self.device))
-        f_ref = float(self.cfg.twist_f_ref_hz)
-        qd_ref = float(self._wing_amp) * (2.0 * math.pi * f_ref)
-        qd_ref = max(qd_ref, 1e-6)
-        s = (qd / qd_ref).clamp(-1.0, 1.0)
-        # apply per-wing sign convention
-        sgn_L = float(self.cfg.twist_sign_left)
-        sgn_R = float(self.cfg.twist_sign_right)
-        sgn = torch.tensor([sgn_L, sgn_R], device=self.device, dtype=torch.float32).repeat(N_env)
-        eta_tip = (eta_max * sgn * s).clamp(-eta_lim, eta_lim)
-        k = eta_max / qd_ref
-        qddd = -(w * w) * qd
-        etad_tip = (k * sgn) * qdd
-        etadd_tip = (k * sgn) * qddd
+        dynamic_twist_mode = validate_delaurier_dynamic_twist_mode(self.cfg.dynamic_twist_mode)
+        current_phase = torch.repeat_interleave(self._phase, 2)  # (B,), rad
+        # The environment uses the instantaneous commanded frequency within a
+        # physics step and currently assumes zero phase acceleration.  The pure
+        # helper accepts a non-zero value for future variable-frequency inputs.
+        current_phase_acceleration = torch.zeros_like(w)
+        phase_delaurier, phase_rate_delaurier, phase_acceleration_delaurier = resolve_delaurier_phase(
+            current_phase=current_phase,
+            current_phase_rate=w,
+            current_phase_acceleration=current_phase_acceleration,
+            phase_direction=float(self.cfg.dynamic_twist_phase_direction),
+            phase_offset_rad=math.radians(float(self.cfg.dynamic_twist_phase_offset_deg)),
+        )
 
-        theta = (theta_bar + eta_tip).view(B, 1).expand(B, N_strip)
-        thetad = etad_tip.view(B, 1).expand(B, N_strip)
-        thetadd = etadd_tip.view(B, 1).expand(B, N_strip)
+        if dynamic_twist_mode in {"disabled", "delaurier_linear_spanwise"}:
+            twist_kinematics = compute_delaurier_dynamic_twist(
+                strip_span_m=self._wing_geom.x_mid,
+                strip_width_m=self._wing_geom.dx,
+                semi_span_m=float(self._wing_geom.R),
+                mean_pitch_rad=theta_bar,
+                tip_twist_amplitude_rad=math.radians(float(self.cfg.dynamic_twist_tip_amplitude_deg)),
+                phase_rad=phase_delaurier,
+                phase_rate_rad_s=phase_rate_delaurier,
+                phase_acceleration_rad_s2=phase_acceleration_delaurier,
+                enabled=dynamic_twist_mode == "delaurier_linear_spanwise",
+            )
+        else:
+            # Legacy compatibility only: a clamped, full-span-uniform twist
+            # proportional to qd.  This is not DeLaurier's numerical-example
+            # linear-spanwise dynamic twist.
+            eta_max = torch.deg2rad(torch.tensor(float(self.cfg.twist_eta_max_deg), device=self.device))
+            eta_lim = torch.deg2rad(torch.tensor(float(self.cfg.twist_eta_limit_deg), device=self.device))
+            f_ref = float(self.cfg.twist_f_ref_hz)
+            qd_ref = float(self._wing_amp) * (2.0 * math.pi * f_ref)
+            qd_ref = max(qd_ref, 1e-6)
+            normalized_flap_rate = (qd / qd_ref).clamp(-1.0, 1.0)
+            left_twist_sign = float(self.cfg.twist_sign_left)
+            right_twist_sign = float(self.cfg.twist_sign_right)
+            wing_twist_sign = torch.tensor(
+                [left_twist_sign, right_twist_sign], device=self.device, dtype=qd.dtype
+            ).repeat(N_env)
+            eta_tip = (eta_max * wing_twist_sign * normalized_flap_rate).clamp(-eta_lim, eta_lim)
+            twist_gain = eta_max / qd_ref
+            qddd = -(w * w) * qd
+            etad_tip = (twist_gain * wing_twist_sign) * qdd
+            etadd_tip = (twist_gain * wing_twist_sign) * qddd
+
+            delta_theta = eta_tip.view(B, 1).expand(B, N_strip)
+            delta_theta_dot = etad_tip.view(B, 1).expand(B, N_strip)
+            delta_theta_ddot = etadd_tip.view(B, 1).expand(B, N_strip)
+            twist_kinematics = DeLaurierTwistKinematics(
+                theta=theta_bar.view(B, 1).expand(B, N_strip) + delta_theta,
+                theta_dot=delta_theta_dot,
+                theta_ddot=delta_theta_ddot,
+                delta_theta=delta_theta,
+                delta_theta_dot=delta_theta_dot,
+                delta_theta_ddot=delta_theta_ddot,
+                span_fraction=y / float(self._wing_geom.R),
+                phase=phase_delaurier.view(B, 1),
+                phase_rate=phase_rate_delaurier.view(B, 1),
+                phase_acceleration=phase_acceleration_delaurier.view(B, 1),
+            )
+
+        theta = twist_kinematics.theta
+        thetad = twist_kinematics.theta_dot
+        thetadd = twist_kinematics.theta_ddot
+        self._debug_last_delaurier_twist_kinematics = (
+            twist_kinematics if bool(self.cfg.delaurier_store_strip_diagnostics) else None
+        )
 
         omega_ref = w.view(B, 1).expand(B, N_strip)
 

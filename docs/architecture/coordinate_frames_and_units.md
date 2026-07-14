@@ -10,6 +10,8 @@ Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deli
 | Aerodynamic/body `b` | Tail module declares right-handed `x forward, y left, z up`; environment calls `root_lin_vel_b`, `root_ang_vel_b` aerodynamic inputs | Observed (`tail_aero.py:15`; `straight_flight_env.py:1248-1252`) |
 | Flight-log FRD | A DeLaurier comment calls `v_air_b.z` “body-down” and FRD, but no conversion is made | Unresolved/conflicting (`straight_flight_env.py:1343-1348`) |
 | Wing co-rotating/Wang `c` | `x` span, `y` normal, `z` chordwise toward LE | Observed (`qsm_delaurier1993.py:81-85`) |
+| Engineering flap phase | `_phase` increases in the positive direction; `q=Gamma*cos(_phase)`, so phase zero is positive maximum stroke with zero rate | Observed (`straight_flight_env.py:_apply_action`) |
+| DeLaurier phase `phi_D` | `phi_D=+current_phase+0`; this makes `h=-q*y=-Gamma*y*cos(phi_D)` | Observed/derived from implemented equations (`resolve_delaurier_phase`, `_compute_wing_delaurier_wrench`) |
 | Wing-link `l` | Environment maps Wang axes to left/right wing link with two hard-coded matrices | Observed (`straight_flight_env.py:646-651`) |
 | Tail surface | No persistent separate frame; span/chord axes and AC arms are declared in `TailSurfaceCfg` body coordinates | Observed (`tail_aero.py:349-364`) |
 | Isaac articulation local | `set_external_force_and_torque(..., is_global=False)` applies in each body's local link frame | Observed (`articulation.py:962-1012`) |
@@ -36,6 +38,9 @@ Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deli
 | `_phase`, `_freq` | `(N,)` | rad, Hz | scalar | advanced per physics step; controls prescribed wing motion | Observed |
 | `q_cmd`, `qd_cmd`, `qdd_cmd` | `(N,)` | rad, rad/s, rad/s² | joint scalar | cosine waveform | Observed |
 | DeLaurier strip fields `h,...,theta...` | `(B,N_strip)` | m/m·s⁻¹/m·s⁻²/rad/rad·s⁻¹/rad·s⁻² | co-rotating calculation | `B=2*N_env`; inputs to strip-load calculation | Observed |
+| `DeLaurierTwistKinematics.theta`, derivatives and deltas | `(B,N_strip)` | rad, rad/s, rad/s² | Wang pitching scalar about `+x` | mean pitch plus optional prescribed linear-spanwise dynamic twist | Observed |
+| `DeLaurierTwistKinematics.span_fraction` | `(B,N_strip)` | 1 | wing-root span coordinate | `y/R`; environment uses explicit `WingGeometry.R` | Observed |
+| `DeLaurierTwistKinematics.phase`, rate, acceleration | `(B,1)` | rad, rad/s, rad/s² | DeLaurier scalar phase | current environment uses direction `+1`, offset `0`, acceleration `0` | Observed |
 | `DeLaurierStripLoads` components | `(B,N_strip)` | N or N·m | Wang co-rotating | attached-flow raw components, strip width included | Observed |
 | `DeLaurierStripWrench.force_wang`, `moment_wang_about_wing_origin` | `(B,3)` | N, N·m | Wang co-rotating | moment about wing-root pitching-axis origin | Observed |
 | legacy `F_c`, `tau_c` | `(B,3)` | N, N·m | Wang co-rotating | compatibility wrapper; `tau_c` remains zero | Observed |
@@ -58,6 +63,7 @@ Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deli
 
 - Equivalent AC returns `+span_center` for left and `-span_center` for right (`wing_equivalent_ac.py:25-26`).
 - Wang-to-link mapping mirrors right span (`straight_flight_env.py:648-651`).
+- DeLaurier batches repeat the same engineering phase and scalar `q/qd/qdd` for left/right. Prescribed dynamic twist uses the same local Wang `+x` pitch sign on both sides; no additional right-wing scalar sign is applied.
 - Tail mixing defines left/right differential signs in the environment (`left=pitch+roll`, `right=pitch-roll`), and both elevon surfaces use `deflection_sign=-1` (`straight_flight_env.py:1156-1184`; `tail_aero.py:264-303`).
 - The pure strip-wrench test verifies polar/axial parity under the current mirrored Wang-to-link matrices and static left/right symmetry; a full Isaac articulation reference test is still absent.
 
@@ -74,5 +80,6 @@ Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deli
 - Assert quaternion order/direction at the project boundary.
 - Assert `r` and `F` are in the same frame before every `cross(r,F)` closure.
 - Test left/right mirrored DeLaurier loads yield expected net roll/yaw symmetry.
+- Retain phase-map tests at top stroke, mid downstroke, bottom stroke and mid upstroke if stroke generation changes.
 - Extend the current pure strip force/moment-conservation tests to an Isaac articulation one-force reference test.
 - Test final base-link wrench frame/reference against a one-force Isaac articulation case.

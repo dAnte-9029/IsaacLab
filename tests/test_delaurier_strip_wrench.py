@@ -119,6 +119,33 @@ def test_strip_force_matches_legacy_aggregate_without_separation() -> None:
     )
 
 
+def test_zero_prescribed_twist_rates_make_apparent_mass_free_couple_zero() -> None:
+    """The rigid-wing baseline retains the dM_a path but provides zero twist rates."""
+
+    h, hdot, hddot, theta, _thetad, _thetadd = _delaurier_inputs()
+    zero_twist_rate = torch.zeros_like(theta)
+    geometry = _delaurier_geometry()
+
+    strip_loads = compute_delaurier_strip_loads(
+        h,
+        hdot,
+        hddot,
+        theta,
+        zero_twist_rate,
+        zero_twist_rate,
+        geometry,
+        rho=1.225,
+        U=8.0,
+        theta_a=0.04,
+        theta_bar=0.08,
+        omega_ref=24.0,
+        params=DeLaurierParams(alpha0_rad=0.01, c_mac=0.0, cd_f=0.028),
+        enable_separation=False,
+    )
+
+    torch.testing.assert_close(strip_loads.dM_a, torch.zeros_like(strip_loads.dM_a), atol=1.0e-12, rtol=0.0)
+
+
 def test_strip_moment_is_sum_of_named_components() -> None:
     wrench = integrate_delaurier_strip_wrench(_manual_strip_loads())
 

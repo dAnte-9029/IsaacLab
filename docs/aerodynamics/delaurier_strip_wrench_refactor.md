@@ -11,6 +11,7 @@
 本 tag 冻结用于后续 corrected distribution 的 DeLaurier prior 和 wing-moment 链路。它是可复现的数值仿真基线，不表示气动模型已经完成 real-flight 或 sim-to-real validation。默认边界由 `FlappingBotStraightFlightEnvCfg` 与实际调用路径共同定义：
 
 - separation disabled：`delaurier_enable_separation=False`；
+- prescribed twist active（historical `v1` behavior）：切换引入前，环境始终使用 `qd`-scaled virtual twist proxy；
 - pitching axis at leading edge：`build_wing_geometry_from_csv(..., dhat=0.0)`；
 - aerodynamic-centre coefficient：`DeLaurierParams.c_mac=0.0`；
 - apparent-mass free couple enabled：`delaurier_include_apparent_mass_moment=True`；
@@ -18,6 +19,95 @@
 - induced drag disabled：`delaurier_induced_drag_efficiency=0.0`。
 
 `dM_ac` 的完整计算、开关和 power-sign test path 都保留，但在该冻结默认值下因 `c_mac=0.0` 而数值为零。任何后续 corrected distribution 实验应记录其 parent 为此 tag，并分别报告 prior force、correction distribution、corrected resultant force 和最终 wrench 的差异；不得把这些层次的失败重新归因于已冻结的 original moment chain，而不先给出新的直接证据。
+
+## Current post-v1 baseline candidate: dynamic twist disabled
+
+日期：2026-07-14。`delaurier-strip-wrench-v1` 保持不可变，因而仍准确记录切换前始终启用的 `qd`-scaled twist proxy。当前分支以 `dynamic_twist_mode` 取代 boolean 开关；三个互斥模式是 `disabled`、`delaurier_linear_spanwise` 和 `legacy_qd_scaled_proxy`。默认配置为：
+
+```text
+dynamic_twist_mode = "disabled"
+dynamic_twist_tip_amplitude_deg = 0.0
+```
+
+因此默认环境仍以 `theta=theta_bar`（沿翼展广播）调用 DeLaurier，并令 `thetad=0`、`thetadd=0`。`dM_a` 的代码路径与独立 moment inclusion switch 保留，但在默认输入下数值为零；`c_mac=0.0` 使 `dM_ac` 同样为零。
+
+当前待用户明确冻结为 successor tag 的可解释性 baseline 边界为：
+
+- separation disabled：`delaurier_enable_separation=False`；
+- prescribed dynamic twist disabled：`dynamic_twist_mode="disabled"`、`dynamic_twist_tip_amplitude_deg=0.0`；
+- pitching axis at leading edge：`d_hat=0`；
+- aerodynamic-centre coefficient：`c_mac=0`；
+- `dM_a` code path retained，但在 zero twist-rate 输入下数值为零；
+- strip-integrated force-arm moment enabled：`wing_moment_mode="strip_integrated"`；
+- induced drag disabled：`delaurier_induced_drag_efficiency=0`。
+
+这不改变 DeLaurier force formula、strip force integration、free-couple 定义或 legacy moment mode。
+
+## Dynamic twist definition
+
+`compute_delaurier_dynamic_twist()` 实现 DeLaurier numerical example 的 prescribed linear-spanwise kinematics：
+
+```text
+delta_theta = -theta_tip * (y/R) * sin(phi_D)
+delta_theta_dot = -theta_tip * (y/R) * cos(phi_D) * phi_D_dot
+delta_theta_ddot = theta_tip * (y/R)
+                    * (sin(phi_D) * phi_D_dot^2 - cos(phi_D) * phi_D_ddot)
+theta = theta_bar + delta_theta
+```
+
+这不是被动柔性翼或气动弹性求解。`dynamic_twist_tip_amplitude_deg` 是理论几何翼尖 `y=R` 的最大动态扭转幅值，配置入口使用 degree，进入 physics helper 前转换为 rad。与原文线性斜率的关系是 `beta_0=theta_tip/R`。
+
+环境优先使用 `WingGeometry.R`。helper 在没有显式 `R` 时使用 `max(y_i+0.5*strip_width_i)`；最后一个 strip center 的幅值通常小于 `theta_tip`，不会被强制归一化到 1。
+
+## Dynamic-twist phase mapping
+
+当前工程 phase 以正方向递增，且 wing command 为：
+
+```text
+q = Gamma * cos(current_phase)
+h = -q*y = -Gamma*y*cos(current_phase)
+```
+
+它与原文 `h=-Gamma*y*cos(phi_D)` 直接一致，所以当前配置与 `resolve_delaurier_phase()` 明确采用：
+
+```text
+phi_D = +current_phase + 0
+phi_D_dot = +2*pi*f
+phi_D_ddot = 0
+```
+
+`phase=0, pi/2, pi, 3pi/2` 依次对应当前定义的 top stroke、mid downstroke、bottom stroke、mid upstroke。dynamic twist 与 plunge 相差 90 degree。环境当前把 frequency 视为一个 physics step 内恒定，因此 phase acceleration 为零；helper 已支持未来传入非零值。
+
+左右翼使用同一个 scalar phase、`q/qd/qdd` 和 `theta` sign。相同 local twist distribution 进入两个 Wang frame；右翼 reflection 继续由 `transform_wang_wrench_to_link()` 的 polar/axial 规则处理，不对右翼 `theta` 增加经验性负号。
+
+## Legacy qd-scaled proxy
+
+`legacy_qd_scaled_proxy` 保留冻结历史的 full-span-uniform proxy：其 tip-like scalar 由 clamped `qd/qd_ref` 缩放，且没有 `y/R` 分布。它不是 DeLaurier numerical-example dynamic twist，默认不会进入运行路径，仅用于显式历史 A/B。mode 是单值枚举，因此 legacy 与新模型不能同时启用。
+
+## Affected DeLaurier physics
+
+环境只生成一次 `DeLaurierTwistKinematics`，随后统一把 `theta`、`theta_dot`、`theta_ddot` 传给 `compute_delaurier_strip_loads()`。它们直接或通过 `alpha/alpha_dot/alpha_prime` 影响 `dN_c`、`dN_a`、`dT_s`、`dM_a`、input power、`alpha`、`alpha_prime`、`alpha_le` 以及 separation diagnostics。`delaurier_store_strip_diagnostics=True` 时，最近一步 kinematics 可从 `_debug_last_delaurier_twist_kinematics` 读取；默认不打印或累计。
+
+## Dynamic-twist validation
+
+2026-07-14 实际执行 non-Isaac targeted suite：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 ./isaaclab.sh -p -m pytest -p no:cacheprovider -q \
+  tests/test_delaurier_dynamic_twist.py \
+  tests/test_delaurier_strip_wrench.py \
+  tests/test_delaurier_convention_contract.py \
+  tests/test_delaurier_log_export_phase_contract.py \
+  tests/test_path_tracking_env_contract.py \
+  tests/test_straight_flight_env_reset_contract.py \
+  tests/test_startup_phase.py \
+  tests/test_flapping_joint_contracts.py \
+  tests/test_qsm.py
+```
+
+最终结果：`124 passed in 2.38s`。float64 独立数值检查得到：disabled 与 zero-tip regression 最大误差 `0`；span linearity `0`；theoretical-tip semantics `5.55e-17`；special phase points `2.76e-16`；一阶/二阶 centered-finite-difference 误差分别为 `6.20e-9`、`7.29e-8`；non-zero phase-acceleration term `2.22e-16`；mean-pitch addition `2.78e-17`；engineering-to-DeLaurier phase mapping `0`；`dM_a` 直接公式比较 `0`。选定的非偶然消零 case 中，dynamic twist 使 integrated force、moment 和 strip power 的最大变化分别为 `1.086 N`、`0.570 N m` 和 `0.652 W`；这些是测试 fixture 的数值敏感性，不是模型准确性或真实飞行验证。
+
+同日两次尝试运行 `tests/test_delaurier_isaac_wrench_reference.py`，Isaac Sim 都在 pytest 收集前因 `DerivedDataCache` exclusive-lock error 和后续 `cuInit` crash 退出；备份遗留 lock directories 后重试仍相同。因此本次没有把 Isaac regression 写成通过。该 test 在上一阶段的已记录结果仍为通过，但尚未在本次 dynamic-twist diff 上重新验证。
 
 ## 修改前
 

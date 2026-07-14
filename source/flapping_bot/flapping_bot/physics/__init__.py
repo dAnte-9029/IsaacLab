@@ -20,6 +20,13 @@ from .qsm_delaurier1993 import (
     transform_wang_wrench_to_link,
     translate_wrench_moment,
 )
+from .delaurier_twist import (
+    DELAURIER_DYNAMIC_TWIST_MODES,
+    DeLaurierTwistKinematics,
+    compute_delaurier_dynamic_twist,
+    resolve_delaurier_phase,
+    validate_delaurier_dynamic_twist_mode,
+)
 from .tail_aero import TailAeroCfg, TailAeroModel, TailSurfaceCfg
 from .tail_geometry import PlaceholderValue, TailGeometry, TailSurfaceGeometry, load_tail_geometry_from_urdf
 from .wing_equivalent_ac import compute_area_weighted_quarter_chord_link_points
@@ -45,6 +52,11 @@ __all__ = [
     "integrate_delaurier_strip_wrench",
     "transform_wang_wrench_to_link",
     "translate_wrench_moment",
+    "DELAURIER_DYNAMIC_TWIST_MODES",
+    "DeLaurierTwistKinematics",
+    "compute_delaurier_dynamic_twist",
+    "resolve_delaurier_phase",
+    "validate_delaurier_dynamic_twist_mode",
     "TailSurfaceCfg",
     "TailAeroCfg",
     "TailAeroModel",

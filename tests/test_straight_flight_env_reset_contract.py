@@ -103,6 +103,16 @@ def test_straight_flight_env_defaults_to_measured_whole_aircraft_mass_properties
     assert ast.literal_eval(legacy_com_x.value) is None
 
 
+def test_straight_flight_env_defaults_to_disabled_dynamic_twist() -> None:
+    module = _load_module()
+    class_node = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+    mode = _find_ann_assign(class_node, "dynamic_twist_mode")
+    tip_amplitude = _find_ann_assign(class_node, "dynamic_twist_tip_amplitude_deg")
+
+    assert ast.literal_eval(mode.value) == "disabled"
+    assert ast.literal_eval(tip_amplitude.value) == 0.0
+
+
 def test_straight_flight_env_init_calls_total_mass_override_hook() -> None:
     module = _load_module()
     class_node = _find_class(module, "FlappingBotStraightFlightEnv")

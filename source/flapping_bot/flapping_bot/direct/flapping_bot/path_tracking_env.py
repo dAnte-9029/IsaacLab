@@ -195,6 +195,10 @@ except ModuleNotFoundError as exc:
         base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = (0.02329, 0.02573, 0.04270)
         wing_moment_mode: str = "strip_integrated"
         delaurier_enable_separation: bool = False
+        dynamic_twist_mode: str = "disabled"
+        dynamic_twist_tip_amplitude_deg: float = 0.0
+        dynamic_twist_phase_direction: float = 1.0
+        dynamic_twist_phase_offset_deg: float = 0.0
         delaurier_include_aerodynamic_center_moment: bool = True
         delaurier_include_apparent_mass_moment: bool = True
         delaurier_store_strip_diagnostics: bool = False
