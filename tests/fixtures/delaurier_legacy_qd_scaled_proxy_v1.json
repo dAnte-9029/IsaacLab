@@ -1,0 +1,80 @@
+{
+  "fixture_version": "delaurier_legacy_qd_scaled_proxy_v1",
+  "source_commit": "dd4d1935f3b7c105948f445803e720942760fbd3",
+  "dtype": "float64",
+  "units": {
+    "mean_pitch": "rad",
+    "joint_velocity": "rad/s",
+    "joint_acceleration": "rad/s^2",
+    "joint_jerk": "rad/s^3",
+    "reference_velocity": "rad/s",
+    "maximum_twist": "rad",
+    "twist_limit": "rad",
+    "theta": "rad",
+    "theta_dot": "rad/s",
+    "theta_ddot": "rad/s^2"
+  },
+  "formula_summary": "uniform delta=clamp(eta_max*sign*clamp(qd/qd_ref,-1,1),-eta_lim,eta_lim); derivatives=(eta_max/qd_ref)*sign*(qdd,qddd) without clamp differentiation",
+  "cases": [
+    {
+      "name": "ordinary_positive_negative_zero",
+      "num_strips": 3,
+      "mean_pitch": [0.1, -0.2, 0.05],
+      "joint_velocity": [2.0, -2.0, 0.0],
+      "joint_acceleration": [0.4, -0.6, 0.8],
+      "joint_jerk": [-1.2, 1.5, -2.0],
+      "reference_velocity": 4.0,
+      "maximum_twist": 0.2,
+      "twist_limit": 0.3,
+      "twist_sign": [1.0, 1.0, 1.0],
+      "expected_theta": [[0.2, 0.2, 0.2], [-0.3, -0.3, -0.3], [0.05, 0.05, 0.05]],
+      "expected_theta_dot": [[0.02, 0.02, 0.02], [-0.03, -0.03, -0.03], [0.04, 0.04, 0.04]],
+      "expected_theta_ddot": [[-0.06, -0.06, -0.06], [0.075, 0.075, 0.075], [-0.1, -0.1, -0.1]]
+    },
+    {
+      "name": "normalized_rate_saturation",
+      "num_strips": 2,
+      "mean_pitch": [0.0, 0.0],
+      "joint_velocity": [8.0, -10.0],
+      "joint_acceleration": [1.0, -1.0],
+      "joint_jerk": [2.0, -2.0],
+      "reference_velocity": 4.0,
+      "maximum_twist": 0.2,
+      "twist_limit": 0.3,
+      "twist_sign": [1.0, 1.0],
+      "expected_theta": [[0.2, 0.2], [-0.2, -0.2]],
+      "expected_theta_dot": [[0.05, 0.05], [-0.05, -0.05]],
+      "expected_theta_ddot": [[0.1, 0.1], [-0.1, -0.1]]
+    },
+    {
+      "name": "twist_amplitude_clamp",
+      "num_strips": 2,
+      "mean_pitch": [0.0, 0.0],
+      "joint_velocity": [3.0, -3.0],
+      "joint_acceleration": [0.7, -0.8],
+      "joint_jerk": [1.1, -1.2],
+      "reference_velocity": 4.0,
+      "maximum_twist": 0.4,
+      "twist_limit": 0.15,
+      "twist_sign": [1.0, 1.0],
+      "expected_theta": [[0.15, 0.15], [-0.15, -0.15]],
+      "expected_theta_dot": [[0.07, 0.07], [-0.08, -0.08]],
+      "expected_theta_ddot": [[0.11, 0.11], [-0.12, -0.12]]
+    },
+    {
+      "name": "left_right_same_local_scalar",
+      "num_strips": 4,
+      "mean_pitch": [0.01, 0.01],
+      "joint_velocity": [2.0, 2.0],
+      "joint_acceleration": [-0.4, -0.4],
+      "joint_jerk": [0.9, 0.9],
+      "reference_velocity": 4.0,
+      "maximum_twist": 0.2,
+      "twist_limit": 0.3,
+      "twist_sign": [1.0, 1.0],
+      "expected_theta": [[0.11, 0.11, 0.11, 0.11], [0.11, 0.11, 0.11, 0.11]],
+      "expected_theta_dot": [[-0.02, -0.02, -0.02, -0.02], [-0.02, -0.02, -0.02, -0.02]],
+      "expected_theta_ddot": [[0.045, 0.045, 0.045, 0.045], [0.045, 0.045, 0.045, 0.045]]
+    }
+  ]
+}

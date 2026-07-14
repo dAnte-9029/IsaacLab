@@ -8,11 +8,11 @@
 
 ## Current completed stage
 
-2026-07-14 DeLaurier prescribed linear-spanwise dynamic twist implemented with default-disabled and legacy compatibility modes. Pure physics, phase and configuration validation passes; the current Isaac reference-wrench rerun is environment-blocked. Main records: `docs/decisions/ADR-2026-07-14-delaurier-prescribed-dynamic-twist.md` and `docs/aerodynamics/delaurier_strip_wrench_refactor.md`.
+2026-07-14 DeLaurier prescribed linear-spanwise dynamic twist implemented with default-disabled and legacy compatibility modes. The FLU-to-DeLaurier airflow boundary and real mirrored wing joint/phase-pose contract are now explicit；legacy proxy numerical behavior is frozen. The specified non-Isaac suite passes 77 tests and the combined headless Isaac pose/wrench suite passes 2 tests. Main records: `docs/decisions/ADR-2026-07-14-delaurier-prescribed-dynamic-twist.md`、`docs/decisions/ADR-2026-07-14-delaurier-airflow-frame-convention.md` and `docs/aerodynamics/delaurier_strip_wrench_refactor.md`.
 
 ## Active stage
 
-The DeLaurier attached-flow strip-wrench implementation is complete. The current branch adds explicit prescribed dynamic-twist modes. The default candidate is `dynamic_twist_mode="disabled"` with `dynamic_twist_tip_amplitude_deg=0.0`; `delaurier_linear_spanwise` implements the numerical-example phase/span relationship, while `legacy_qd_scaled_proxy` is compatibility-only. This candidate has not replaced the immutable `delaurier-strip-wrench-v1` tag. Corrected-force integration remains pending approval.
+The DeLaurier attached-flow strip-wrench and convention verification stage is complete. The default candidate remains `dynamic_twist_mode="disabled"` with `dynamic_twist_tip_amplitude_deg=0.0`; `legacy_qd_scaled_proxy` is compatibility-only. Isaac body FLU is explicitly converted to the internal DeLaurier FRD-like section convention，and physical flap `q` maps to mirrored left/right URDF joint coordinates. This candidate has not replaced the immutable `delaurier-strip-wrench-v1` tag.
 
 ## Required reading
 
@@ -21,15 +21,15 @@ The DeLaurier attached-flow strip-wrench implementation is complete. The current
 - `docs/architecture/coordinate_frames_and_units.md`
 - `docs/architecture/wing_tail_controller_interfaces.md`
 - `docs/decisions/ADR-2026-07-14-delaurier-prescribed-dynamic-twist.md`
+- `docs/decisions/ADR-2026-07-14-delaurier-airflow-frame-convention.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
 ## Known blockers
 
 - No corrected-force adapter or corrected strip-distribution contract.
-- FLU/FRD convention at the DeLaurier boundary is unresolved.
 - Corrected `Fx/Fz` ownership and moment-closure assumption require human approval.
-- Current headless Isaac regression rerun is blocked before test collection by a `DerivedDataCache` lock error followed by `cuInit` crash; the 124-test pure/config/phase suite passes.
+- The corrected mirrored joint-space mapping and `theta_a` frame fix change the pre-existing plant convention；closed-loop mission baselines have not yet been rerun.
 
 ## Exact next task
 
-Restore a clean headless Isaac startup and rerun `tests/test_delaurier_isaac_wrench_reference.py` against this dynamic-twist diff; do not start corrected-model integration, tail tuning or PID tuning.
+Review and re-freeze the closed-loop baseline after the mirrored joint-space and airflow-frame corrections；do not start corrected-model integration, tail tuning or PID tuning in the same stage.

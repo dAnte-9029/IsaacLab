@@ -9,9 +9,7 @@ from __future__ import annotations
 
 """Launch Isaac Sim before importing Isaac Lab simulation modules."""
 
-from isaaclab.app import AppLauncher
-
-simulation_app = AppLauncher(headless=True).app
+from _delaurier_isaac_app import simulation_app
 
 """The remaining imports require a running Isaac Sim application."""
 

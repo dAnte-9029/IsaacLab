@@ -34,10 +34,13 @@ from ...physics import (
     DeLaurierStripLoads,
     DeLaurierStripWrench,
     DeLaurierTwistKinematics,
+    body_air_velocity_to_delaurier_section_velocity,
     compute_aero_wrench_delaurier1993,
     compute_area_weighted_quarter_chord_link_points,
+    compute_delaurier_axis_incidence,
     compute_delaurier_dynamic_twist,
     compute_delaurier_strip_loads,
+    compute_legacy_qd_scaled_twist,
     FlappingQSMCfg,
     integrate_delaurier_strip_wrench,
     QuasiSteadyWingModel,
@@ -67,7 +70,7 @@ from .state_source_contract import (
     resolve_imu_source,
     resolve_teacher_state_inputs,
 )
-from .startup_phase import advance_flap_phase
+from .startup_phase import advance_flap_phase, map_symmetric_flap_coordinate_to_joint_space
 
 Tensor = torch.Tensor
 
@@ -1247,8 +1250,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._qd_cmd = -amp * w * s
         self._qdd_cmd = -amp * (w * w) * c
 
-        left_cmd = self._wing_mid_L + self._q_cmd
-        right_cmd = self._wing_mid_R + self._q_cmd
+        left_cmd, right_cmd, left_qd_cmd, right_qd_cmd = map_symmetric_flap_coordinate_to_joint_space(
+            flap_position_rad=self._q_cmd,
+            flap_velocity_rad_s=self._qd_cmd,
+            left_joint_mid_rad=self._wing_mid_L,
+            right_joint_mid_rad=self._wing_mid_R,
+        )
 
         jt = self._joint_targets
         jt[:, self._IDX_LEFT_WING] = left_cmd
@@ -1259,6 +1266,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         jt[:, self._IDX_RIGHT_TAIL] = self._right_elevon_cmd
         if bool(self.cfg.use_kinematic_joint_override):
             jvel = torch.zeros_like(jt)
+            jvel[:, self._IDX_LEFT_WING] = left_qd_cmd
+            jvel[:, self._IDX_RIGHT_WING] = right_qd_cmd
             self._robot.write_joint_state_to_sim(jt, jvel, joint_ids=self._joint_ids)
         else:
             self._robot.set_joint_position_target(jt, joint_ids=self._joint_ids)
@@ -1373,15 +1382,20 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # This matches the wind-tunnel convention when the vehicle is trimmed (v_z small, pitch≈flight-path angle),
         # and avoids large sign errors during dives/climbs where pitch!=AOA.
         quat_w = self._robot.data.root_quat_w  # (N,4)
-        vx_b = torch.clamp(v_air_b[:, 0], min=1.0e-3)
-        # Match the flight-log FRD convention used by system-identification:
-        # alpha = atan2(v_air_b.z, v_air_b.x), with +z body-down.
-        theta_a_env = torch.atan2(v_air_b[:, 2], vx_b)
+        # Isaac/project body data are FLU. Convert the vehicle air-relative
+        # velocity explicitly to DeLaurier's internal FRD-like section frame
+        # before applying theta_a=atan2(w_D,u_D).
+        v_air_delaurier = body_air_velocity_to_delaurier_section_velocity(v_air_b, body_frame="FLU")
+        theta_a_env = compute_delaurier_axis_incidence(
+            air_velocity_body=v_air_b,
+            body_frame="FLU",
+            minimum_forward_speed_mps=1.0e-3,
+        )
         theta_a = torch.repeat_interleave(theta_a_env, 2)  # (B,)
         theta_bar = theta_a + math.radians(float(self.cfg.delaurier_theta_w_deg))
 
         # Airspeed approximation: body-forward velocity component clamped (matches wind-tunnel trim scans).
-        vx = torch.clamp(v_air_b[:, 0], min=float(self.cfg.delaurier_min_airspeed))
+        vx = torch.clamp(v_air_delaurier[:, 0], min=float(self.cfg.delaurier_min_airspeed))
         U = torch.repeat_interleave(vx, 2)  # (B,)
 
         h = -q.view(B, 1) * y
@@ -1418,33 +1432,38 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             # Legacy compatibility only: a clamped, full-span-uniform twist
             # proportional to qd.  This is not DeLaurier's numerical-example
             # linear-spanwise dynamic twist.
-            eta_max = torch.deg2rad(torch.tensor(float(self.cfg.twist_eta_max_deg), device=self.device))
-            eta_lim = torch.deg2rad(torch.tensor(float(self.cfg.twist_eta_limit_deg), device=self.device))
+            eta_max = torch.deg2rad(
+                torch.tensor(float(self.cfg.twist_eta_max_deg), device=self.device, dtype=qd.dtype)
+            )
+            eta_lim = torch.deg2rad(
+                torch.tensor(float(self.cfg.twist_eta_limit_deg), device=self.device, dtype=qd.dtype)
+            )
             f_ref = float(self.cfg.twist_f_ref_hz)
             qd_ref = float(self._wing_amp) * (2.0 * math.pi * f_ref)
-            qd_ref = max(qd_ref, 1e-6)
-            normalized_flap_rate = (qd / qd_ref).clamp(-1.0, 1.0)
             left_twist_sign = float(self.cfg.twist_sign_left)
             right_twist_sign = float(self.cfg.twist_sign_right)
             wing_twist_sign = torch.tensor(
                 [left_twist_sign, right_twist_sign], device=self.device, dtype=qd.dtype
             ).repeat(N_env)
-            eta_tip = (eta_max * wing_twist_sign * normalized_flap_rate).clamp(-eta_lim, eta_lim)
-            twist_gain = eta_max / qd_ref
             qddd = -(w * w) * qd
-            etad_tip = (twist_gain * wing_twist_sign) * qdd
-            etadd_tip = (twist_gain * wing_twist_sign) * qddd
-
-            delta_theta = eta_tip.view(B, 1).expand(B, N_strip)
-            delta_theta_dot = etad_tip.view(B, 1).expand(B, N_strip)
-            delta_theta_ddot = etadd_tip.view(B, 1).expand(B, N_strip)
+            legacy_twist = compute_legacy_qd_scaled_twist(
+                num_strips=N_strip,
+                mean_pitch_rad=theta_bar,
+                joint_velocity_rad_s=qd,
+                joint_acceleration_rad_s2=qdd,
+                joint_jerk_rad_s3=qddd,
+                reference_velocity_rad_s=qd_ref,
+                maximum_twist_rad=eta_max,
+                twist_limit_rad=eta_lim,
+                twist_sign=wing_twist_sign,
+            )
             twist_kinematics = DeLaurierTwistKinematics(
-                theta=theta_bar.view(B, 1).expand(B, N_strip) + delta_theta,
-                theta_dot=delta_theta_dot,
-                theta_ddot=delta_theta_ddot,
-                delta_theta=delta_theta,
-                delta_theta_dot=delta_theta_dot,
-                delta_theta_ddot=delta_theta_ddot,
+                theta=legacy_twist.theta,
+                theta_dot=legacy_twist.theta_dot,
+                theta_ddot=legacy_twist.theta_ddot,
+                delta_theta=legacy_twist.delta_theta,
+                delta_theta_dot=legacy_twist.delta_theta_dot,
+                delta_theta_ddot=legacy_twist.delta_theta_ddot,
                 span_fraction=y / float(self._wing_geom.R),
                 phase=phase_delaurier.view(B, 1),
                 phase_rate=phase_rate_delaurier.view(B, 1),

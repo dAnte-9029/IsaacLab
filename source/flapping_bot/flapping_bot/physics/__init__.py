@@ -23,9 +23,15 @@ from .qsm_delaurier1993 import (
 from .delaurier_twist import (
     DELAURIER_DYNAMIC_TWIST_MODES,
     DeLaurierTwistKinematics,
+    LegacyQdScaledTwistKinematics,
+    compute_legacy_qd_scaled_twist,
     compute_delaurier_dynamic_twist,
     resolve_delaurier_phase,
     validate_delaurier_dynamic_twist_mode,
+)
+from .delaurier_airflow import (
+    body_air_velocity_to_delaurier_section_velocity,
+    compute_delaurier_axis_incidence,
 )
 from .tail_aero import TailAeroCfg, TailAeroModel, TailSurfaceCfg
 from .tail_geometry import PlaceholderValue, TailGeometry, TailSurfaceGeometry, load_tail_geometry_from_urdf
@@ -54,9 +60,13 @@ __all__ = [
     "translate_wrench_moment",
     "DELAURIER_DYNAMIC_TWIST_MODES",
     "DeLaurierTwistKinematics",
+    "LegacyQdScaledTwistKinematics",
     "compute_delaurier_dynamic_twist",
+    "compute_legacy_qd_scaled_twist",
     "resolve_delaurier_phase",
     "validate_delaurier_dynamic_twist_mode",
+    "body_air_velocity_to_delaurier_section_velocity",
+    "compute_delaurier_axis_incidence",
     "TailSurfaceCfg",
     "TailAeroCfg",
     "TailAeroModel",

@@ -76,13 +76,36 @@ phi_D_dot = +2*pi*f
 phi_D_ddot = 0
 ```
 
-`phase=0, pi/2, pi, 3pi/2` 依次对应当前定义的 top stroke、mid downstroke、bottom stroke、mid upstroke。dynamic twist 与 plunge 相差 90 degree。环境当前把 frequency 视为一个 physics step 内恒定，因此 phase acceleration 为零；helper 已支持未来传入非零值。
+真实 PhysX link-pose test 进一步确认：`phase=0` 是两翼 span probe 的 body-FLU `+z` endpoint；`pi/2` 是共同向 body `-z` 运动的 midpoint（downstroke）；`pi` 是 `-z` endpoint；`3pi/2` 是共同向 `+z` 运动的 midpoint（upstroke）。dynamic twist 与 plunge 相差 90 degree。环境当前把 frequency 视为一个 physics step 内恒定，因此 phase acceleration 为零；helper 已支持未来传入非零值。
 
-左右翼使用同一个 scalar phase、`q/qd/qdd` 和 `theta` sign。相同 local twist distribution 进入两个 Wang frame；右翼 reflection 继续由 `transform_wang_wrench_to_link()` 的 polar/axial 规则处理，不对右翼 `theta` 增加经验性负号。
+左右翼 aerodynamics 使用同一个 physical scalar phase、`q/qd/qdd` 和 `theta` sign。由于 URDF 两个 revolute axis 都是 joint `+x`，而 mesh span 分别为 link `+y/-y`，`map_symmetric_flap_coordinate_to_joint_space()` 把物理 `q/qd` 映射为 left `(+q,+qd)`、right `(-q,-qd)`。相同 local twist distribution 仍进入两个 Wang frame；右翼 reflection 继续由 `transform_wang_wrench_to_link()` 的 polar/axial 规则处理，不对右翼 aerodynamic `theta` 增加经验性负号。
 
 ## Legacy qd-scaled proxy
 
-`legacy_qd_scaled_proxy` 保留冻结历史的 full-span-uniform proxy：其 tip-like scalar 由 clamped `qd/qd_ref` 缩放，且没有 `y/R` 分布。它不是 DeLaurier numerical-example dynamic twist，默认不会进入运行路径，仅用于显式历史 A/B。mode 是单值枚举，因此 legacy 与新模型不能同时启用。
+`legacy_qd_scaled_proxy` 保留冻结历史的 full-span-uniform proxy：
+
+```text
+s = clamp(qd/qd_ref, -1, 1)
+delta_theta = clamp(eta_max * wing_sign * s, -eta_limit, eta_limit)
+delta_theta_dot = (eta_max/qd_ref) * wing_sign * qdd
+delta_theta_ddot = (eta_max/qd_ref) * wing_sign * qddd
+```
+
+`qd_ref` 最小为 `1e-6 rad/s`。历史实现只 clamp angle；即使 angle 已饱和，derivative 路径也不会对 clamp 求导或被截断。提取后的 `compute_legacy_qd_scaled_twist()` 原样保留该行为，且没有 `y/R` 分布。它不是 DeLaurier numerical-example dynamic twist，也不代表物理正确性；默认不会进入运行路径，仅用于显式历史 A/B。mode 是单值枚举，因此 legacy 与新模型不能同时启用。
+
+冻结 fixture 为 `tests/fixtures/delaurier_legacy_qd_scaled_proxy_v1.json`，version 同文件名，source commit 为 `dd4d1935f3b7c105948f445803e720942760fbd3`。它覆盖正/负/零 `qd`、`qd/qd_ref` saturation、angle amplitude clamp、`qdd/qddd` derivative path、full-span uniform 和左右相同 local scalar；float64 comparison tolerance 为 `1e-12`，实际最大绝对误差为 `5.551e-17`。
+
+## Airflow frame contract
+
+Isaac/project body velocity 是 FLU polar vector，DeLaurier 内部 section velocity 固定为 FRD-like convention：`+x forward,+y right,+z down`。环境现在显式执行：
+
+```text
+v_D = diag(1,-1,-1) v_air_FLU
+theta_a = atan2(v_D.z, clamp(v_D.x))
+theta = theta_a + theta_w + delta_theta
+```
+
+旧代码把未转换的 FLU `v_air_b.z` 直接代入 FRD 注释下的 `atan2`。例如同一输入 `[8,0,-1] m/s`，旧值为 `-7.125 deg`，显式转换后的新值为 `+7.125 deg`。这是 frame-boundary correction；未修改 DeLaurier coefficient、normal-force formula、strip application point 或 dynamic twist formula。完整决定见 `docs/decisions/ADR-2026-07-14-delaurier-airflow-frame-convention.md`。
 
 ## Affected DeLaurier physics
 
@@ -107,7 +130,20 @@ PYTHONDONTWRITEBYTECODE=1 ./isaaclab.sh -p -m pytest -p no:cacheprovider -q \
 
 最终结果：`124 passed in 2.38s`。float64 独立数值检查得到：disabled 与 zero-tip regression 最大误差 `0`；span linearity `0`；theoretical-tip semantics `5.55e-17`；special phase points `2.76e-16`；一阶/二阶 centered-finite-difference 误差分别为 `6.20e-9`、`7.29e-8`；non-zero phase-acceleration term `2.22e-16`；mean-pitch addition `2.78e-17`；engineering-to-DeLaurier phase mapping `0`；`dM_a` 直接公式比较 `0`。选定的非偶然消零 case 中，dynamic twist 使 integrated force、moment 和 strip power 的最大变化分别为 `1.086 N`、`0.570 N m` 和 `0.652 W`；这些是测试 fixture 的数值敏感性，不是模型准确性或真实飞行验证。
 
-同日两次尝试运行 `tests/test_delaurier_isaac_wrench_reference.py`，Isaac Sim 都在 pytest 收集前因 `DerivedDataCache` exclusive-lock error 和后续 `cuInit` crash 退出；备份遗留 lock directories 后重试仍相同。因此本次没有把 Isaac regression 写成通过。该 test 在上一阶段的已记录结果仍为通过，但尚未在本次 dynamic-twist diff 上重新验证。
+此前 `DerivedDataCache` exclusive-lock 和后续 `cuInit` crash 通过为每次 test run 设置独立临时 `XDG_CACHE_HOME` 解决；未删除用户全局 cache。2026-07-14 将新 pose test 与 reference-wrench test 放在同一 headless Isaac application 中实际运行，结果为 `2 passed in 8.16s`。因此 dynamic-twist 后的 current wrench regression 已重新验证。
+
+## Phase-to-pose integration validation
+
+`tests/test_delaurier_isaac_phase_pose_contract.py` 启动真实 Isaac/PhysX articulation，读取 `body_link_pos_w`、`body_link_quat_w`、joint state 和 link angular velocity。它用左右 local `+0.65 m/-0.65 m` span probe 验证四个 phase。`Gamma=20 deg` 时：
+
+| phase | joint position `(L,R)` rad | joint velocity sign `(L,R)` | probe `z_b` m | interpretation |
+|---:|---:|---:|---:|---|
+| `0` | `(+0.349066,-0.349066)` | `(0,0)` | `+0.210428` | positive-body-`z` endpoint |
+| `pi/2` | approximately `(0,0)` | `(-,+)` | `-0.012604` | midpoint moving to body `-z`，downstroke |
+| `pi` | `(-0.349066,+0.349066)` | `(0,0)` | `-0.234115` | negative-body-`z` endpoint |
+| `3pi/2` | approximately `(0,0)` | `(+,-)` | `-0.012604` | midpoint moving to body `+z`，upstroke |
+
+左右 link origin、span probe、chord/span polar directions 在 `2e-5` tolerance 内满足 body center-plane mirror；positive twist axial directions 使用 `det(S)S` 后一致，全部 pose mirror checks 的最大绝对误差为 `9.537e-7`。测试确认默认 `phase_direction=1`、offset `0` 无需修改。
 
 ## 修改前
 
@@ -251,7 +287,7 @@ PYTHONDONTWRITEBYTECODE=1 ./isaaclab.sh -p -m pytest -p no:cacheprovider -q -s \
 
 ## 仍存假设
 
-- `theta_a` 的环境 FRD 注释与项目其他 FLU 文字仍有既有冲突；本次未修改该 force-input 约定。
+- 当前 DeLaurier section reduction 只从 `u_D,w_D` 计算 incidence；large sideslip 的 section projection 尚未建模。
 - `d_hat=0.0` 当前由环境显式传入；CSV 中的 `dhat` 列尚未接入 active geometry。
-- wing-root origin、base COM 和 articulation local wrench reference 的对应关系沿用既有环境实现，尚无 Isaac Sim one-force reference test。
 - induced drag 仍在 wing wrench 形成之后仅修改 force，沿用旧行为，未为该附加 force 新增 moment closure。
+- corrected force distribution、induced-drag moment closure 与 closed-loop mission revalidation 均不在本阶段；pose/wrench integration passing 不构成 aerodynamic model validation。

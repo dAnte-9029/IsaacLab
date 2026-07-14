@@ -3,6 +3,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import torch
+
+from flapping_bot.direct.flapping_bot.startup_phase import map_symmetric_flap_coordinate_to_joint_space
+
 
 STRAIGHT_FLIGHT_ENV_FILE = (
     Path(__file__).resolve().parents[1]
@@ -75,3 +79,18 @@ def test_straight_flight_env_disables_virtual_roll_surrogate_by_default() -> Non
 def test_straight_flight_env_reset_initializes_rudder_joint() -> None:
     body = _method_body(STRAIGHT_FLIGHT_ENV_FILE, "_reset_idx")
     assert "jpos[:, self._IDX_RUDDER] = rudder0" in body
+
+
+def test_symmetric_flap_coordinate_maps_to_opposite_urdf_joint_signs() -> None:
+    flap_position = torch.tensor([0.3, -0.2], dtype=torch.float64)
+    flap_velocity = torch.tensor([-1.4, 0.8], dtype=torch.float64)
+    left_position, right_position, left_velocity, right_velocity = map_symmetric_flap_coordinate_to_joint_space(
+        flap_position_rad=flap_position,
+        flap_velocity_rad_s=flap_velocity,
+        left_joint_mid_rad=0.0,
+        right_joint_mid_rad=0.0,
+    )
+    torch.testing.assert_close(left_position, flap_position, atol=0.0, rtol=0.0)
+    torch.testing.assert_close(right_position, -flap_position, atol=0.0, rtol=0.0)
+    torch.testing.assert_close(left_velocity, flap_velocity, atol=0.0, rtol=0.0)
+    torch.testing.assert_close(right_velocity, -flap_velocity, atol=0.0, rtol=0.0)

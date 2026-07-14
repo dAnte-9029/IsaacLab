@@ -14,11 +14,13 @@ STRAIGHT_FLIGHT_ENV = (
 )
 
 
-def test_delaurier_theta_a_uses_frd_positive_down_alpha_convention() -> None:
+def test_delaurier_theta_a_explicitly_converts_isaac_flu_to_internal_frd() -> None:
     source = STRAIGHT_FLIGHT_ENV.read_text(encoding="utf-8")
 
-    assert "theta_a_env = torch.atan2(v_air_b[:, 2], vx_b)" in source
-    assert "theta_a_env = torch.atan2(-v_air_b[:, 2], vx_b)" not in source
+    assert 'body_air_velocity_to_delaurier_section_velocity(v_air_b, body_frame="FLU")' in source
+    assert "theta_a_env = compute_delaurier_axis_incidence(" in source
+    assert 'body_frame="FLU"' in source
+    assert "theta_a_env = torch.atan2" not in source
 
 
 def test_delaurier_dynamic_twist_is_explicitly_opt_in() -> None:
@@ -37,6 +39,7 @@ def test_environment_maps_cosine_stroke_phase_directly_to_delaurier_phase() -> N
     source = STRAIGHT_FLIGHT_ENV.read_text(encoding="utf-8")
 
     assert "self._q_cmd = amp * c" in source
+    assert "map_symmetric_flap_coordinate_to_joint_space(" in source
     assert "h = -q.view(B, 1) * y" in source
     assert "dynamic_twist_phase_direction: float = 1.0" in source
     assert "dynamic_twist_phase_offset_deg: float = 0.0" in source

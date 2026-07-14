@@ -1,6 +1,6 @@
 # Coordinate Frames, Units and Reference Points
 
-Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deliberately not filled with guesses.
+Date: 2026-07-14. `Observed` rows are direct code evidence. `Unresolved` is deliberately not filled with guesses.
 
 ## Frame definitions and conventions
 
@@ -8,9 +8,9 @@ Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deli
 |---|---|---|
 | World `w` | root position/velocity use `root_pos_w`, `root_lin_vel_w`; gravity is `(0,0,-9.81)` | Observed (`straight_flight_env.py:170-175`) |
 | Aerodynamic/body `b` | Tail module declares right-handed `x forward, y left, z up`; environment calls `root_lin_vel_b`, `root_ang_vel_b` aerodynamic inputs | Observed (`tail_aero.py:15`; `straight_flight_env.py:1248-1252`) |
-| Flight-log FRD | A DeLaurier comment calls `v_air_b.z` “body-down” and FRD, but no conversion is made | Unresolved/conflicting (`straight_flight_env.py:1343-1348`) |
+| DeLaurier section `D` | Right-handed `x` forward, `y` right, `z` down; `v_D=diag(1,-1,-1)v_FLU` | Observed (`delaurier_airflow.py`; ADR-2026-07-14) |
 | Wing co-rotating/Wang `c` | `x` span, `y` normal, `z` chordwise toward LE | Observed (`qsm_delaurier1993.py:81-85`) |
-| Engineering flap phase | `_phase` increases in the positive direction; `q=Gamma*cos(_phase)`, so phase zero is positive maximum stroke with zero rate | Observed (`straight_flight_env.py:_apply_action`) |
+| Engineering flap phase | `_phase` increases in the positive direction; `q=Gamma*cos(_phase)`. Positive `q` maps to left joint `+q` and right joint `-q`, raising both real span probes toward body `+z` | Observed (`startup_phase.py`; `test_delaurier_isaac_phase_pose_contract.py`) |
 | DeLaurier phase `phi_D` | `phi_D=+current_phase+0`; this makes `h=-q*y=-Gamma*y*cos(phi_D)` | Observed/derived from implemented equations (`resolve_delaurier_phase`, `_compute_wing_delaurier_wrench`) |
 | Wing-link `l` | Environment maps Wang axes to left/right wing link with two hard-coded matrices | Observed (`straight_flight_env.py:646-651`) |
 | Tail surface | No persistent separate frame; span/chord axes and AC arms are declared in `TailSurfaceCfg` body coordinates | Observed (`tail_aero.py:349-364`) |
@@ -23,7 +23,7 @@ Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deli
 
 ## Quaternion convention
 
-`quat_from_euler_xyz`, `quat_apply` and `quat_apply_inverse` are used throughout. Robot initial quaternion is `(1,0,0,0)` (`isaaclab_assets/.../flapping_bot.py:53-57`). The inspected project code does not define component ordering or a standalone algebraic convention; this is an **Unresolved** project-level convention, even though Isaac Lab may define it upstream.
+`quat_from_euler_xyz`, `quat_apply` and `quat_apply_inverse` are used throughout. Isaac articulation data explicitly document `body_link_quat_w` as `(w,x,y,z)`；robot initial quaternion `(1,0,0,0)` is identity (`articulation_data.py:body_link_quat_w`; `isaaclab_assets/.../flapping_bot.py`).
 
 ## Key tensor inventory
 
@@ -35,6 +35,8 @@ Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deli
 | `root_ang_vel_b` | `(N,3)` | rad/s | body | tail point velocity and controllers | Observed |
 | `wind_w`, `wind_b` | `(N,3)` | m/s | world/body | `wind_b=quat_apply_inverse(root_quat_w,wind_w)` | Observed |
 | `v_air_b` | `(N,3)` | m/s | body | `root_lin_vel_b-wind_b` | Observed |
+| `v_air_delaurier` | `(N,3)` | m/s | DeLaurier section `D` | FLU polar vector converted by `diag(1,-1,-1)` | Observed |
+| `theta_a_env` | `(N,)` | rad | DeLaurier section incidence | `atan2(v_D.z, clamp(v_D.x))`; positive for vehicle air-relative velocity toward body-FLU `-z` | Observed |
 | `_phase`, `_freq` | `(N,)` | rad, Hz | scalar | advanced per physics step; controls prescribed wing motion | Observed |
 | `q_cmd`, `qd_cmd`, `qdd_cmd` | `(N,)` | rad, rad/s, rad/s² | joint scalar | cosine waveform | Observed |
 | DeLaurier strip fields `h,...,theta...` | `(B,N_strip)` | m/m·s⁻¹/m·s⁻²/rad/rad·s⁻¹/rad·s⁻² | co-rotating calculation | `B=2*N_env`; inputs to strip-load calculation | Observed |
@@ -63,23 +65,43 @@ Date: 2026-07-13. `Observed` rows are direct code evidence. `Unresolved` is deli
 
 - Equivalent AC returns `+span_center` for left and `-span_center` for right (`wing_equivalent_ac.py:25-26`).
 - Wang-to-link mapping mirrors right span (`straight_flight_env.py:648-651`).
-- DeLaurier batches repeat the same engineering phase and scalar `q/qd/qdd` for left/right. Prescribed dynamic twist uses the same local Wang `+x` pitch sign on both sides; no additional right-wing scalar sign is applied.
+- DeLaurier batches repeat the same physical engineering phase and scalar `q/qd/qdd` for left/right. URDF joint targets/velocities are mirrored as left `(+q,+qd)` and right `(-q,-qd)` because both revolute axes are joint `+x` while mesh spans are local `+y/-y`. Prescribed dynamic twist uses the same local Wang `+x` pitch sign on both sides; no additional right-wing aerodynamic scalar sign is applied.
 - Tail mixing defines left/right differential signs in the environment (`left=pitch+roll`, `right=pitch-roll`), and both elevon surfaces use `deflection_sign=-1` (`straight_flight_env.py:1156-1184`; `tail_aero.py:264-303`).
-- The pure strip-wrench test verifies polar/axial parity under the current mirrored Wang-to-link matrices and static left/right symmetry; a full Isaac articulation reference test is still absent.
+- Pure strip-wrench tests verify polar/axial parity。`test_delaurier_isaac_phase_pose_contract.py` additionally verifies real mirrored link origins, span probes, chord/span directions, axial pitching directions and motion at four phases; `test_delaurier_isaac_wrench_reference.py` verifies the articulation wrench boundary.
+
+## Phase-to-pose contract
+
+Real PhysX pose validation uses a `0.65 m` representative span point in each real wing link and body FLU coordinates. With `Gamma=20 deg`:
+
+| `phase` | left/right URDF joint | probe `z_b` | physical interpretation |
+|---:|---|---:|---|
+| `0` | `(+0.349066,-0.349066) rad`；zero rate | `+0.210428 m` | positive-body-`z` stroke endpoint |
+| `pi/2` | approximately `(0,0)`；velocity `(-1.745329,+1.745329) rad/s` | `-0.012604 m` | midpoint moving toward body `-z`，downstroke |
+| `pi` | `(-0.349066,+0.349066) rad`；zero rate | `-0.234115 m` | negative-body-`z` stroke endpoint |
+| `3pi/2` | approximately `(0,0)`；velocity `(+1.745329,-1.745329) rad/s` | `-0.012604 m` | midpoint moving toward body `+z`，upstroke |
+
+左右 probe 的 `x/z` 在 `2e-5` tolerance 内相等，`y` 等幅反号。该结果确认 `phi_D=current_phase`，因此 `dynamic_twist_phase_direction=1`、offset `0` 保持不变。
+
+## Airflow and angle contract
+
+Isaac/project body 使用 FLU，DeLaurier section 使用 FRD-like axes：
+
+```text
+v_D = diag(1,-1,-1) v_FLU
+theta_a = atan2(w_D,u_D) = atan2(-v_FLU.z,v_FLU.x)
+theta = theta_a + theta_w + delta_theta
+```
+
+因此水平来流 `theta_a=0`；vehicle air-relative velocity 具有 body-FLU `-z` 分量时 `theta_a>0`，具有 `+z` 分量时 `theta_a<0`。`theta_w` 和 `delta_theta` 均沿 Wang `+x` 正 pitch 定义，不在左右翼入口增加额外经验 sign。
 
 ## Identified ambiguities
 
-1. FLU versus FRD is contradictory at the DeLaurier `theta_a` calculation; code uses no conversion.
-2. Quaternion component order and transform direction are not declared in project documentation.
-3. The relationship among root frame, base-link frame, `root_com_pos_w`, and aerodynamic body reference is assumed but not asserted.
-4. DeLaurier CSV `dhat` is read but active geometry uses `dhat=0`; whether the discarded field matters is unresolved.
+1. DeLaurier current section reduction只使用 forward/down components；large sideslip 对 section incidence 的处理尚未定义。
+2. DeLaurier CSV `dhat` is read but active geometry uses `dhat=0`; whether the discarded field matters is unresolved.
 
 ## Required future assertions/tests
 
-- Hand-computable FLU/FRD tests for `theta_a`, force and `My` signs.
-- Assert quaternion order/direction at the project boundary.
 - Assert `r` and `F` are in the same frame before every `cross(r,F)` closure.
 - Test left/right mirrored DeLaurier loads yield expected net roll/yaw symmetry.
 - Retain phase-map tests at top stroke, mid downstroke, bottom stroke and mid upstroke if stroke generation changes.
-- Extend the current pure strip force/moment-conservation tests to an Isaac articulation one-force reference test.
-- Test final base-link wrench frame/reference against a one-force Isaac articulation case.
+- Re-run mission baselines after the corrected mirrored joint-space mapping；pose integration passing does not by itself establish closed-loop performance.

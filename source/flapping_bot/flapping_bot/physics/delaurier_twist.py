@@ -45,6 +45,26 @@ class DeLaurierTwistKinematics:
     phase_acceleration: Tensor
 
 
+@dataclass(frozen=True)
+class LegacyQdScaledTwistKinematics:
+    """Frozen full-span-uniform kinematics of the historical ``qd`` proxy.
+
+    Every field has shape ``(B, N)``. Angles use rad and their derivatives
+    use rad/s and rad/s². The helper intentionally preserves the historical
+    behavior in which only ``delta_theta`` is clamped: its derivative fields
+    remain proportional to the supplied joint acceleration and jerk even when
+    the angle is saturated. This contract exists for result reproduction, not
+    as a claim of passive-wing physics.
+    """
+
+    theta: Tensor
+    theta_dot: Tensor
+    theta_ddot: Tensor
+    delta_theta: Tensor
+    delta_theta_dot: Tensor
+    delta_theta_ddot: Tensor
+
+
 def validate_delaurier_dynamic_twist_mode(mode: str) -> str:
     """Return a supported dynamic-twist mode or raise a clear error."""
 
@@ -143,6 +163,127 @@ def _expand_batch(tensor: Tensor, *, batch_size: int, name: str) -> Tensor:
     if tensor.shape[0] == 1:
         return tensor.expand(batch_size, *tensor.shape[1:])
     raise ValueError(f"{name} batch dimension must be 1 or {batch_size}.")
+
+
+def compute_legacy_qd_scaled_twist(
+    *,
+    num_strips: int,
+    mean_pitch_rad: Tensor | float,
+    joint_velocity_rad_s: Tensor,
+    joint_acceleration_rad_s2: Tensor,
+    joint_jerk_rad_s3: Tensor,
+    reference_velocity_rad_s: Tensor | float,
+    maximum_twist_rad: Tensor | float,
+    twist_limit_rad: Tensor | float,
+    twist_sign: Tensor | float,
+) -> LegacyQdScaledTwistKinematics:
+    """Reproduce the historical full-span-uniform ``qd`` twist proxy.
+
+    Args:
+        num_strips: Number of output strips ``N``.
+        mean_pitch_rad: Mean pitch, scalar or shape ``(B,)``, ``(B,1)`` or
+            ``(B,N)``, in rad.
+        joint_velocity_rad_s: Flapping-joint velocity, shape ``(B,)`` or
+            ``(B,1)``, in rad/s.
+        joint_acceleration_rad_s2: Flapping-joint acceleration with the same
+            batch shape, in rad/s².
+        joint_jerk_rad_s3: Flapping-joint jerk with the same batch shape, in
+            rad/s³.
+        reference_velocity_rad_s: Positive ``qd_ref`` used to normalize and
+            clamp ``qd/qd_ref`` to ``[-1,1]``. Historical behavior clamps this
+            denominator to at least ``1e-6`` rad/s.
+        maximum_twist_rad: Historical ``eta_max`` scale, in rad.
+        twist_limit_rad: Final absolute angle clamp ``eta_lim``, in rad.
+        twist_sign: Per-wing historical scalar sign, scalar or batch-shaped.
+
+    Returns:
+        Frozen legacy pitch kinematics, all shaped ``(B,N)``.
+
+    Notes:
+        This helper deliberately has no spanwise distribution. It also does
+        not differentiate either clamp; derivative outputs retain the exact
+        historical algebra used before this function was extracted.
+    """
+
+    if int(num_strips) <= 0:
+        raise ValueError("num_strips must be positive.")
+    if not isinstance(joint_velocity_rad_s, torch.Tensor):
+        raise TypeError("joint_velocity_rad_s must be a torch tensor.")
+
+    reference = joint_velocity_rad_s
+    joint_velocity = _as_batch_column(reference, reference=reference, name="joint_velocity_rad_s")
+    joint_acceleration = _as_batch_column(
+        joint_acceleration_rad_s2,
+        reference=reference,
+        name="joint_acceleration_rad_s2",
+    )
+    joint_jerk = _as_batch_column(joint_jerk_rad_s3, reference=reference, name="joint_jerk_rad_s3")
+    reference_velocity = _as_batch_column(
+        reference_velocity_rad_s,
+        reference=reference,
+        name="reference_velocity_rad_s",
+    )
+    maximum_twist = _as_batch_column(maximum_twist_rad, reference=reference, name="maximum_twist_rad")
+    twist_limit = _as_batch_column(twist_limit_rad, reference=reference, name="twist_limit_rad")
+    resolved_twist_sign = _as_batch_column(twist_sign, reference=reference, name="twist_sign")
+    mean_pitch = _as_mean_pitch_matrix(mean_pitch_rad, reference=reference, num_strips=int(num_strips))
+
+    batch_size = _resolve_batch_size(
+        joint_velocity,
+        joint_acceleration,
+        joint_jerk,
+        reference_velocity,
+        maximum_twist,
+        twist_limit,
+        resolved_twist_sign,
+        mean_pitch,
+    )
+    joint_velocity = _expand_batch(joint_velocity, batch_size=batch_size, name="joint_velocity_rad_s")
+    joint_acceleration = _expand_batch(
+        joint_acceleration,
+        batch_size=batch_size,
+        name="joint_acceleration_rad_s2",
+    )
+    joint_jerk = _expand_batch(joint_jerk, batch_size=batch_size, name="joint_jerk_rad_s3")
+    reference_velocity = _expand_batch(
+        reference_velocity,
+        batch_size=batch_size,
+        name="reference_velocity_rad_s",
+    )
+    maximum_twist = _expand_batch(maximum_twist, batch_size=batch_size, name="maximum_twist_rad")
+    twist_limit = _expand_batch(twist_limit, batch_size=batch_size, name="twist_limit_rad")
+    resolved_twist_sign = _expand_batch(resolved_twist_sign, batch_size=batch_size, name="twist_sign")
+    mean_pitch = _expand_batch(mean_pitch, batch_size=batch_size, name="mean_pitch_rad")
+    if mean_pitch.shape[1] == 1:
+        mean_pitch = mean_pitch.expand(batch_size, int(num_strips))
+
+    if torch.any(maximum_twist < 0.0):
+        raise ValueError("maximum_twist_rad must be non-negative.")
+    if torch.any(twist_limit < 0.0):
+        raise ValueError("twist_limit_rad must be non-negative.")
+
+    safe_reference_velocity = torch.clamp(reference_velocity, min=1.0e-6)
+    normalized_flap_rate = torch.clamp(joint_velocity / safe_reference_velocity, min=-1.0, max=1.0)
+    delta_theta_scalar = torch.clamp(
+        maximum_twist * resolved_twist_sign * normalized_flap_rate,
+        min=-twist_limit,
+        max=twist_limit,
+    )
+    twist_gain = maximum_twist / safe_reference_velocity
+    delta_theta_dot_scalar = twist_gain * resolved_twist_sign * joint_acceleration
+    delta_theta_ddot_scalar = twist_gain * resolved_twist_sign * joint_jerk
+
+    delta_theta = delta_theta_scalar.expand(batch_size, int(num_strips))
+    delta_theta_dot = delta_theta_dot_scalar.expand(batch_size, int(num_strips))
+    delta_theta_ddot = delta_theta_ddot_scalar.expand(batch_size, int(num_strips))
+    return LegacyQdScaledTwistKinematics(
+        theta=mean_pitch + delta_theta,
+        theta_dot=delta_theta_dot,
+        theta_ddot=delta_theta_ddot,
+        delta_theta=delta_theta,
+        delta_theta_dot=delta_theta_dot,
+        delta_theta_ddot=delta_theta_ddot,
+    )
 
 
 def compute_delaurier_dynamic_twist(
