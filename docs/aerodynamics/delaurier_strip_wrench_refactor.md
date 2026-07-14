@@ -6,6 +6,19 @@
 
 已实现 DeLaurier attached-flow strip load 暴露与 strip-integrated wing wrench。本记录描述当前代码；未实现 corrected force 或 corrected distribution。
 
+## Frozen baseline: `delaurier-strip-wrench-v1`
+
+本 tag 冻结用于后续 corrected distribution 的 DeLaurier prior 和 wing-moment 链路。它是可复现的数值仿真基线，不表示气动模型已经完成 real-flight 或 sim-to-real validation。默认边界由 `FlappingBotStraightFlightEnvCfg` 与实际调用路径共同定义：
+
+- separation disabled：`delaurier_enable_separation=False`；
+- pitching axis at leading edge：`build_wing_geometry_from_csv(..., dhat=0.0)`；
+- aerodynamic-centre coefficient：`DeLaurierParams.c_mac=0.0`；
+- apparent-mass free couple enabled：`delaurier_include_apparent_mass_moment=True`；
+- strip-integrated wing moment enabled：`wing_moment_mode="strip_integrated"`；
+- induced drag disabled：`delaurier_induced_drag_efficiency=0.0`。
+
+`dM_ac` 的完整计算、开关和 power-sign test path 都保留，但在该冻结默认值下因 `c_mac=0.0` 而数值为零。任何后续 corrected distribution 实验应记录其 parent 为此 tag，并分别报告 prior force、correction distribution、corrected resultant force 和最终 wrench 的差异；不得把这些层次的失败重新归因于已冻结的 original moment chain，而不先给出新的直接证据。
+
 ## 修改前
 
 `compute_aero_wrench_delaurier1993()` 在 `qsm_delaurier1993.py` 中计算 strip quantities，但仅返回 Wang frame 的整翼合力，且返回的 moment 为零。`FlappingBotStraightFlightEnv._compute_wing_delaurier_wrench()` 将该合力放到由 `compute_area_weighted_quarter_chord_link_points()` 给出的固定等效 quarter-chord 点，再相对 `root_com_pos_w` 计算 `r x F`。
@@ -96,6 +109,51 @@ PYTHONDONTWRITEBYTECODE=1 ./isaaclab.sh -p -m pytest -p no:cacheprovider -q \
 结果：`10 passed`。`test_delaurier_strip_wrench.py` 检查：关闭 separation 时 strip and legacy total force 的误差不超过 `1e-12`（float64）；named moment component sum 的误差不超过 `1e-12`；chordwise force 在 `0c/0.25c/0.5c` 的 moment 差异不超过 `1e-12`；free-couple switch 的差异精确对应相应 component；镜像静态构造的 lateral force、roll 和 yaw residual 均不超过 `1e-12`。同一 float64 fixture 的显式数值检查得到 force 最大绝对误差 `0`、moment component conservation 最大绝对误差 `0`、chordwise application-point invariance 最大绝对误差 `0`、lateral/roll/yaw symmetry residual `0`。
 
 该验证是 pure-model/unit level，不构成 closed-loop flight、物理模型准确性或 sim-to-real 验证。
+
+## Free-couple sign validation
+
+2026-07-13 新增 `tests/test_delaurier_strip_wrench.py` 的 free-couple power-sign tests，并实际运行：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 ./isaaclab.sh -p -m pytest -p no:cacheprovider -q \
+  tests/test_delaurier_strip_wrench.py
+```
+
+结果：`25 passed in 0.79s`。测试对 `dM_ac`、`dM_a` 和两者合成项分别覆盖正 moment/正 `thetad`、正 moment/负 `thetad`、负 moment/正 `thetad`，左右翼均覆盖。Wang `+x` 是 spanwise twist axis；按照环境的 Wang-to-link 定义，left/right 的正 axial twist axis 都是 link `+y`。这是因为右翼的 polar span axis 是 link `-y`，但 moment 和 angular velocity 都是 axial vectors，均使用 `det(A) A`。
+
+对所有构造值，测试确认：
+
+```text
+M_free,link · omega_twist,link = (dM_ac + dM_a) * thetad
+P_input,moment = -M_free,link · omega_twist,link
+```
+
+在 float64 fixture 中 left/right、各 component 和 reflection dot-product invariance 的最大绝对误差均为 `0`（容差 `1e-12`）。本次没有修改任何 free-couple 符号或生产代码。
+
+## Isaac wrench reference validation
+
+2026-07-13 新增 headless Isaac Sim integration test：`tests/test_delaurier_isaac_wrench_reference.py`。它以项目 `FlappingBotCfg` 初始化真实 articulation，关闭 gravity，显式读取 `body_pos_w` 的 wing link origin、`body_link_pos_w` 的 base-link origin 和 `root_com_pos_w` 的 base COM。测试先在 world frame 手算：
+
+```text
+M_G = M_free + (p_wing_origin - p_base_COM) x F
+```
+
+再将该 complete wrench 表达到 base-link local frame，并调用与环境相同的 `Articulation.set_external_force_and_torque(..., body_ids=[base_link], is_global=False)`。Isaac Lab API 在 `is_global=False` 时接收 body link local force/torque；未给 `positions`，因此 force 施加在该 body 的 COM，传入 torque 是关于该 COM 的 free couple。测试直接检查 API input buffers，因而不依赖由动力学响应反推 wrench。
+
+实际运行：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 ./isaaclab.sh -p -m pytest -p no:cacheprovider -q -s \
+  tests/test_delaurier_isaac_wrench_reference.py
+```
+
+结果：`1 passed in 5.38s`，`dt=0.01 s`。Case A 在左翼测试两个不共线 force direction；Case B 在 left/right 分别测试 zero-force free couple；Case C 在 left/right 分别测试 force-plus-couple。每个 case 的 API buffer `expected == actual`，force 和 moment 输入最大绝对误差均为 `0`（float32 buffer）。例如：
+
+- Case A force Wang `[0,0,80] N`：base-link target force `[80, 2.49e-7, 2.72e-7] N`，target moment `[1.52e-8, -0.122833, -4.367042] N m`；
+- Case B free couple Wang `[25,0,0] N m`：left/right base-COM target moment 的主要 `+y` 分量都是 `24.995300 N m`，而镜像几何使其 `z` 分量分别为 `-0.484745` 和 `+0.484745 N m`；
+- Case C left/right force-plus-couple：target force 的主要 `+x` 分量均为 `45 N`；target moment 分别为约 `[0,17.927523,-2.805477]` 和 `[0,17.927523,2.932559] N m`。
+
+测试还检查每个 case 的 one-step root-COM linear/angular velocity response 与施加 force/moment 同向。该 reference articulation 仍有可动 wing/tail links，因此内部 joint reaction 会使 root COM 的单步响应不能直接等同为单刚体的 `m a=F` 或 `I_G alpha=M_G`；测试没有把这种多刚体响应伪报为单刚体残差。输入闭合误差为 `0`，而动力学层的已验证量是力/力矩方向的正投影。该测试确认 strip-integrated target 不包含 legacy quarter-chord 的第二个 `r x F` 项。
 
 ## 后续 corrected distribution 边界
 

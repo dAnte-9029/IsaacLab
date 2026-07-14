@@ -3,12 +3,12 @@
 ## Stable baseline
 
 - Branch: `flapping_rl`
-- Commit audited: `300045bf9a3ebbd338f1fd4f165016d8e6ccc0d8`
-- Current implemented plant: DeLaurier aggregate wing resultant plus equivalent-AC `r x F` wing moment; five-surface tail `r x F` moment; PX4-like controller/task stack. Default near-single-rigid-body mass properties are `0.90415 kg`, CG `(-0.12154, 0.00541, -0.01298) m` in `base_link`, and diagonal inertia `(0.02329, 0.02573, 0.04270) kg m^2` about that CG.
+- Frozen tag: `delaurier-strip-wrench-v1`
+- Current implemented plant: attached-flow DeLaurier strip resultant with strip-integrated wing moment about base COM; five-surface tail `r x F` moment; PX4-like controller/task stack. The frozen DeLaurier defaults are separation disabled, `d_hat=0`, `c_mac=0`, `dM_a` enabled, `strip_integrated` moment mode, and induced drag disabled. Default near-single-rigid-body mass properties are `0.90415 kg`, CG `(-0.12154, 0.00541, -0.01298) m` in `base_link`, and diagonal inertia `(0.02329, 0.02573, 0.04270) kg m^2` about that CG.
 
 ## Current completed stage
 
-2026-07-13 formal current-simulation audit completed, followed by approval of the measured whole-aircraft mass-property baseline and the DeLaurier strip-wrench refactor. Main records: `docs/audits/2026-07-13-current-simulation-audit.md` and `docs/aerodynamics/delaurier_strip_wrench_refactor.md`.
+2026-07-14 DeLaurier strip-wrench baseline frozen after force/moment, free-couple power-sign and Isaac articulation reference-wrench tests. Main records: `docs/audits/2026-07-13-current-simulation-audit.md` and `docs/aerodynamics/delaurier_strip_wrench_refactor.md`.
 
 ## Active stage
 

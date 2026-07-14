@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
 import torch
 
 from flapping_bot.physics.qsm_delaurier1993 import (
@@ -217,3 +220,114 @@ def test_left_right_wang_mapping_preserves_symmetric_pitch_couples() -> None:
     assert torch.allclose(total_moment[:, 0], torch.zeros(1, dtype=torch.float64), atol=1.0e-12)
     assert torch.allclose(total_moment[:, 2], torch.zeros(1, dtype=torch.float64), atol=1.0e-12)
     assert torch.all(total_moment[:, 1].abs() > 0.0)
+
+
+# Wang +x is the spanwise pitching/twist axis.  The environment's documented
+# maps place that axial axis at link +y on both wings: the right wing's polar
+# span axis is link -y, but its axial twist axis is link +y after reflection.
+# Positive theta is the right-hand rotation about this axis.  Both moment and
+# angular velocity are axial vectors, so their scalar power product is frame
+# invariant even for the right-wing reflection.
+_WANG_TO_LEFT_LINK = torch.tensor(
+    [[[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]], dtype=torch.float64
+)
+_WANG_TO_RIGHT_LINK = torch.tensor(
+    [[[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]], dtype=torch.float64
+)
+_TWIST_AXIS_LINK = torch.tensor([[0.0, 1.0, 0.0]], dtype=torch.float64)
+
+
+def _free_component_moment_wang(component: str, scalar_moment_nm: float) -> torch.Tensor:
+    """Return one Wang-frame free-couple component, shape ``(1, 3)`` in N m."""
+
+    loads = _manual_strip_loads()
+    zero = torch.zeros_like(loads.dM_ac)
+    if component == "dM_ac":
+        loads = replace(loads, dM_ac=torch.tensor([[scalar_moment_nm, 0.0]], dtype=torch.float64), dM_a=zero)
+        return integrate_delaurier_strip_wrench(loads).moment_from_dM_ac_wang
+    if component == "dM_a":
+        loads = replace(loads, dM_ac=zero, dM_a=torch.tensor([[scalar_moment_nm, 0.0]], dtype=torch.float64))
+        return integrate_delaurier_strip_wrench(loads).moment_from_dM_a_wang
+    if component == "combined":
+        loads = replace(
+            loads,
+            dM_ac=torch.tensor([[0.40 * scalar_moment_nm, 0.0]], dtype=torch.float64),
+            dM_a=torch.tensor([[0.60 * scalar_moment_nm, 0.0]], dtype=torch.float64),
+        )
+        wrench = integrate_delaurier_strip_wrench(loads)
+        return wrench.moment_from_dM_ac_wang + wrench.moment_from_dM_a_wang
+    raise ValueError(f"Unknown free-couple component: {component}")
+
+
+@pytest.mark.parametrize("component", ("dM_ac", "dM_a", "combined"))
+@pytest.mark.parametrize("scalar_moment_nm, theta_dot_rad_s", ((2.5, 3.0), (2.5, -3.0), (-2.5, 3.0)))
+def test_free_couple_power_sign_left_wing(
+    component: str,
+    scalar_moment_nm: float,
+    theta_dot_rad_s: float,
+) -> None:
+    """Verify left-wing free-couple power against the DeLaurier input convention."""
+
+    moment_wang = _free_component_moment_wang(component, scalar_moment_nm)
+    zero_force_wang = torch.zeros_like(moment_wang)
+    _force_link, moment_link = transform_wang_wrench_to_link(zero_force_wang, moment_wang, _WANG_TO_LEFT_LINK)
+
+    # This is independently specified by the link-frame joint/axis convention,
+    # not inferred from the transformed moment. Shape: (1, 3), rad/s.
+    twist_angular_velocity_link = theta_dot_rad_s * _TWIST_AXIS_LINK
+    aerodynamic_moment_power_w = torch.sum(moment_link * twist_angular_velocity_link, dim=-1)
+    expected_aerodynamic_power_w = torch.tensor([scalar_moment_nm * theta_dot_rad_s], dtype=torch.float64)
+    input_power_w = -expected_aerodynamic_power_w
+
+    torch.testing.assert_close(aerodynamic_moment_power_w, expected_aerodynamic_power_w, atol=1.0e-12, rtol=0.0)
+    torch.testing.assert_close(input_power_w, -aerodynamic_moment_power_w, atol=1.0e-12, rtol=0.0)
+
+
+@pytest.mark.parametrize("component", ("dM_ac", "dM_a", "combined"))
+@pytest.mark.parametrize("scalar_moment_nm, theta_dot_rad_s", ((2.5, 3.0), (2.5, -3.0), (-2.5, 3.0)))
+def test_free_couple_power_sign_right_wing(
+    component: str,
+    scalar_moment_nm: float,
+    theta_dot_rad_s: float,
+) -> None:
+    """Verify right-wing reflected free-couple power against the same convention."""
+
+    moment_wang = _free_component_moment_wang(component, scalar_moment_nm)
+    zero_force_wang = torch.zeros_like(moment_wang)
+    _force_link, moment_link = transform_wang_wrench_to_link(zero_force_wang, moment_wang, _WANG_TO_RIGHT_LINK)
+
+    # The reflected link has the same physical positive twist axis (+link y)
+    # because angular velocity is axial; using polar parity here would be wrong.
+    twist_angular_velocity_link = theta_dot_rad_s * _TWIST_AXIS_LINK
+    aerodynamic_moment_power_w = torch.sum(moment_link * twist_angular_velocity_link, dim=-1)
+    expected_aerodynamic_power_w = torch.tensor([scalar_moment_nm * theta_dot_rad_s], dtype=torch.float64)
+
+    torch.testing.assert_close(aerodynamic_moment_power_w, expected_aerodynamic_power_w, atol=1.0e-12, rtol=0.0)
+    torch.testing.assert_close(-aerodynamic_moment_power_w, -expected_aerodynamic_power_w, atol=1.0e-12, rtol=0.0)
+
+
+def test_free_couple_power_sign_is_mirror_consistent() -> None:
+    """Check axial-vector dot-product invariance on the actual mirrored matrices."""
+
+    moment_wang = torch.tensor([[1.75, 0.0, 0.0]], dtype=torch.float64)
+    angular_velocity_wang = torch.tensor([[-2.25, 0.0, 0.0]], dtype=torch.float64)
+    zero_force_wang = torch.zeros_like(moment_wang)
+
+    # The second call transforms a separately constructed angular velocity as an
+    # axial vector; it does not reuse the moment result as angular velocity.
+    _unused_force_left, moment_left = transform_wang_wrench_to_link(
+        zero_force_wang, moment_wang, _WANG_TO_LEFT_LINK
+    )
+    _unused_force_right, moment_right = transform_wang_wrench_to_link(
+        zero_force_wang, moment_wang, _WANG_TO_RIGHT_LINK
+    )
+    _unused_omega_left, angular_velocity_left = transform_wang_wrench_to_link(
+        zero_force_wang, angular_velocity_wang, _WANG_TO_LEFT_LINK
+    )
+    _unused_omega_right, angular_velocity_right = transform_wang_wrench_to_link(
+        zero_force_wang, angular_velocity_wang, _WANG_TO_RIGHT_LINK
+    )
+
+    expected_power = torch.sum(moment_wang * angular_velocity_wang, dim=-1)
+    torch.testing.assert_close(torch.sum(moment_left * angular_velocity_left, dim=-1), expected_power, atol=1.0e-12, rtol=0.0)
+    torch.testing.assert_close(torch.sum(moment_right * angular_velocity_right, dim=-1), expected_power, atol=1.0e-12, rtol=0.0)
