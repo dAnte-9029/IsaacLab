@@ -33,7 +33,7 @@ from .delaurier_airflow import (
     body_air_velocity_to_delaurier_section_velocity,
     compute_delaurier_axis_incidence,
 )
-from .tail_aero import TailAeroCfg, TailAeroModel, TailSurfaceCfg
+from .tail_aero import TailAeroCfg, TailAeroModel, TailSurfaceCfg, TailSurfaceResult
 from .tail_geometry import PlaceholderValue, TailGeometry, TailSurfaceGeometry, load_tail_geometry_from_urdf
 from .wing_equivalent_ac import compute_area_weighted_quarter_chord_link_points
 from .wing_geom_csv import WingGeomCsvInfo, build_wing_geometry_from_csv, infer_span_from_x_mid, load_wing_geom_csv
@@ -68,6 +68,7 @@ __all__ = [
     "body_air_velocity_to_delaurier_section_velocity",
     "compute_delaurier_axis_incidence",
     "TailSurfaceCfg",
+    "TailSurfaceResult",
     "TailAeroCfg",
     "TailAeroModel",
     "PlaceholderValue",

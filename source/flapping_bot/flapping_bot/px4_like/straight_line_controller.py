@@ -556,8 +556,10 @@ class PX4LikeStraightLineController:
         # Fixed-wing convention: roll controls ground-track; yaw/rudder should not fight wind-crab.
         # Drive yaw to align with the airspeed direction (beta≈0), with yaw-rate damping.
         course_err = _wrap_pi(yaw - heading_from_velocity)
+        # ``course_err`` is current minus desired heading, so both feedback terms
+        # must oppose their corresponding positive yaw states.
         action_rudder = torch.clamp(
-            float(self.cfg.yaw_kp) * course_err - float(self.cfg.yaw_kd) * ang_vel_body[:, 2],
+            -float(self.cfg.yaw_kp) * course_err - float(self.cfg.yaw_kd) * ang_vel_body[:, 2],
             min=-1.0,
             max=1.0,
         )

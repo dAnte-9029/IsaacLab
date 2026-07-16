@@ -381,6 +381,38 @@ class TailAeroCfg:
     rudder: TailSurfaceCfg = field(default_factory=_default_rudder_surface)
 
 
+@dataclass(frozen=True)
+class TailSurfaceResult:
+    """Per-surface tail load and diagnostics in the body FLU frame.
+
+    All tensors preserve the leading batch dimension. ``moment_b_about_com`` is
+    generated only from ``aerodynamic_center_b_from_com x force_b``; the model
+    contains no intrinsic surface pitching moment.
+    """
+
+    name: str
+    force_b: Tensor
+    moment_b_about_com: Tensor
+    lift_force_b: Tensor
+    drag_force_b: Tensor
+    local_velocity_b: Tensor
+    projected_velocity_b: Tensor
+    local_speed_mps: Tensor
+    alpha_raw_rad: Tensor
+    alpha_rad: Tensor
+    dynamic_pressure_pa: Tensor
+    lift_coefficient: Tensor
+    drag_coefficient: Tensor
+    alpha_clipped: Tensor
+    deflection_rad: Tensor
+    aerodynamic_center_b_from_com: Tensor
+    chord_axis_b: Tensor
+    span_axis_b: Tensor
+    effectiveness_scaling: float
+    effective_lift_slope_per_rad: float
+    dynamic_pressure_scaling: float
+
+
 class TailAeroModel:
     """Compute the body-frame aerodynamic wrench for the latest tail layout."""
 
@@ -420,7 +452,14 @@ class TailAeroModel:
             return float(self.cfg.horizontal_tail_q_scale)
         return 1.0
 
-    def _surface_wrench(
+    def _effectiveness_scaling(self, surf: TailSurfaceCfg) -> float:
+        if surf.name == "fixed_horizontal":
+            return float(self.cfg.fixed_horizontal_effectiveness)
+        if self._is_elevon_surface(surf):
+            return float(self.cfg.elevon_effectiveness)
+        return 1.0
+
+    def _surface_result(
         self,
         surf: TailSurfaceCfg,
         *,
@@ -428,7 +467,9 @@ class TailAeroModel:
         root_ang_vel_b: Tensor,
         deflection_rad: Tensor,
         base_com_pos_b: Tensor | None = None,
-    ) -> tuple[Tensor, Tensor]:
+    ) -> TailSurfaceResult:
+        """Return the authoritative load calculation plus read-only diagnostics."""
+
         device = self.device
         dtype = root_lin_vel_b.dtype
 
@@ -454,25 +495,68 @@ class TailAeroModel:
         dot = torch.sum(v_in * chord, dim=1).clamp(-1.0 + 1.0e-6, 1.0 - 1.0e-6)
         cross_vec = torch.linalg.cross(chord, v_in)
         sin = torch.sum(cross_vec * span, dim=1)
-        alpha = torch.atan2(sin, dot)
+        alpha_raw = torch.atan2(sin, dot)
         alpha_lim = math.radians(self._effective_alpha_limit_deg(surf))
-        alpha = torch.clamp(alpha, -alpha_lim, alpha_lim)
+        alpha = torch.clamp(alpha_raw, -alpha_lim, alpha_lim)
 
-        cl = self._effective_cl_alpha_per_rad(surf) * alpha
+        effective_lift_slope = self._effective_cl_alpha_per_rad(surf)
+        cl = effective_lift_slope * alpha
         cd = float(surf.cd0) + float(surf.cd_k) * (cl * cl)
 
-        q = 0.5 * float(self.cfg.air_density) * self._effective_dynamic_pressure_scale(surf) * (speed * speed)
+        dynamic_pressure_scaling = self._effective_dynamic_pressure_scale(surf)
+        q = 0.5 * float(self.cfg.air_density) * dynamic_pressure_scaling * (speed * speed)
         lift = (q * float(surf.area) * cl).unsqueeze(1)
         drag = (q * float(surf.area) * cd).unsqueeze(1)
 
         lift_dir = F.normalize(torch.linalg.cross(v_dir, span), dim=1, eps=1.0e-9)
         drag_dir = -v_dir
+        lift_force_b = lift * lift_dir
+        drag_force_b = drag * drag_dir
+        force_b = lift_force_b + drag_force_b
+        moment_b = torch.linalg.cross(r_b, force_b)
+        return TailSurfaceResult(
+            name=surf.name,
+            force_b=force_b,
+            moment_b_about_com=moment_b,
+            lift_force_b=lift_force_b,
+            drag_force_b=drag_force_b,
+            local_velocity_b=v_point,
+            projected_velocity_b=v_proj,
+            local_speed_mps=speed,
+            alpha_raw_rad=alpha_raw,
+            alpha_rad=alpha,
+            dynamic_pressure_pa=q,
+            lift_coefficient=cl,
+            drag_coefficient=cd,
+            alpha_clipped=torch.abs(alpha_raw) > alpha_lim,
+            deflection_rad=deflection_rad,
+            aerodynamic_center_b_from_com=r_b,
+            chord_axis_b=chord,
+            span_axis_b=span,
+            effectiveness_scaling=self._effectiveness_scaling(surf),
+            effective_lift_slope_per_rad=effective_lift_slope,
+            dynamic_pressure_scaling=dynamic_pressure_scaling,
+        )
 
-        force_b = lift * lift_dir + drag * drag_dir
-        torque_b = torch.linalg.cross(r_b, force_b)
-        return force_b, torque_b
+    def _surface_wrench(
+        self,
+        surf: TailSurfaceCfg,
+        *,
+        root_lin_vel_b: Tensor,
+        root_ang_vel_b: Tensor,
+        deflection_rad: Tensor,
+        base_com_pos_b: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor]:
+        result = self._surface_result(
+            surf,
+            root_lin_vel_b=root_lin_vel_b,
+            root_ang_vel_b=root_ang_vel_b,
+            deflection_rad=deflection_rad,
+            base_com_pos_b=base_com_pos_b,
+        )
+        return result.force_b, result.moment_b_about_com
 
-    def compute_wrench(
+    def compute_surface_results(
         self,
         *,
         root_lin_vel_b: Tensor,
@@ -482,13 +566,8 @@ class TailAeroModel:
         rudder_rad: Tensor,
         elevator_rad: Tensor | None = None,
         base_com_pos_b: Tensor | None = None,
-    ) -> tuple[Tensor, Tensor]:
-        """Return net tail wrench in body frame.
-
-        The preferred interface passes split left/right elevon deflections.
-        ``elevator_rad`` is retained only as a compatibility fallback and maps
-        to symmetric left/right elevon deflection.
-        """
+    ) -> tuple[TailSurfaceResult, ...]:
+        """Return the five authoritative surface results in stable geometry order."""
 
         if rudder_rad.ndim != 1:
             raise ValueError("rudder_rad must be a 1D tensor.")
@@ -513,24 +592,55 @@ class TailAeroModel:
             raise ValueError("Batch size mismatch in tail aero inputs.")
 
         zero = torch.zeros_like(rudder_rad)
-        total_force = torch.zeros_like(root_lin_vel_b)
-        total_torque = torch.zeros_like(root_lin_vel_b)
-
-        for surf, deflection in (
-            (self.cfg.fixed_horizontal, zero),
-            (self.cfg.left_elevon, left_elevon_rad),
-            (self.cfg.right_elevon, right_elevon_rad),
-            (self.cfg.fixed_vertical, zero),
-            (self.cfg.rudder, rudder_rad),
-        ):
-            force_b, torque_b = self._surface_wrench(
+        return tuple(
+            self._surface_result(
                 surf,
                 root_lin_vel_b=root_lin_vel_b,
                 root_ang_vel_b=root_ang_vel_b,
                 deflection_rad=deflection,
                 base_com_pos_b=base_com_pos_b,
             )
-            total_force = total_force + force_b
-            total_torque = total_torque + torque_b
+            for surf, deflection in (
+                (self.cfg.fixed_horizontal, zero),
+                (self.cfg.left_elevon, left_elevon_rad),
+                (self.cfg.right_elevon, right_elevon_rad),
+                (self.cfg.fixed_vertical, zero),
+                (self.cfg.rudder, rudder_rad),
+            )
+        )
+
+    def compute_wrench(
+        self,
+        *,
+        root_lin_vel_b: Tensor,
+        root_ang_vel_b: Tensor,
+        left_elevon_rad: Tensor | None = None,
+        right_elevon_rad: Tensor | None = None,
+        rudder_rad: Tensor,
+        elevator_rad: Tensor | None = None,
+        base_com_pos_b: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor]:
+        """Return net tail wrench in body frame.
+
+        The preferred interface passes split left/right elevon deflections.
+        ``elevator_rad`` is retained only as a compatibility fallback and maps
+        to symmetric left/right elevon deflection.
+        """
+
+        total_force = torch.zeros_like(root_lin_vel_b)
+        total_torque = torch.zeros_like(root_lin_vel_b)
+
+        results = self.compute_surface_results(
+            root_lin_vel_b=root_lin_vel_b,
+            root_ang_vel_b=root_ang_vel_b,
+            left_elevon_rad=left_elevon_rad,
+            right_elevon_rad=right_elevon_rad,
+            rudder_rad=rudder_rad,
+            elevator_rad=elevator_rad,
+            base_com_pos_b=base_com_pos_b,
+        )
+        for result in results:
+            total_force = total_force + result.force_b
+            total_torque = total_torque + result.moment_b_about_com
 
         return total_force, total_torque
