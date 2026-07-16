@@ -30,7 +30,7 @@ from flapping_bot.px4_like.straight_line_controller import (
 )
 
 
-SCHEMA_VERSION = "tail-unit-audit-v2"
+SCHEMA_VERSION = "tail-unit-audit-v3"
 SURFACE_ORDER = (
     "fixed_horizontal",
     "left_elevon",
@@ -39,6 +39,15 @@ SURFACE_ORDER = (
     "rudder",
 )
 VECTOR_COMPONENTS = ("x", "y", "z")
+WT1_LONGITUDINAL_GATE_CHECKS = (
+    "surface_moment_reconstruction",
+    "aggregate_surface_sum",
+    "symmetric_elevon_pitch_sign",
+    "airspeed_force_increases",
+    "pitch_rate_damping",
+    "all_outputs_finite",
+    "sampled_force_continuity",
+)
 
 
 @dataclass(frozen=True)
@@ -395,6 +404,26 @@ def _controller_rudder_action_derivatives() -> dict[str, float]:
     }
 
 
+def _classify_audit_gates(checks: dict[str, bool]) -> dict[str, Any]:
+    """Classify overall failures and the subset that blocks longitudinal WT1."""
+
+    missing_longitudinal_checks = [name for name in WT1_LONGITUDINAL_GATE_CHECKS if name not in checks]
+    if missing_longitudinal_checks:
+        missing = ", ".join(missing_longitudinal_checks)
+        raise ValueError(f"Missing required WT1 longitudinal checks: {missing}")
+
+    failed_checks = [name for name, passed in checks.items() if not passed]
+    longitudinal_failed_checks = [name for name in WT1_LONGITUDINAL_GATE_CHECKS if name in failed_checks]
+    nonblocking_failed_checks = [name for name in failed_checks if name not in WT1_LONGITUDINAL_GATE_CHECKS]
+    return {
+        "overall_status": "FAIL / SUSPECTED BUG" if failed_checks else "PASS WITH LIMITATIONS",
+        "wt1_readiness": "NOT READY" if longitudinal_failed_checks else "READY WITH DOCUMENTED LIMITATIONS",
+        "failed_checks": failed_checks,
+        "longitudinal_failed_checks": longitudinal_failed_checks,
+        "wt1_nonblocking_failed_checks": nonblocking_failed_checks,
+    }
+
+
 def _symmetry_rows(
     model: TailAeroModel,
     cfg: TailAeroCfg,
@@ -705,6 +734,26 @@ def _write_report(
     vertical = summary["vertical_tail_decomposition_at_10deg_sideslip"]
     clipping = summary["clipping"]
     warnings = summary["warnings"]
+    failed_checks = summary["failed_checks"]
+    longitudinal_failed_checks = summary["longitudinal_failed_checks"]
+    nonblocking_failed_checks = summary["wt1_nonblocking_failed_checks"]
+    if failed_checks:
+        executive_detail = f"Failed checks: {', '.join(failed_checks)}."
+    else:
+        executive_detail = (
+            "All declared numerical and sign checks passed. The controller-to-rudder proportional and "
+            "rate-feedback chains are both corrective."
+        )
+    if longitudinal_failed_checks:
+        readiness_detail = "WT1 is blocked by: " + ", ".join(longitudinal_failed_checks) + "."
+    elif nonblocking_failed_checks:
+        readiness_detail = (
+            "WT1 longitudinal work may proceed with these documented non-blocking failures: "
+            + ", ".join(nonblocking_failed_checks)
+            + "."
+        )
+    else:
+        readiness_detail = "All WT1 longitudinal gate checks passed."
     issue_text = f"""
 ### Resolved issue WT0-I01 - Yaw-controller proportional sign
 
@@ -731,7 +780,7 @@ Schema: `{manifest['output_schema_version']}`
 
 ## 1. Executive conclusion
 
-**{summary['overall_status']}**. The five-surface calculation is finite, continuous in force across all sampled ranges, left/right force-symmetric, exactly reconstructable from per-surface `r x F`, and provides the intended primary pitch, roll, and yaw aerodynamic channels. The controller-to-rudder proportional and rate-feedback chains are now both corrective. The fix changed only the yaw proportional sign in the three active controller variants; no tail physics, mapping, gain, or aerodynamic parameter was changed.
+**{summary['overall_status']}**. {executive_detail} The fix changed only the yaw proportional sign in the three active controller variants; no tail physics, mapping, gain, or aerodynamic parameter was changed.
 
 ## 2. Model contract
 
@@ -792,7 +841,7 @@ Figure 11 summarizes the centered nominal derivatives (per radian):
 
 **{summary['wt1_readiness']}**
 
-The longitudinal symmetric-elevon path, force/moment closure, incidence response, airspeed scaling, and pitch-rate damping are suitable for a wing+tail longitudinal audit. WT0-I01 is resolved and no longer needs to be carried as an open lateral sign limitation. This unit result still must not be interpreted as closed-loop trim or complete-aircraft validation.
+{readiness_detail} WT0-I01 is resolved and no longer needs to be carried as an open lateral sign limitation. This unit result still must not be interpreted as closed-loop trim or complete-aircraft validation.
 """
     path.write_text(text, encoding="utf-8")
 
@@ -1061,7 +1110,8 @@ def run_tail_unit_audit(
         ]
         < 0.0,
     }
-    failed_checks = [name for name, passed in checks.items() if not passed]
+    gate_status = _classify_audit_gates(checks)
+    failed_checks = gate_status["failed_checks"]
     warnings = [
         "Configured base COM has nonzero y/z offsets, so moments about COM are not perfectly mirror-parity even when surface forces are exactly symmetric.",
         "Alpha hard clipping is continuous in force but intentionally introduces a derivative kink.",
@@ -1088,10 +1138,12 @@ def run_tail_unit_audit(
         if row["surface"] == "left_elevon" and bool(row["alpha_clipped"])
     ]
     summary: dict[str, Any] = {
-        "overall_status": "PASS WITH LIMITATIONS" if not failed_checks else "FAIL / SUSPECTED BUG",
-        "wt1_readiness": "READY WITH DOCUMENTED LIMITATIONS",
+        "overall_status": gate_status["overall_status"],
+        "wt1_readiness": gate_status["wt1_readiness"],
         "checks": checks,
         "failed_checks": failed_checks,
+        "longitudinal_failed_checks": gate_status["longitudinal_failed_checks"],
+        "wt1_nonblocking_failed_checks": gate_status["wt1_nonblocking_failed_checks"],
         "failed_check_count": len(failed_checks),
         "warning_count": len(warnings),
         "warnings": warnings,

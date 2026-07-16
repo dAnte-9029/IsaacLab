@@ -19,6 +19,12 @@ if str(PACKAGE_ROOT) not in sys.path:
 from flapping_bot.analysis.tail_unit_audit import TailAuditSettings, run_tail_unit_audit
 
 
+def _audit_exit_code(summary: dict[str, object]) -> int:
+    """Return a CI-visible failure code when any declared audit check fails."""
+
+    return 0 if int(summary["failed_check_count"]) == 0 else 2
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audit the production five-surface tail model without running Isaac Sim.")
     parser.add_argument(
@@ -82,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"number of warnings: {summary['warning_count']}")
     print(f"number of failed checks: {summary['failed_check_count']}")
-    return 0
+    return _audit_exit_code(summary)
 
 
 if __name__ == "__main__":

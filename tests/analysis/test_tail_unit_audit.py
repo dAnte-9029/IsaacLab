@@ -11,6 +11,8 @@ import torch
 
 from flapping_bot.analysis.tail_unit_audit import (
     TailAuditSettings,
+    WT1_LONGITUDINAL_GATE_CHECKS,
+    _classify_audit_gates,
     build_production_tail_cfg,
     mix_elevon_commands,
 )
@@ -19,6 +21,7 @@ from flapping_bot.px4_like.straight_line_controller import (
     PX4LikeStraightLineController,
     PX4LikeStraightLineControllerCfg,
 )
+from scripts.aerodynamics import audit_tail_unit as audit_cli
 
 
 def _model() -> tuple[TailAeroModel, TailAuditSettings]:
@@ -32,6 +35,89 @@ def _inputs(batch: int, speed: float = 8.0) -> tuple[torch.Tensor, torch.Tensor,
     rates = torch.zeros_like(velocity)
     com = torch.tensor(TailAuditSettings().base_com_pos_b_m, dtype=torch.float64).view(1, 3).expand(batch, 3)
     return velocity, rates, com
+
+
+def _passing_gate_checks() -> dict[str, bool]:
+    checks = {name: True for name in WT1_LONGITUDINAL_GATE_CHECKS}
+    checks["rudder_lateral_yaw_sign_pair"] = True
+    return checks
+
+
+def test_audit_gate_is_ready_when_all_checks_pass() -> None:
+    status = _classify_audit_gates(_passing_gate_checks())
+
+    assert status["overall_status"] == "PASS WITH LIMITATIONS"
+    assert status["wt1_readiness"] == "READY WITH DOCUMENTED LIMITATIONS"
+    assert status["failed_checks"] == []
+    assert status["longitudinal_failed_checks"] == []
+    assert status["wt1_nonblocking_failed_checks"] == []
+
+
+@pytest.mark.parametrize("failed_check", WT1_LONGITUDINAL_GATE_CHECKS)
+def test_each_longitudinal_gate_failure_blocks_wt1(failed_check: str) -> None:
+    checks = _passing_gate_checks()
+    checks[failed_check] = False
+
+    status = _classify_audit_gates(checks)
+
+    assert status["overall_status"] == "FAIL / SUSPECTED BUG"
+    assert status["wt1_readiness"] == "NOT READY"
+    assert status["failed_checks"] == [failed_check]
+    assert status["longitudinal_failed_checks"] == [failed_check]
+    assert status["wt1_nonblocking_failed_checks"] == []
+
+
+def test_lateral_only_failure_is_explicitly_nonblocking_for_wt1() -> None:
+    checks = _passing_gate_checks()
+    checks["rudder_lateral_yaw_sign_pair"] = False
+
+    status = _classify_audit_gates(checks)
+
+    assert status["overall_status"] == "FAIL / SUSPECTED BUG"
+    assert status["wt1_readiness"] == "READY WITH DOCUMENTED LIMITATIONS"
+    assert status["failed_checks"] == ["rudder_lateral_yaw_sign_pair"]
+    assert status["longitudinal_failed_checks"] == []
+    assert status["wt1_nonblocking_failed_checks"] == ["rudder_lateral_yaw_sign_pair"]
+
+
+def test_missing_longitudinal_gate_definition_fails_closed() -> None:
+    checks = _passing_gate_checks()
+    del checks["all_outputs_finite"]
+
+    with pytest.raises(ValueError, match="all_outputs_finite"):
+        _classify_audit_gates(checks)
+
+
+@pytest.mark.parametrize(("failed_check_count", "expected"), [(0, 0), (1, 2), (7, 2)])
+def test_audit_cli_exit_code_tracks_failed_checks(failed_check_count: int, expected: int) -> None:
+    assert audit_cli._audit_exit_code({"failed_check_count": failed_check_count}) == expected
+
+
+def test_audit_cli_main_returns_two_when_audit_checks_fail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "failed-audit"
+    output.mkdir()
+    (output / "manifest.json").write_text(json.dumps({"git_commit": "test-sha"}), encoding="utf-8")
+    failed_summary = {
+        "overall_status": "FAIL / SUSPECTED BUG",
+        "wt1_readiness": "NOT READY",
+        "control_derivatives": {
+            "dMy_d_symmetric_Nm_per_rad": 0.0,
+            "dMx_d_differential_Nm_per_rad": 0.0,
+            "dMz_d_rudder_Nm_per_rad": 0.0,
+        },
+        "warning_count": 0,
+        "failed_check_count": 1,
+    }
+
+    def fake_run_tail_unit_audit(**_: object) -> tuple[Path, dict[str, object]]:
+        return output, failed_summary
+
+    monkeypatch.setattr(audit_cli, "run_tail_unit_audit", fake_run_tail_unit_audit)
+
+    assert audit_cli.main(["--output-root", str(tmp_path), "--headless"]) == 2
 
 
 def test_surface_results_are_finite_and_reconstruct_moment_and_aggregate() -> None:
