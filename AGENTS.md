@@ -18,10 +18,14 @@ Treat upstream Isaac Lab code as externally maintained framework code.
 Before planning or modifying project code:
 
 1. Read this file.
-2. Read `docs/PROJECT_STATE.md` if it exists.
-3. Read the active handoff referenced by `docs/PROJECT_STATE.md`.
-4. Read relevant architecture documents and ADRs referenced by the handoff.
-5. Read the nearest nested `AGENTS.md` for every directory that may be modified.
+2. When the conversation starts from the repository root, discover and read every
+   `AGENTS.md` in the current worktree before doing project work. Use
+   `rg --files -g AGENTS.md` for discovery. Continue to apply the nearest nested
+   `AGENTS.md` to each file, with nested instructions taking precedence over
+   broader repository instructions.
+3. Read `docs/PROJECT_STATE.md` if it exists.
+4. Read the active handoff referenced by `docs/PROJECT_STATE.md`.
+5. Read relevant architecture documents and ADRs referenced by the handoff.
 6. Run `git status` and inspect recent commits.
 
 If required context is missing or contradictory, report the inconsistency. Do not invent missing project decisions.
@@ -86,7 +90,16 @@ Recommended commit format:
 
 ## 6. Build and test commands
 
-Use the repository wrapper so commands run in the configured Isaac Lab environment.
+Before running repository Python, build, test, simulation, formatting, or utility
+commands, activate the configured Conda environment:
+
+```bash
+conda activate env_isaaclab
+```
+
+Do not silently fall back to the system Python or another Conda environment. Use
+the repository wrapper after activating `env_isaaclab` so commands run in the
+configured Isaac Lab environment.
 
 Typical commands:
 

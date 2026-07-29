@@ -61,22 +61,22 @@ theta = theta_bar + delta_theta
 
 ## Dynamic-twist phase mapping
 
-当前工程 phase 以正方向递增，且 wing command 为：
+当前工程 phase `psi` 以正方向递增，且默认 wing command 为：
 
 ```text
-q = Gamma * cos(current_phase)
-h = -q*y = -Gamma*y*cos(current_phase)
+q = Gamma * sin(psi)
+h = -q*y
 ```
 
-它与原文 `h=-Gamma*y*cos(phi_D)` 直接一致，所以当前配置与 `resolve_delaurier_phase()` 明确采用：
+为保持原文 `h=-Gamma*y*cos(phi_D)`，当前配置与 `resolve_delaurier_phase()` 明确采用：
 
 ```text
-phi_D = +current_phase + 0
+phi_D = +psi - pi/2
 phi_D_dot = +2*pi*f
 phi_D_ddot = 0
 ```
 
-真实 PhysX link-pose test 进一步确认：`phase=0` 是两翼 span probe 的 body-FLU `+z` endpoint；`pi/2` 是共同向 body `-z` 运动的 midpoint（downstroke）；`pi` 是 `-z` endpoint；`3pi/2` 是共同向 `+z` 运动的 midpoint（upstroke）。dynamic twist 与 plunge 相差 90 degree。环境当前把 frequency 视为一个 physics step 内恒定，因此 phase acceleration 为零；helper 已支持未来传入非零值。
+相位零点是 neutral pose 并开始 upstroke；`pi/2` 是 body-FLU `+z` endpoint；`pi` 是 neutral pose 并开始 downstroke；`3pi/2` 是 body-FLU `-z` endpoint。dynamic twist 与 plunge 相差 90 degree。环境当前把 frequency 视为一个 physics step 内恒定，因此 phase acceleration 为零；helper 已支持未来传入非零值。旧 cosine 约定通过 `legacy_cosine_endpoint_zero` 保留用于历史 A/B。
 
 左右翼 aerodynamics 使用同一个 physical scalar phase、`q/qd/qdd` 和 `theta` sign。由于 URDF 两个 revolute axis 都是 joint `+x`，而 mesh span 分别为 link `+y/-y`，`map_symmetric_flap_coordinate_to_joint_space()` 把物理 `q/qd` 映射为 left `(+q,+qd)`、right `(-q,-qd)`。相同 local twist distribution 仍进入两个 Wang frame；右翼 reflection 继续由 `transform_wang_wrench_to_link()` 的 polar/axial 规则处理，不对右翼 aerodynamic `theta` 增加经验性负号。
 
@@ -138,12 +138,12 @@ PYTHONDONTWRITEBYTECODE=1 ./isaaclab.sh -p -m pytest -p no:cacheprovider -q \
 
 | phase | joint position `(L,R)` rad | joint velocity sign `(L,R)` | probe `z_b` m | interpretation |
 |---:|---:|---:|---:|---|
-| `0` | `(+0.349066,-0.349066)` | `(0,0)` | `+0.210428` | positive-body-`z` endpoint |
-| `pi/2` | approximately `(0,0)` | `(-,+)` | `-0.012604` | midpoint moving to body `-z`，downstroke |
-| `pi` | `(-0.349066,+0.349066)` | `(0,0)` | `-0.234115` | negative-body-`z` endpoint |
-| `3pi/2` | approximately `(0,0)` | `(+,-)` | `-0.012604` | midpoint moving to body `+z`，upstroke |
+| `0` | approximately `(0,0)` | `(+,-)` | `-0.012604` | midpoint moving to body `+z`，upstroke |
+| `pi/2` | `(+0.349066,-0.349066)` | `(0,0)` | `+0.210428` | positive-body-`z` endpoint |
+| `pi` | approximately `(0,0)` | `(-,+)` | `-0.012604` | midpoint moving to body `-z`，downstroke |
+| `3pi/2` | `(-0.349066,+0.349066)` | `(0,0)` | `-0.234115` | negative-body-`z` endpoint |
 
-左右 link origin、span probe、chord/span polar directions 在 `2e-5` tolerance 内满足 body center-plane mirror；positive twist axial directions 使用 `det(S)S` 后一致，全部 pose mirror checks 的最大绝对误差为 `9.537e-7`。测试确认默认 `phase_direction=1`、offset `0` 无需修改。
+左右 link origin、span probe、chord/span polar directions 在 `2e-5` tolerance 内满足 body center-plane mirror；positive twist axial directions 使用 `det(S)S` 后一致。切换 sine 机械相位后默认映射为 `phase_direction=1`、offset `-90 degree`。2026-07-29 headless PhysX phase-pose test 通过，mirror 最大绝对误差仍为 `9.537e-7`；wrench-reference test 也通过。
 
 ## 修改前
 

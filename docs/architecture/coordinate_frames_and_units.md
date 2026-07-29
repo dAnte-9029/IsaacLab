@@ -10,8 +10,8 @@ Date: 2026-07-14. `Observed` rows are direct code evidence. `Unresolved` is deli
 | Aerodynamic/body `b` | Tail module declares right-handed `x forward, y left, z up`; environment calls `root_lin_vel_b`, `root_ang_vel_b` aerodynamic inputs | Observed (`tail_aero.py:15`; `straight_flight_env.py:1248-1252`) |
 | DeLaurier section `D` | Right-handed `x` forward, `y` right, `z` down; `v_D=diag(1,-1,-1)v_FLU` | Observed (`delaurier_airflow.py`; ADR-2026-07-14) |
 | Wing co-rotating/Wang `c` | `x` span, `y` normal, `z` chordwise toward LE | Observed (`qsm_delaurier1993.py:81-85`) |
-| Engineering flap phase | `_phase` increases in the positive direction; `q=Gamma*cos(_phase)`. Positive `q` maps to left joint `+q` and right joint `-q`, raising both real span probes toward body `+z` | Observed (`startup_phase.py`; `test_delaurier_isaac_phase_pose_contract.py`) |
-| DeLaurier phase `phi_D` | `phi_D=+current_phase+0`; this makes `h=-q*y=-Gamma*y*cos(phi_D)` | Observed/derived from implemented equations (`resolve_delaurier_phase`, `_compute_wing_delaurier_wrench`) |
+| Engineering flap phase | `_phase` increases in the positive direction; default `q=Gamma*sin(_phase)`, with phase zero neutral and starting upstroke. Positive `q` maps to left joint `+q` and right joint `-q`, raising both real span probes toward body `+z` | Observed (`startup_phase.py`; `test_delaurier_isaac_phase_pose_contract.py`; ADR-2026-07-29) |
+| DeLaurier phase `phi_D` | Default `phi_D=current_phase-pi/2`; this preserves `h=-q*y=-Gamma*y*cos(phi_D)` | Observed/derived from implemented equations (`resolve_delaurier_phase`, `_compute_wing_delaurier_wrench`) |
 | Wing-link `l` | Environment maps Wang axes to left/right wing link with two hard-coded matrices | Observed (`straight_flight_env.py:646-651`) |
 | Tail surface | No persistent separate frame; span/chord axes and AC arms are declared in `TailSurfaceCfg` body coordinates | Observed (`tail_aero.py:349-364`) |
 | Isaac articulation local | `set_external_force_and_torque(..., is_global=False)` applies in each body's local link frame | Observed (`articulation.py:962-1012`) |
@@ -38,11 +38,11 @@ Date: 2026-07-14. `Observed` rows are direct code evidence. `Unresolved` is deli
 | `v_air_delaurier` | `(N,3)` | m/s | DeLaurier section `D` | FLU polar vector converted by `diag(1,-1,-1)` | Observed |
 | `theta_a_env` | `(N,)` | rad | DeLaurier section incidence | `atan2(v_D.z, clamp(v_D.x))`; positive for vehicle air-relative velocity toward body-FLU `-z` | Observed |
 | `_phase`, `_freq` | `(N,)` | rad, Hz | scalar | advanced per physics step; controls prescribed wing motion | Observed |
-| `q_cmd`, `qd_cmd`, `qdd_cmd` | `(N,)` | rad, rad/s, rad/s² | joint scalar | cosine waveform | Observed |
+| `q_cmd`, `qd_cmd`, `qdd_cmd` | `(N,)` | rad, rad/s, rad/s² | joint scalar | default sine waveform; legacy cosine is explicit compatibility mode | Observed |
 | DeLaurier strip fields `h,...,theta...` | `(B,N_strip)` | m/m·s⁻¹/m·s⁻²/rad/rad·s⁻¹/rad·s⁻² | co-rotating calculation | `B=2*N_env`; inputs to strip-load calculation | Observed |
 | `DeLaurierTwistKinematics.theta`, derivatives and deltas | `(B,N_strip)` | rad, rad/s, rad/s² | Wang pitching scalar about `+x` | mean pitch plus optional prescribed linear-spanwise dynamic twist | Observed |
 | `DeLaurierTwistKinematics.span_fraction` | `(B,N_strip)` | 1 | wing-root span coordinate | `y/R`; environment uses explicit `WingGeometry.R` | Observed |
-| `DeLaurierTwistKinematics.phase`, rate, acceleration | `(B,1)` | rad, rad/s, rad/s² | DeLaurier scalar phase | current environment uses direction `+1`, offset `0`, acceleration `0` | Observed |
+| `DeLaurierTwistKinematics.phase`, rate, acceleration | `(B,1)` | rad, rad/s, rad/s² | DeLaurier scalar phase | default environment uses direction `+1`, offset `-pi/2`, acceleration `0` | Observed |
 | `DeLaurierStripLoads` components | `(B,N_strip)` | N or N·m | Wang co-rotating | attached-flow raw components, strip width included | Observed |
 | `DeLaurierStripWrench.force_wang`, `moment_wang_about_wing_origin` | `(B,3)` | N, N·m | Wang co-rotating | moment about wing-root pitching-axis origin | Observed |
 | legacy `F_c`, `tau_c` | `(B,3)` | N, N·m | Wang co-rotating | compatibility wrapper; `tau_c` remains zero | Observed |
@@ -75,12 +75,12 @@ Real PhysX pose validation uses a `0.65 m` representative span point in each rea
 
 | `phase` | left/right URDF joint | probe `z_b` | physical interpretation |
 |---:|---|---:|---|
-| `0` | `(+0.349066,-0.349066) rad`；zero rate | `+0.210428 m` | positive-body-`z` stroke endpoint |
-| `pi/2` | approximately `(0,0)`；velocity `(-1.745329,+1.745329) rad/s` | `-0.012604 m` | midpoint moving toward body `-z`，downstroke |
-| `pi` | `(-0.349066,+0.349066) rad`；zero rate | `-0.234115 m` | negative-body-`z` stroke endpoint |
-| `3pi/2` | approximately `(0,0)`；velocity `(+1.745329,-1.745329) rad/s` | `-0.012604 m` | midpoint moving toward body `+z`，upstroke |
+| `0` | approximately `(0,0)`；velocity `(+1.745329,-1.745329) rad/s` | `-0.012604 m` | midpoint moving toward body `+z`，upstroke |
+| `pi/2` | `(+0.349066,-0.349066) rad`；zero rate | `+0.210428 m` | positive-body-`z` stroke endpoint |
+| `pi` | approximately `(0,0)`；velocity `(-1.745329,+1.745329) rad/s` | `-0.012604 m` | midpoint moving toward body `-z`，downstroke |
+| `3pi/2` | `(-0.349066,+0.349066) rad`；zero rate | `-0.234115 m` | negative-body-`z` stroke endpoint |
 
-左右 probe 的 `x/z` 在 `2e-5` tolerance 内相等，`y` 等幅反号。该结果确认 `phi_D=current_phase`，因此 `dynamic_twist_phase_direction=1`、offset `0` 保持不变。
+左右 probe 的 `x/z` 在 `2e-5` tolerance 内相等，`y` 等幅反号。默认 DeLaurier 映射为 `phi_D=current_phase-pi/2`，因此 `dynamic_twist_phase_direction=1`、offset `-90 degree`。
 
 ## Airflow and angle contract
 

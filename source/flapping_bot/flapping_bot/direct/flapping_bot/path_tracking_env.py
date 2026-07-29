@@ -198,7 +198,8 @@ except ModuleNotFoundError as exc:
         dynamic_twist_mode: str = "disabled"
         dynamic_twist_tip_amplitude_deg: float = 0.0
         dynamic_twist_phase_direction: float = 1.0
-        dynamic_twist_phase_offset_deg: float = 0.0
+        dynamic_twist_phase_offset_deg: float = -90.0
+        flap_phase_convention: str = "mechanical_sine_neutral_upstroke"
         delaurier_include_aerodynamic_center_moment: bool = True
         delaurier_include_apparent_mass_moment: bool = True
         delaurier_store_strip_diagnostics: bool = False

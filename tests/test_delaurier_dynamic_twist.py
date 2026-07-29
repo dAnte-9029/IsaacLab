@@ -272,9 +272,9 @@ def test_mean_pitch_is_added_without_changing_dynamic_derivatives() -> None:
 
 
 def test_environment_phase_mapping_preserves_delaurier_plunge_and_quadrature() -> None:
-    # The environment uses q=Gamma*cos(current_phase), h=-q*y, and a positive
-    # phase rate. Therefore phi_D=current_phase exactly: phase 0 is top stroke,
-    # pi/2 mid-downstroke, pi bottom stroke, and 3pi/2 mid-upstroke.
+    # The environment uses q=Gamma*sin(current_phase), with phase zero neutral
+    # and starting upstroke. DeLaurier uses cosine plunge, so
+    # phi_D=current_phase-pi/2.
     current_phase = torch.tensor([0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0], dtype=_DTYPE)
     phase_rate = torch.full_like(current_phase, 5.0)
     phase_acceleration = torch.zeros_like(current_phase)
@@ -283,11 +283,11 @@ def test_environment_phase_mapping_preserves_delaurier_plunge_and_quadrature() -
         current_phase_rate=phase_rate,
         current_phase_acceleration=phase_acceleration,
         phase_direction=1.0,
-        phase_offset_rad=0.0,
+        phase_offset_rad=-math.pi / 2.0,
     )
     stroke_amplitude = 0.4
     strip_span = 0.8
-    q = stroke_amplitude * torch.cos(current_phase)
+    q = stroke_amplitude * torch.sin(current_phase)
     h = -q * strip_span
     twist = _compute_twist(
         strip_span_m=torch.tensor([strip_span], dtype=_DTYPE),
@@ -299,16 +299,16 @@ def test_environment_phase_mapping_preserves_delaurier_plunge_and_quadrature() -
         phase_acceleration_rad_s2=phase_acceleration_d,
     )
 
-    torch.testing.assert_close(phase_d, current_phase, atol=_ATOL, rtol=0.0)
+    torch.testing.assert_close(phase_d, current_phase - math.pi / 2.0, atol=_ATOL, rtol=0.0)
     torch.testing.assert_close(
         h,
-        torch.tensor([-0.32, 0.0, 0.32, 0.0], dtype=_DTYPE),
+        torch.tensor([0.0, -0.32, 0.0, 0.32], dtype=_DTYPE),
         atol=_ATOL,
         rtol=0.0,
     )
     torch.testing.assert_close(
         twist.delta_theta[:, 0],
-        torch.tensor([0.0, -0.16, 0.0, 0.16], dtype=_DTYPE),
+        torch.tensor([0.16, 0.0, -0.16, 0.0], dtype=_DTYPE),
         atol=_ATOL,
         rtol=0.0,
     )

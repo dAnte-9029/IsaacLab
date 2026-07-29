@@ -35,12 +35,14 @@ def test_delaurier_dynamic_twist_is_explicitly_opt_in() -> None:
     assert "delaurier_enable_prescribed_twist" not in source
 
 
-def test_environment_maps_cosine_stroke_phase_directly_to_delaurier_phase() -> None:
+def test_environment_uses_sine_stroke_and_quadrature_delaurier_phase() -> None:
     source = STRAIGHT_FLIGHT_ENV.read_text(encoding="utf-8")
 
-    assert "self._q_cmd = amp * c" in source
+    assert "compute_prescribed_flap_kinematics(" in source
+    assert "convention=self.cfg.flap_phase_convention" in source
+    assert "flap_phase_convention: str = MECHANICAL_SINE_NEUTRAL_UPSTROKE" in source
     assert "map_symmetric_flap_coordinate_to_joint_space(" in source
     assert "h = -q.view(B, 1) * y" in source
     assert "dynamic_twist_phase_direction: float = 1.0" in source
-    assert "dynamic_twist_phase_offset_deg: float = 0.0" in source
+    assert "dynamic_twist_phase_offset_deg: float = -90.0" in source
     assert "current_phase=current_phase" in source

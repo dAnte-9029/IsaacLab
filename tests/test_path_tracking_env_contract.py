@@ -353,7 +353,8 @@ def test_path_tracking_env_inherits_tail_aero_compatibility_defaults() -> None:
     assert cfg.dynamic_twist_mode == "disabled"
     assert cfg.dynamic_twist_tip_amplitude_deg == 0.0
     assert cfg.dynamic_twist_phase_direction == 1.0
-    assert cfg.dynamic_twist_phase_offset_deg == 0.0
+    assert cfg.dynamic_twist_phase_offset_deg == -90.0
+    assert cfg.flap_phase_convention == "mechanical_sine_neutral_upstroke"
     assert cfg.delaurier_include_aerodynamic_center_moment is True
     assert cfg.delaurier_include_apparent_mass_moment is True
 

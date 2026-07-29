@@ -59,15 +59,13 @@
 
   用它重新构造残差并拟合相同的 compact gain-bias 模型。这比直接搬论文系数更适合 RL，也保持尾翼控制导数。
 
-  3. 相位和坐标目前没有完全闭合
+  3. 相位契约已闭合，坐标与参数仍需继续核对
 
-  当前存在几个明显风险：
+  2026-07-29 后，在线与离线统一使用：
 
-  - 系统辨识使用 (q=A\sin\psi)，零相位为中立位置开始上扑；
-  - Isaac 环境使用 (q=A\cos\phi)，零相位为最大偏转，source/flapping_bot/flapping_bot/direct/flapping_bot/
-    straight_flight_env.py:1196；
-
-  - 两者应显式转换为 (\psi=\phi+\pi/2)，不能直接共用 phase；
+  - 系统辨识与 Isaac 环境均使用 (q=A\sin\psi)，零相位为中立位置开始上扑；
+  - DeLaurier 内部相位显式映射为 (\phi_D=\psi-\pi/2)；
+  - 历史 cosine 结果需要使用 (\psi=\phi+\pi/2) 转换，不能直接共用 phase；
   - 论文/日志采用 FRD，Isaac 通常采用 FLU，需要显式执行：
     (F_{\mathrm{FRD}}=[F_x,-F_y,-F_z]{\mathrm{FLU}})，并确认 (q{\mathrm{FRD}}=-q_{\mathrm{FLU}})；
 

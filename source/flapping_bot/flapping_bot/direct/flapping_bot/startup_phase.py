@@ -8,6 +8,60 @@ import torch
 
 Tensor = torch.Tensor
 
+MECHANICAL_SINE_NEUTRAL_UPSTROKE = "mechanical_sine_neutral_upstroke"
+LEGACY_COSINE_ENDPOINT_ZERO = "legacy_cosine_endpoint_zero"
+FLAP_PHASE_CONVENTIONS = frozenset(
+    {
+        MECHANICAL_SINE_NEUTRAL_UPSTROKE,
+        LEGACY_COSINE_ENDPOINT_ZERO,
+    }
+)
+
+
+def compute_prescribed_flap_kinematics(
+    *,
+    phase: Tensor,
+    freq_hz: Tensor,
+    amplitude_rad: float,
+    convention: str = MECHANICAL_SINE_NEUTRAL_UPSTROKE,
+    minimum_active_frequency_hz: float = 1.0e-3,
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Return prescribed flap position, velocity and acceleration.
+
+    The default engineering convention is ``q=A*sin(phase)``: phase zero is
+    the neutral pose and positive velocity starts the upstroke. The historical
+    cosine convention remains selectable for baseline reproduction.
+    """
+
+    if not isinstance(phase, torch.Tensor) or not isinstance(freq_hz, torch.Tensor):
+        raise TypeError("phase and freq_hz must be torch tensors.")
+    if phase.shape != freq_hz.shape:
+        raise ValueError("phase and freq_hz must have the same shape.")
+    resolved_convention = str(convention)
+    if resolved_convention not in FLAP_PHASE_CONVENTIONS:
+        supported = ", ".join(sorted(FLAP_PHASE_CONVENTIONS))
+        raise ValueError(f"Unsupported flap phase convention {resolved_convention!r}; expected one of: {supported}.")
+    if minimum_active_frequency_hz < 0.0:
+        raise ValueError("minimum_active_frequency_hz must be non-negative.")
+
+    amplitude = float(amplitude_rad)
+    omega = 2.0 * math.pi * freq_hz
+    if resolved_convention == MECHANICAL_SINE_NEUTRAL_UPSTROKE:
+        q = amplitude * torch.sin(phase)
+        qd = amplitude * omega * torch.cos(phase)
+        qdd = -amplitude * omega.square() * torch.sin(phase)
+    else:
+        q = amplitude * torch.cos(phase)
+        qd = -amplitude * omega * torch.sin(phase)
+        qdd = -amplitude * omega.square() * torch.cos(phase)
+
+    flap_off = freq_hz <= float(minimum_active_frequency_hz)
+    if torch.any(flap_off):
+        q = torch.where(flap_off, torch.zeros_like(q), q)
+        qd = torch.where(flap_off, torch.zeros_like(qd), qd)
+        qdd = torch.where(flap_off, torch.zeros_like(qdd), qdd)
+    return q, qd, qdd
+
 
 def advance_flap_phase(
     *,

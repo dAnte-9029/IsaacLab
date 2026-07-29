@@ -70,7 +70,12 @@ from .state_source_contract import (
     resolve_imu_source,
     resolve_teacher_state_inputs,
 )
-from .startup_phase import advance_flap_phase, map_symmetric_flap_coordinate_to_joint_space
+from .startup_phase import (
+    MECHANICAL_SINE_NEUTRAL_UPSTROKE,
+    advance_flap_phase,
+    compute_prescribed_flap_kinematics,
+    map_symmetric_flap_coordinate_to_joint_space,
+)
 
 Tensor = torch.Tensor
 
@@ -345,7 +350,12 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     dynamic_twist_mode: str = "disabled"
     dynamic_twist_tip_amplitude_deg: float = 0.0
     dynamic_twist_phase_direction: float = 1.0
-    dynamic_twist_phase_offset_deg: float = 0.0
+    dynamic_twist_phase_offset_deg: float = -90.0
+
+    # Mechanical phase: q=A*sin(phase), phase=0 is neutral and starts upstroke.
+    # ``legacy_cosine_endpoint_zero`` remains available for baseline replay;
+    # pair it with dynamic_twist_phase_offset_deg=0.
+    flap_phase_convention: str = MECHANICAL_SINE_NEUTRAL_UPSTROKE
 
     # Historical full-span-uniform qd-scaled proxy.  These fields are consumed
     # only when ``dynamic_twist_mode='legacy_qd_scaled_proxy'``.
@@ -1225,7 +1235,6 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
     def _apply_action(self):
         # advance phase (per-physics step)
-        two_pi = 6.283185307179586
         self._phase = advance_flap_phase(
             phase=self._phase,
             freq_hz=self._freq,
@@ -1233,22 +1242,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             freeze_steps=self._freeze_steps,
         )
 
-        # commanded wing joint targets
-        # Use a cosine waveform so that phase=0 starts at max deflection with zero velocity.
-        c = torch.cos(self._phase)
-        s = torch.sin(self._phase)
-        flap_off = self._freq <= 1.0e-3
-        if flap_off.any():
-            c = c.clone()
-            s = s.clone()
-            c[flap_off] = 0.0
-            s[flap_off] = 0.0
-        amp = float(self._wing_amp)
-        # cache commanded wing kinematics (for DeLaurier backend)
-        w = two_pi * self._freq
-        self._q_cmd = amp * c
-        self._qd_cmd = -amp * w * s
-        self._qdd_cmd = -amp * (w * w) * c
+        # Cache commanded wing kinematics for the articulation and DeLaurier
+        # backend. The default phase zero is the neutral pose starting upstroke.
+        self._q_cmd, self._qd_cmd, self._qdd_cmd = compute_prescribed_flap_kinematics(
+            phase=self._phase,
+            freq_hz=self._freq,
+            amplitude_rad=self._wing_amp,
+            convention=self.cfg.flap_phase_convention,
+        )
 
         left_cmd, right_cmd, left_qd_cmd, right_qd_cmd = map_symmetric_flap_coordinate_to_joint_space(
             flap_position_rad=self._q_cmd,

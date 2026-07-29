@@ -8,11 +8,11 @@
 
 ## Current completed stage
 
-2026-07-14 DeLaurier prescribed linear-spanwise dynamic twist implemented with default-disabled and legacy compatibility modes. The FLU-to-DeLaurier airflow boundary and real mirrored wing joint/phase-pose contract are now explicit；legacy proxy numerical behavior is frozen. The specified non-Isaac suite passes 77 tests and the combined headless Isaac pose/wrench suite passes 2 tests. Main records: `docs/decisions/ADR-2026-07-14-delaurier-prescribed-dynamic-twist.md`、`docs/decisions/ADR-2026-07-14-delaurier-airflow-frame-convention.md` and `docs/aerodynamics/delaurier_strip_wrench_refactor.md`.
+2026-07-29 the formal environment engineering phase changed to `q=Gamma*sin(phase)`, with phase zero neutral and starting upstroke. The DeLaurier boundary now uses `phi_D=phase-pi/2`; the legacy cosine stroke remains explicitly selectable. This supersedes only the phase-mapping portions of the 2026-07-14 decisions. Targeted non-Isaac validation passed 110 tests, and the headless Isaac phase-pose and wrench-reference tests each passed. Main record: `docs/decisions/ADR-2026-07-29-engineering-flap-phase-sine.md`.
 
 ## Active stage
 
-The DeLaurier attached-flow strip-wrench and convention verification stage is complete. The default candidate remains `dynamic_twist_mode="disabled"` with `dynamic_twist_tip_amplitude_deg=0.0`; `legacy_qd_scaled_proxy` is compatibility-only. Isaac body FLU is explicitly converted to the internal DeLaurier FRD-like section convention，and physical flap `q` maps to mirrored left/right URDF joint coordinates. This candidate has not replaced the immutable `delaurier-strip-wrench-v1` tag.
+The PhysX wing-multibody preparation branch now uses the shared mechanical sine phase contract used by the offline DeLaurier-prior exporter. The default candidate remains `dynamic_twist_mode="disabled"` with `dynamic_twist_tip_amplitude_deg=0.0`; `legacy_qd_scaled_proxy` and `legacy_cosine_endpoint_zero` are compatibility-only. Isaac body FLU is explicitly converted to the internal DeLaurier FRD-like section convention，and physical flap `q` maps to mirrored left/right URDF joint coordinates. This candidate has not replaced the immutable `delaurier-strip-wrench-v1` tag.
 
 ## Required reading
 
@@ -22,6 +22,7 @@ The DeLaurier attached-flow strip-wrench and convention verification stage is co
 - `docs/architecture/wing_tail_controller_interfaces.md`
 - `docs/decisions/ADR-2026-07-14-delaurier-prescribed-dynamic-twist.md`
 - `docs/decisions/ADR-2026-07-14-delaurier-airflow-frame-convention.md`
+- `docs/decisions/ADR-2026-07-29-engineering-flap-phase-sine.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
 ## Known Issues / Deferred Work
@@ -34,6 +35,7 @@ The DeLaurier attached-flow strip-wrench and convention verification stage is co
 - No corrected-force adapter or corrected strip-distribution contract.
 - Corrected `Fx/Fz` ownership and moment-closure assumption require human approval.
 - The corrected mirrored joint-space mapping and `theta_a` frame fix change the pre-existing plant convention；closed-loop mission baselines have not yet been rerun.
+- The sine phase switch changes reset pose and all phase-indexed online results; the updated headless PhysX phase-pose contract and closed-loop mission baseline must be rerun before promotion.
 
 ## Exact next task
 

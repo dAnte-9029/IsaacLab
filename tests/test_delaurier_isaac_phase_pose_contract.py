@@ -19,7 +19,10 @@ from isaaclab.sim import build_simulation_context
 from isaaclab.utils.math import quat_apply, quat_apply_inverse
 
 from flapping_bot.assets import FlappingBotCfg
-from flapping_bot.direct.flapping_bot.startup_phase import map_symmetric_flap_coordinate_to_joint_space
+from flapping_bot.direct.flapping_bot.startup_phase import (
+    compute_prescribed_flap_kinematics,
+    map_symmetric_flap_coordinate_to_joint_space,
+)
 from flapping_bot.physics.delaurier_twist import resolve_delaurier_phase
 
 
@@ -72,8 +75,12 @@ def _set_and_read_phase_pose(
     """Write mirrored joint state and read actual PhysX link transforms."""
 
     phase = torch.tensor([phase_rad], device=robot.device, dtype=robot.data.default_joint_pos.dtype)
-    flap_position = _STROKE_AMPLITUDE_RAD * torch.cos(phase)
-    flap_velocity = -_STROKE_AMPLITUDE_RAD * _PHASE_RATE_RAD_S * torch.sin(phase)
+    frequency_hz = torch.full_like(phase, _PHASE_RATE_RAD_S / (2.0 * math.pi))
+    flap_position, flap_velocity, _ = compute_prescribed_flap_kinematics(
+        phase=phase,
+        freq_hz=frequency_hz,
+        amplitude_rad=_STROKE_AMPLITUDE_RAD,
+    )
     left_position, right_position, left_velocity, right_velocity = map_symmetric_flap_coordinate_to_joint_space(
         flap_position_rad=flap_position,
         flap_velocity_rad_s=flap_velocity,
@@ -213,29 +220,28 @@ def test_delaurier_phase_matches_real_mirrored_wing_link_pose_and_motion() -> No
         phase_half = poses[math.pi]
         phase_quarter = poses[math.pi / 2.0]
         phase_three_quarter = poses[3.0 * math.pi / 2.0]
-        assert phase_zero.left_probe_b[0, 2].item() > phase_quarter.left_probe_b[0, 2].item()
-        assert phase_half.left_probe_b[0, 2].item() < phase_quarter.left_probe_b[0, 2].item()
+        assert phase_quarter.left_probe_b[0, 2].item() > phase_zero.left_probe_b[0, 2].item()
+        assert phase_three_quarter.left_probe_b[0, 2].item() < phase_zero.left_probe_b[0, 2].item()
         torch.testing.assert_close(
-            phase_quarter.left_probe_b,
-            phase_three_quarter.left_probe_b,
+            phase_zero.left_probe_b,
+            phase_half.left_probe_b,
             atol=_POSE_ATOL,
             rtol=0.0,
         )
 
-        # At pi/2 the left joint angular velocity is negative and the right is
-        # positive, yet both span probes move toward body-FLU -z. At 3pi/2 the
-        # signs reverse and both probes move toward +z.
-        assert phase_quarter.left_joint_velocity_rad_s < 0.0 < phase_quarter.right_joint_velocity_rad_s
-        assert phase_three_quarter.right_joint_velocity_rad_s < 0.0 < phase_three_quarter.left_joint_velocity_rad_s
-        assert phase_quarter.left_angular_velocity_b[0, 0].item() < -_DIRECTION_EPS
-        assert phase_quarter.right_angular_velocity_b[0, 0].item() > _DIRECTION_EPS
-        assert phase_three_quarter.left_angular_velocity_b[0, 0].item() > _DIRECTION_EPS
-        assert phase_three_quarter.right_angular_velocity_b[0, 0].item() < -_DIRECTION_EPS
+        # At phase zero both probes move toward body-FLU +z (upstroke). At pi
+        # the signs reverse and both probes move toward -z (downstroke).
+        assert phase_zero.right_joint_velocity_rad_s < 0.0 < phase_zero.left_joint_velocity_rad_s
+        assert phase_half.left_joint_velocity_rad_s < 0.0 < phase_half.right_joint_velocity_rad_s
+        assert phase_zero.left_angular_velocity_b[0, 0].item() > _DIRECTION_EPS
+        assert phase_zero.right_angular_velocity_b[0, 0].item() < -_DIRECTION_EPS
+        assert phase_half.left_angular_velocity_b[0, 0].item() < -_DIRECTION_EPS
+        assert phase_half.right_angular_velocity_b[0, 0].item() > _DIRECTION_EPS
 
         epsilon = 1.0e-3
         for phase, expected_z_direction in (
-            (math.pi / 2.0, -1.0),
-            (3.0 * math.pi / 2.0, 1.0),
+            (0.0, 1.0),
+            (math.pi, -1.0),
         ):
             before = _set_and_read_phase_pose(
                 robot, sim, phase_rad=phase - epsilon, wing_joint_ids=wing_joint_ids, body_ids=body_ids
@@ -254,19 +260,19 @@ def test_delaurier_phase_matches_real_mirrored_wing_link_pose_and_motion() -> No
             current_phase_rate=torch.full_like(current_phase, _PHASE_RATE_RAD_S),
             current_phase_acceleration=torch.zeros_like(current_phase),
             phase_direction=1.0,
-            phase_offset_rad=0.0,
+            phase_offset_rad=-math.pi / 2.0,
         )
-        torch.testing.assert_close(phase_d, current_phase, atol=1.0e-12, rtol=0.0)
+        torch.testing.assert_close(phase_d, current_phase - math.pi / 2.0, atol=1.0e-12, rtol=0.0)
         torch.testing.assert_close(phase_rate_d, torch.full_like(current_phase, _PHASE_RATE_RAD_S), atol=1.0e-12, rtol=0.0)
         torch.testing.assert_close(phase_acceleration_d, torch.zeros_like(current_phase), atol=1.0e-12, rtol=0.0)
 
         for phase in phases:
             pose = poses[phase]
             interpretation = {
-                0.0: "positive-body-z endpoint",
-                math.pi / 2.0: "midpoint moving toward body -z (downstroke)",
-                math.pi: "negative-body-z endpoint",
-                3.0 * math.pi / 2.0: "midpoint moving toward body +z (upstroke)",
+                0.0: "midpoint moving toward body +z (upstroke)",
+                math.pi / 2.0: "positive-body-z endpoint",
+                math.pi: "midpoint moving toward body -z (downstroke)",
+                3.0 * math.pi / 2.0: "negative-body-z endpoint",
             }[phase]
             print(
                 "[PHASE_POSE] "
