@@ -38,6 +38,25 @@ from .tail_geometry import PlaceholderValue, TailGeometry, TailSurfaceGeometry, 
 from .wing_equivalent_ac import compute_area_weighted_quarter_chord_link_points
 from .wing_geom_csv import WingGeomCsvInfo, build_wing_geometry_from_csv, infer_span_from_x_mid, load_wing_geom_csv
 from .virtual_twist import VirtualTwistCfg, VirtualTwistState, solve_quasi_static_eta_tip, step_virtual_twist
+from .measured_mass_properties import (
+    BODY_INERTIA_TRIANGLE_TOLERANCE_KG_M2,
+    BODY_LINK_MASS_PROPERTIES,
+    BODY_MEASURED_U_FRD,
+    FRD_TO_FLU,
+    LEFT_WING_FROM_RIGHT_WING_LINK_MIRROR,
+    LEFT_WING_LINK_MASS_PROPERTIES,
+    MEASURED_FLAPPING_BOT_LINK_MASS_PROPERTIES,
+    MEASURED_MASS_PROPERTIES_WORKBOOK_NAME,
+    MEASURED_MASS_PROPERTIES_WORKBOOK_SHA256,
+    RIGHT_WING_LINK_MASS_PROPERTIES,
+    RIGHT_WING_MEASURED_W_R0_FRD,
+    RigidBodyMassProperties,
+    diagonal_inertia_kg_m2,
+    inertia_triangle_margins_kg_m2,
+    measured_three_link_total_mass_kg,
+    transform_mass_properties,
+    validate_mass_properties,
+)
 
 __all__ = [
     "WingQSMCfg",
@@ -84,4 +103,21 @@ __all__ = [
     "VirtualTwistState",
     "solve_quasi_static_eta_tip",
     "step_virtual_twist",
+    "RigidBodyMassProperties",
+    "MEASURED_MASS_PROPERTIES_WORKBOOK_NAME",
+    "MEASURED_MASS_PROPERTIES_WORKBOOK_SHA256",
+    "BODY_INERTIA_TRIANGLE_TOLERANCE_KG_M2",
+    "FRD_TO_FLU",
+    "LEFT_WING_FROM_RIGHT_WING_LINK_MIRROR",
+    "BODY_MEASURED_U_FRD",
+    "RIGHT_WING_MEASURED_W_R0_FRD",
+    "BODY_LINK_MASS_PROPERTIES",
+    "LEFT_WING_LINK_MASS_PROPERTIES",
+    "RIGHT_WING_LINK_MASS_PROPERTIES",
+    "MEASURED_FLAPPING_BOT_LINK_MASS_PROPERTIES",
+    "diagonal_inertia_kg_m2",
+    "transform_mass_properties",
+    "inertia_triangle_margins_kg_m2",
+    "validate_mass_properties",
+    "measured_three_link_total_mass_kg",
 ]

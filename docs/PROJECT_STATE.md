@@ -8,11 +8,11 @@
 
 ## Current completed stage
 
-2026-07-29 the formal environment engineering phase changed to `q=Gamma*sin(phase)`, with phase zero neutral and starting upstroke. The DeLaurier boundary now uses `phi_D=phase-pi/2`; the legacy cosine stroke remains explicitly selectable. This supersedes only the phase-mapping portions of the 2026-07-14 decisions. Targeted non-Isaac validation passed 110 tests, and the headless Isaac phase-pose and wrench-reference tests each passed. Main record: `docs/decisions/ADR-2026-07-29-engineering-flap-phase-sine.md`.
+2026-07-29 the formal environment engineering phase changed to `q=Gamma*sin(phase)`, with phase zero neutral and starting upstroke. The DeLaurier boundary now uses `phi_D=phase-pi/2`; the legacy cosine stroke remains explicitly selectable. The measured body/right-wing workbook values are also frozen as link-local FLU properties, with an explicit mirrored left wing and provenance hash. Main records: `docs/decisions/ADR-2026-07-29-engineering-flap-phase-sine.md` and `docs/decisions/ADR-2026-07-29-measured-multibody-mass-properties.md`.
 
 ## Active stage
 
-The PhysX wing-multibody preparation branch now uses the shared mechanical sine phase contract used by the offline DeLaurier-prior exporter. The default candidate remains `dynamic_twist_mode="disabled"` with `dynamic_twist_tip_amplitude_deg=0.0`; `legacy_qd_scaled_proxy` and `legacy_cosine_endpoint_zero` are compatibility-only. Isaac body FLU is explicitly converted to the internal DeLaurier FRD-like section convention，and physical flap `q` maps to mirrored left/right URDF joint coordinates. This candidate has not replaced the immutable `delaurier-strip-wrench-v1` tag.
+The PhysX wing-multibody preparation branch now has a shared sine phase contract and a pure measured mass-property module for `base_link`, `left_wing` and `right_wing`. The three-link mass is `0.90415 kg`; coordinate transforms, mirroring, positive definiteness and the documented body inertia tolerance are unit tested. These values are not yet applied to PhysX, and the current environment defaults remain the near-single-rigid-body baseline.
 
 ## Required reading
 
@@ -23,6 +23,7 @@ The PhysX wing-multibody preparation branch now uses the shared mechanical sine 
 - `docs/decisions/ADR-2026-07-14-delaurier-prescribed-dynamic-twist.md`
 - `docs/decisions/ADR-2026-07-14-delaurier-airflow-frame-convention.md`
 - `docs/decisions/ADR-2026-07-29-engineering-flap-phase-sine.md`
+- `docs/decisions/ADR-2026-07-29-measured-multibody-mass-properties.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
 ## Known Issues / Deferred Work
@@ -36,7 +37,8 @@ The PhysX wing-multibody preparation branch now uses the shared mechanical sine 
 - Corrected `Fx/Fz` ownership and moment-closure assumption require human approval.
 - The corrected mirrored joint-space mapping and `theta_a` frame fix change the pre-existing plant convention；closed-loop mission baselines have not yet been rerun.
 - The sine phase switch changes reset pose and all phase-indexed online results; the updated headless PhysX phase-pose contract and closed-loop mission baseline must be rerun before promotion.
+- The rounded measured body diagonal is positive definite but has a `-3.10e-4 kg m^2` inertia triangle margin; the frozen release records rather than hides this metrology limitation.
 
 ## Exact next task
 
-Review and re-freeze the closed-loop baseline after the mirrored joint-space and airflow-frame corrections；do not start corrected-model integration, tail tuning or PID tuning in the same stage.
+Add an explicit measured PhysX multibody plant variant that applies the frozen three-link properties while preserving the current baseline; do not add the coupled drive or move aerodynamic wrenches in the same commit.
