@@ -12,7 +12,7 @@
 
 ## Active stage
 
-The PhysX wing-multibody preparation branch now has a shared sine phase contract, frozen measured body/wing properties and an explicit `measured_wing_multibody` plant variant. The measured variant partitions `0.90415 kg` across the body, measured wings and positive tail/rudder placeholders while the default remains `near_single_rigid_body`. A minimal Isaac Sim 5.1 feasibility test also confirms that a hard `PhysxMimicJointAPI` constraint can maintain `q_left+q_right=0` within `0.1 deg`; the importer-default compliant mimic cannot. The formal environment still uses its legacy kinematic wing override until the separately approved coupled drive is integrated.
+The PhysX wing-multibody branch now has a shared sine phase contract, frozen measured body/wing properties, an explicit `measured_wing_multibody` plant and an explicit `ideal_coupled_drive`. The measured plant partitions `0.90415 kg` across the body, measured wings and positive tail/rudder placeholders. The ideal drive sends position/velocity targets only to one left-wing PD driver while a hard PhysX mimic constraint enforces `q_left+q_right=0`; the right wing is passive. At the formal `1/240 s` physics step, the 5 Hz no-aerodynamics test achieved `0.010942 deg` maximum synchronization error. Both defaults remain the established near-single-rigid-body plant and per-step kinematic override.
 
 ## Required reading
 
@@ -25,6 +25,7 @@ The PhysX wing-multibody preparation branch now has a shared sine phase contract
 - `docs/decisions/ADR-2026-07-29-engineering-flap-phase-sine.md`
 - `docs/decisions/ADR-2026-07-29-measured-multibody-mass-properties.md`
 - `docs/decisions/ADR-2026-07-29-measured-wing-multibody-plant.md`
+- `docs/decisions/ADR-2026-07-29-ideal-coupled-wing-drive.md`
 - `docs/audits/2026-07-29-ideal-coupling-feasibility.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
@@ -43,4 +44,4 @@ The PhysX wing-multibody preparation branch now has a shared sine phase contract
 
 ## Exact next task
 
-Add the approved ideal coupled wing drive to the measured multibody variant; preserve the baseline kinematic override and do not move aerodynamic wrenches in the same commit.
+Add a no-aerodynamics SFWM-versus-PhysX inertial benchmark using actual joint motion; do not add the analytic SFWM term to the PhysX plant.

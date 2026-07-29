@@ -28,7 +28,14 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_apply_inverse, quat_from_euler_xyz
 
-from ...assets import FlappingBotCfg
+from ...assets import (
+    IDEAL_COUPLED_WING_DRIVE,
+    KINEMATIC_WING_OVERRIDE,
+    FlappingBotCfg,
+    IdealCoupledFlappingBotCfg,
+    apply_hard_opposed_wing_mimic,
+    validate_wing_drive_variant,
+)
 from ...physics import (
     DeLaurierParams,
     DeLaurierStripLoads,
@@ -233,6 +240,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     max_flap_hz: float = 5.0
 
     # joint actuation model
+    wing_drive_variant: str = KINEMATIC_WING_OVERRIDE
     # If True, directly write joint positions/velocities each physics step (kinematic override).
     # This decouples wing flapping kinematics from rigid-body reaction dynamics and improves stability for
     # aero-driven flight experiments.
@@ -396,6 +404,22 @@ class FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg(FlappingBotStraightFl
 
 
 @configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg
+):
+    """Measured plant driven by one ideal left-wing PD actuator and hard coupling."""
+
+    wing_drive_variant: str = IDEAL_COUPLED_WING_DRIVE
+    use_kinematic_joint_override: bool = False
+    robot: ArticulationCfg = IdealCoupledFlappingBotCfg.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=IdealCoupledFlappingBotCfg.spawn.replace(
+            rigid_props=IdealCoupledFlappingBotCfg.spawn.rigid_props.replace(disable_gravity=False),
+        ),
+    )
+
+
+@configclass
 class FlappingBotStraightFlightDeLaurierEnvCfg(FlappingBotStraightFlightEnvCfg):
     """Detailed wings: DeLaurier wings + tail aero."""
 
@@ -459,6 +483,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     cfg: FlappingBotStraightFlightEnvCfg
 
     def __init__(self, cfg: FlappingBotStraightFlightEnvCfg, render_mode: str | None = None, **kwargs):
+        wing_drive_variant = validate_wing_drive_variant(cfg.wing_drive_variant)
+        if wing_drive_variant == IDEAL_COUPLED_WING_DRIVE:
+            if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
+                raise ValueError("ideal_coupled_drive requires plant_variant='measured_wing_multibody'.")
+            if bool(cfg.use_kinematic_joint_override):
+                raise ValueError("ideal_coupled_drive cannot use the per-step kinematic joint override.")
+
         # runtime buffers
         self._robot: Articulation | None = None
         self._joint_ids: list[int] = []
@@ -897,6 +928,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     # ------------------------------------------------------------------
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) == IDEAL_COUPLED_WING_DRIVE:
+            source_robot_path = f"{self.scene.env_prim_paths[0]}/Robot"
+            apply_hard_opposed_wing_mimic(
+                self._robot.stage,
+                articulation_root_path=source_robot_path,
+            )
         self.scene.articulations["robot"] = self._robot
         self.scene.clone_environments(copy_from_source=False)
 
@@ -1316,11 +1353,42 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # visualization joints for tail (treated as left/right elevons)
         jt[:, self._IDX_LEFT_TAIL] = self._left_elevon_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_elevon_cmd
+        wing_drive_variant = validate_wing_drive_variant(self.cfg.wing_drive_variant)
         if bool(self.cfg.use_kinematic_joint_override):
             jvel = torch.zeros_like(jt)
             jvel[:, self._IDX_LEFT_WING] = left_qd_cmd
             jvel[:, self._IDX_RIGHT_WING] = right_qd_cmd
             self._robot.write_joint_state_to_sim(jt, jvel, joint_ids=self._joint_ids)
+        elif wing_drive_variant == IDEAL_COUPLED_WING_DRIVE:
+            left_driver_joint_id = [int(self._joint_ids[self._IDX_LEFT_WING])]
+            self._robot.set_joint_position_target(
+                jt[:, self._IDX_LEFT_WING].unsqueeze(-1),
+                joint_ids=left_driver_joint_id,
+            )
+            self._robot.set_joint_velocity_target(
+                left_qd_cmd.unsqueeze(-1),
+                joint_ids=left_driver_joint_id,
+            )
+            non_wing_local_ids = [self._IDX_RUDDER, self._IDX_LEFT_TAIL, self._IDX_RIGHT_TAIL]
+            non_wing_joint_ids = [int(self._joint_ids[index]) for index in non_wing_local_ids]
+            self._robot.set_joint_position_target(
+                jt[:, non_wing_local_ids],
+                joint_ids=non_wing_joint_ids,
+            )
+            q_left = self._robot.data.joint_pos[:, left_driver_joint_id[0]]
+            q_right = self._robot.data.joint_pos[:, int(self._joint_ids[self._IDX_RIGHT_WING])]
+            qd_left = self._robot.data.joint_vel[:, left_driver_joint_id[0]]
+            drive_torque = self._robot.data.applied_torque[:, left_driver_joint_id[0]]
+            self.extras.setdefault("log", {}).update(
+                {
+                    "WingDrive/mean_abs_sync_error_rad": float(torch.mean(torch.abs(q_left + q_right)).item()),
+                    "WingDrive/mean_abs_tracking_error_rad": float(torch.mean(torch.abs(q_left - left_cmd)).item()),
+                    "WingDrive/mean_abs_velocity_error_rad_s": float(
+                        torch.mean(torch.abs(qd_left - left_qd_cmd)).item()
+                    ),
+                    "WingDrive/mean_abs_driver_torque_Nm": float(torch.mean(torch.abs(drive_torque)).item()),
+                }
+            )
         else:
             self._robot.set_joint_position_target(jt, joint_ids=self._joint_ids)
 

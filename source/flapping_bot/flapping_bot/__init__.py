@@ -32,6 +32,8 @@ __all__ = [
     "FlappingBotPathTrackingPrimitiveWeakTeacherRLEnvCfg",
     "FlappingBotPathTrackingPrimitivePureRLEnvCfg",
     "FlappingBotStraightFlightEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg",
     "FlappingBotStraightFlightSimpleEnvCfg",
     "FlappingBotStraightFlightDeLaurierEnvCfg",
     "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
@@ -88,6 +90,8 @@ def __getattr__(name: str):
     if name in (
         "FlappingBotStraightFlightEnv",
         "FlappingBotStraightFlightEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg",
         "FlappingBotStraightFlightSimpleEnvCfg",
         "FlappingBotStraightFlightDeLaurierEnvCfg",
         "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
@@ -103,12 +107,20 @@ def __getattr__(name: str):
             FlappingBotStraightFlightDeLaurierEnvCfg,
             FlappingBotStraightFlightEnv,
             FlappingBotStraightFlightEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg,
             FlappingBotStraightFlightSimpleEnvCfg,
         )
 
         return {
             "FlappingBotStraightFlightEnv": FlappingBotStraightFlightEnv,
             "FlappingBotStraightFlightEnvCfg": FlappingBotStraightFlightEnvCfg,
+            "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg
+            ),
             "FlappingBotStraightFlightSimpleEnvCfg": FlappingBotStraightFlightSimpleEnvCfg,
             "FlappingBotStraightFlightDeLaurierEnvCfg": FlappingBotStraightFlightDeLaurierEnvCfg,
             "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg": FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,

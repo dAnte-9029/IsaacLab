@@ -17,6 +17,7 @@ __all__ = [
     "FlappingBotStraightFlightEnv",
     "FlappingBotStraightFlightEnvCfg",
     "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg",
     "FlappingBotStraightFlightSimpleEnvCfg",
     "FlappingBotStraightFlightDeLaurierEnvCfg",
     "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
@@ -65,6 +66,7 @@ def __getattr__(name: str):
         "FlappingBotStraightFlightEnv",
         "FlappingBotStraightFlightEnvCfg",
         "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg",
         "FlappingBotStraightFlightSimpleEnvCfg",
         "FlappingBotStraightFlightDeLaurierEnvCfg",
         "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
@@ -80,6 +82,7 @@ def __getattr__(name: str):
             FlappingBotStraightFlightDeLaurierEnvCfg,
             FlappingBotStraightFlightEnv,
             FlappingBotStraightFlightEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg,
             FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg,
             FlappingBotStraightFlightSimpleEnvCfg,
         )
@@ -89,6 +92,9 @@ def __getattr__(name: str):
             "FlappingBotStraightFlightEnvCfg": FlappingBotStraightFlightEnvCfg,
             "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg": (
                 FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg
             ),
             "FlappingBotStraightFlightSimpleEnvCfg": FlappingBotStraightFlightSimpleEnvCfg,
             "FlappingBotStraightFlightDeLaurierEnvCfg": FlappingBotStraightFlightDeLaurierEnvCfg,
