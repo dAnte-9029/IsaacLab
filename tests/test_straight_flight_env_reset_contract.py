@@ -103,6 +103,31 @@ def test_straight_flight_env_defaults_to_measured_whole_aircraft_mass_properties
     assert ast.literal_eval(legacy_com_x.value) is None
 
 
+def test_straight_flight_env_default_plant_variant_preserves_baseline() -> None:
+    module = _load_module()
+    base_cfg = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+    measured_cfg = _find_class(module, "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg")
+
+    default_variant = _find_ann_assign(base_cfg, "plant_variant")
+    measured_variant = _find_ann_assign(measured_cfg, "plant_variant")
+    assert isinstance(default_variant.value, ast.Name)
+    assert default_variant.value.id == "NEAR_SINGLE_RIGID_BODY_PLANT"
+    assert isinstance(measured_variant.value, ast.Name)
+    assert measured_variant.value.id == "MEASURED_WING_MULTIBODY_PLANT"
+
+    expected_measured_overrides = {
+        "override_appendage_masses": False,
+        "redistribute_removed_mass_to_base": False,
+        "total_mass_kg_override": None,
+        "base_body_com_override_x_m": None,
+        "base_body_com_override_m": None,
+        "base_body_inertia_diag_override_kg_m2": None,
+    }
+    for field_name, expected in expected_measured_overrides.items():
+        assign = _find_ann_assign(measured_cfg, field_name)
+        assert ast.literal_eval(assign.value) is expected
+
+
 def test_straight_flight_env_defaults_to_disabled_dynamic_twist() -> None:
     module = _load_module()
     class_node = _find_class(module, "FlappingBotStraightFlightEnvCfg")
@@ -113,7 +138,7 @@ def test_straight_flight_env_defaults_to_disabled_dynamic_twist() -> None:
     assert ast.literal_eval(tip_amplitude.value) == 0.0
 
 
-def test_straight_flight_env_init_calls_total_mass_override_hook() -> None:
+def test_straight_flight_env_init_calls_explicit_plant_configuration_hook() -> None:
     module = _load_module()
     class_node = _find_class(module, "FlappingBotStraightFlightEnv")
     init_fn = _find_method(class_node, "__init__")
@@ -125,7 +150,7 @@ def test_straight_flight_env_init_calls_total_mass_override_hook() -> None:
             continue
         if not isinstance(node.func.value, ast.Name) or node.func.value.id != "self":
             continue
-        if node.func.attr == "_override_total_mass_properties":
+        if node.func.attr == "_configure_plant_mass_properties":
             return
 
-    raise AssertionError("FlappingBotStraightFlightEnv.__init__ must call self._override_total_mass_properties().")
+    raise AssertionError("FlappingBotStraightFlightEnv.__init__ must call self._configure_plant_mass_properties().")

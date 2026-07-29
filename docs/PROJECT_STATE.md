@@ -12,7 +12,7 @@
 
 ## Active stage
 
-The PhysX wing-multibody preparation branch now has a shared sine phase contract and a pure measured mass-property module for `base_link`, `left_wing` and `right_wing`. The three-link mass is `0.90415 kg`; coordinate transforms, mirroring, positive definiteness and the documented body inertia tolerance are unit tested. A minimal Isaac Sim 5.1 feasibility test also confirms that a hard `PhysxMimicJointAPI` constraint can maintain `q_left+q_right=0` within `0.1 deg`; the importer-default compliant mimic cannot. These values and coupling are not yet applied to the formal environment, whose defaults remain the near-single-rigid-body baseline.
+The PhysX wing-multibody preparation branch now has a shared sine phase contract, frozen measured body/wing properties and an explicit `measured_wing_multibody` plant variant. The measured variant partitions `0.90415 kg` across the body, measured wings and positive tail/rudder placeholders while the default remains `near_single_rigid_body`. A minimal Isaac Sim 5.1 feasibility test also confirms that a hard `PhysxMimicJointAPI` constraint can maintain `q_left+q_right=0` within `0.1 deg`; the importer-default compliant mimic cannot. The formal environment still uses its legacy kinematic wing override until the separately approved coupled drive is integrated.
 
 ## Required reading
 
@@ -24,6 +24,7 @@ The PhysX wing-multibody preparation branch now has a shared sine phase contract
 - `docs/decisions/ADR-2026-07-14-delaurier-airflow-frame-convention.md`
 - `docs/decisions/ADR-2026-07-29-engineering-flap-phase-sine.md`
 - `docs/decisions/ADR-2026-07-29-measured-multibody-mass-properties.md`
+- `docs/decisions/ADR-2026-07-29-measured-wing-multibody-plant.md`
 - `docs/audits/2026-07-29-ideal-coupling-feasibility.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
@@ -42,4 +43,4 @@ The PhysX wing-multibody preparation branch now has a shared sine phase contract
 
 ## Exact next task
 
-Add an explicit measured PhysX multibody plant variant that applies the frozen three-link properties while preserving the current baseline; do not add the coupled drive or move aerodynamic wrenches in the same commit.
+Add the approved ideal coupled wing drive to the measured multibody variant; preserve the baseline kinematic override and do not move aerodynamic wrenches in the same commit.

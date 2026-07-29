@@ -42,7 +42,11 @@ from ...physics import (
     compute_delaurier_strip_loads,
     compute_legacy_qd_scaled_twist,
     FlappingQSMCfg,
+    build_measured_wing_multibody_tensors,
     integrate_delaurier_strip_wrench,
+    MEASURED_MULTIBODY_DEFAULT_PLACEHOLDER_MASS_KG,
+    MEASURED_WING_MULTIBODY_PLANT,
+    NEAR_SINGLE_RIGID_BODY_PLANT,
     QuasiSteadyWingModel,
     resolve_delaurier_phase,
     TailAeroCfg,
@@ -50,6 +54,7 @@ from ...physics import (
     transform_wang_wrench_to_link,
     translate_wrench_moment,
     validate_delaurier_dynamic_twist_mode,
+    validate_flapping_bot_plant_variant,
     WingQSMCfg,
     WingGeometry,
     build_wing_geometry_from_csv,
@@ -234,6 +239,10 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     use_kinematic_joint_override: bool = True
 
     # dynamics decoupling (mass/inertia)
+    # Plant selection is explicit so the established near-single-rigid-body
+    # baseline remains available while measured wing inertia is introduced.
+    plant_variant: str = NEAR_SINGLE_RIGID_BODY_PLANT
+    measured_multibody_placeholder_mass_kg: float = MEASURED_MULTIBODY_DEFAULT_PLACEHOLDER_MASS_KG
     # Reduce inertial coupling from moving wing/tail links by scaling their masses/inertias and (optionally)
     # redistributing the removed mass onto the base link to keep total mass roughly constant.
     override_appendage_masses: bool = True
@@ -371,6 +380,19 @@ class FlappingBotStraightFlightSimpleEnvCfg(FlappingBotStraightFlightEnvCfg):
     """Fast baseline: simple wings + tail aero."""
 
     use_delaurier_wings: bool = False
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg(FlappingBotStraightFlightEnvCfg):
+    """Measured body/two-wing PhysX plant with the legacy drive path unchanged."""
+
+    plant_variant: str = MEASURED_WING_MULTIBODY_PLANT
+    override_appendage_masses: bool = False
+    redistribute_removed_mass_to_base: bool = False
+    total_mass_kg_override: float | None = None
+    base_body_com_override_x_m: float | None = None
+    base_body_com_override_m: tuple[float, float, float] | None = None
+    base_body_inertia_diag_override_kg_m2: tuple[float, float, float] | None = None
 
 
 @configclass
@@ -610,10 +632,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # base body ids used for applying net aerodynamic wrench
         base_body_ids, _ = self._robot.find_bodies(["base_link"], preserve_order=True)
         self._base_body_ids = base_body_ids
-        self._override_appendage_mass_properties()
-        self._override_total_mass_properties()
-        self._override_base_body_com()
-        self._override_base_body_inertia()
+        self._configure_plant_mass_properties()
 
         # wing phase/frequency
         self._phase = torch.zeros(self.num_envs, device=self.device)
@@ -766,6 +785,38 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         # Cache total mass on the simulation device (used for gravity compensation).
         self._mass_total = masses_new.sum(dim=1).to(device=self.device)
+
+    def _configure_plant_mass_properties(self) -> None:
+        """Apply the selected runtime plant mass partition."""
+
+        plant_variant = validate_flapping_bot_plant_variant(self.cfg.plant_variant)
+        if plant_variant == NEAR_SINGLE_RIGID_BODY_PLANT:
+            self._override_appendage_mass_properties()
+            self._override_total_mass_properties()
+            self._override_base_body_com()
+            self._override_base_body_inertia()
+            return
+        if plant_variant != MEASURED_WING_MULTIBODY_PLANT:
+            raise RuntimeError(f"Unhandled plant variant: {plant_variant!r}.")
+
+        env_ids = torch.arange(self.num_envs, device="cpu", dtype=torch.int64)
+        masses = self._robot.root_physx_view.get_masses().clone()
+        inertias = self._robot.root_physx_view.get_inertias().clone()
+        coms = self._robot.root_physx_view.get_coms().clone()
+        masses_new, inertias_new, coms_new = build_measured_wing_multibody_tensors(
+            body_names=self._robot.body_names,
+            masses_kg=masses,
+            inertias_kg_m2=inertias,
+            com_poses_link=coms,
+            placeholder_mass_kg=float(self.cfg.measured_multibody_placeholder_mass_kg),
+        )
+
+        self._robot.root_physx_view.set_masses(masses_new, env_ids)
+        self._robot.root_physx_view.set_inertias(inertias_new, env_ids)
+        self._robot.root_physx_view.set_coms(coms_new, env_ids)
+        self._mass_total = masses_new.sum(dim=1).to(device=self.device)
+        self._robot.data.default_mass = masses_new.to(device=self.device)
+        self._robot.data.default_inertia = inertias_new.to(device=self.device)
 
     def _override_base_body_com(self) -> None:
         """Optionally override the base-body COM offset in the base-link frame."""

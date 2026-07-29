@@ -57,6 +57,19 @@ from .measured_mass_properties import (
     transform_mass_properties,
     validate_mass_properties,
 )
+from .multibody_mass_distribution import (
+    FLAPPING_BOT_PLANT_VARIANTS,
+    MEASURED_MULTIBODY_DEFAULT_PLACEHOLDER_MASS_KG,
+    MEASURED_MULTIBODY_PLACEHOLDER_LINK_NAMES,
+    MEASURED_MULTIBODY_TOTAL_MASS_KG,
+    MEASURED_WING_MULTIBODY_PLANT,
+    NEAR_SINGLE_RIGID_BODY_PLANT,
+    RuntimeMassProperties,
+    build_measured_wing_multibody_tensors,
+    measured_wing_multibody_runtime_properties,
+    project_diagonal_inertia_to_triangle_cone,
+    validate_flapping_bot_plant_variant,
+)
 
 __all__ = [
     "WingQSMCfg",
@@ -120,4 +133,15 @@ __all__ = [
     "inertia_triangle_margins_kg_m2",
     "validate_mass_properties",
     "measured_three_link_total_mass_kg",
+    "RuntimeMassProperties",
+    "NEAR_SINGLE_RIGID_BODY_PLANT",
+    "MEASURED_WING_MULTIBODY_PLANT",
+    "FLAPPING_BOT_PLANT_VARIANTS",
+    "MEASURED_MULTIBODY_TOTAL_MASS_KG",
+    "MEASURED_MULTIBODY_PLACEHOLDER_LINK_NAMES",
+    "MEASURED_MULTIBODY_DEFAULT_PLACEHOLDER_MASS_KG",
+    "project_diagonal_inertia_to_triangle_cone",
+    "measured_wing_multibody_runtime_properties",
+    "build_measured_wing_multibody_tensors",
+    "validate_flapping_bot_plant_variant",
 ]
