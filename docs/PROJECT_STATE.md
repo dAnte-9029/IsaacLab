@@ -12,7 +12,7 @@
 
 ## Active stage
 
-The PhysX wing-multibody preparation branch now has a shared sine phase contract and a pure measured mass-property module for `base_link`, `left_wing` and `right_wing`. The three-link mass is `0.90415 kg`; coordinate transforms, mirroring, positive definiteness and the documented body inertia tolerance are unit tested. These values are not yet applied to PhysX, and the current environment defaults remain the near-single-rigid-body baseline.
+The PhysX wing-multibody preparation branch now has a shared sine phase contract and a pure measured mass-property module for `base_link`, `left_wing` and `right_wing`. The three-link mass is `0.90415 kg`; coordinate transforms, mirroring, positive definiteness and the documented body inertia tolerance are unit tested. A minimal Isaac Sim 5.1 feasibility test also confirms that a hard `PhysxMimicJointAPI` constraint can maintain `q_left+q_right=0` within `0.1 deg`; the importer-default compliant mimic cannot. These values and coupling are not yet applied to the formal environment, whose defaults remain the near-single-rigid-body baseline.
 
 ## Required reading
 
@@ -24,6 +24,7 @@ The PhysX wing-multibody preparation branch now has a shared sine phase contract
 - `docs/decisions/ADR-2026-07-14-delaurier-airflow-frame-convention.md`
 - `docs/decisions/ADR-2026-07-29-engineering-flap-phase-sine.md`
 - `docs/decisions/ADR-2026-07-29-measured-multibody-mass-properties.md`
+- `docs/audits/2026-07-29-ideal-coupling-feasibility.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
 ## Known Issues / Deferred Work

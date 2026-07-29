@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<robot name="ideal_coupled_wings">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.13103 -0.00625 0.01500" rpy="0 0 0"/>
+      <mass value="0.78261"/>
+      <inertia
+        ixx="0.003083333333333333"
+        ixy="0"
+        ixz="0"
+        iyy="0.023056666666666667"
+        iyz="0"
+        izz="0.019973333333333333"
+      />
+    </inertial>
+    <visual>
+      <geometry>
+        <box size="0.30 0.08 0.08"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="left_wing">
+    <inertial>
+      <origin xyz="-0.06040 0.29394 0" rpy="0 0 0"/>
+      <mass value="0.06077"/>
+      <inertia ixx="0.00270" ixy="0" ixz="0" iyy="0.00101" iyz="0" izz="0.00371"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.06 0.30 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.12 0.60 0.005"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="left_wing" type="revolute">
+    <origin xyz="0 0.056 0" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="left_wing"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.55" upper="0.55" effort="100" velocity="200"/>
+  </joint>
+
+  <link name="right_wing">
+    <inertial>
+      <origin xyz="-0.06040 -0.29394 0" rpy="0 0 0"/>
+      <mass value="0.06077"/>
+      <inertia ixx="0.00270" ixy="0" ixz="0" iyy="0.00101" iyz="0" izz="0.00371"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.06 -0.30 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.12 0.60 0.005"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="right_wing" type="revolute">
+    <origin xyz="0 -0.056 0" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="right_wing"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.55" upper="0.55" effort="100" velocity="200"/>
+    <mimic joint="left_wing" multiplier="-1" offset="0"/>
+  </joint>
+</robot>
