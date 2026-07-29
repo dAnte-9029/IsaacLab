@@ -101,7 +101,8 @@ def test_formal_asset_tracks_one_driver_and_preserves_hard_opposed_coupling(
         applied_driver_torques: list[float] = []
 
         for step in range(total_steps):
-            phase_rad = 2.0 * math.pi * frequency_hz * step * dt_s
+            # The target is consumed by the following simulation step.
+            phase_rad = 2.0 * math.pi * frequency_hz * (step + 1) * dt_s
             q_ref = math.radians(30.0) * math.sin(phase_rad)
             qd_ref = math.radians(30.0) * 2.0 * math.pi * frequency_hz * math.cos(phase_rad)
             robot.set_joint_position_target(

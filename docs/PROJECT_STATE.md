@@ -12,7 +12,7 @@
 
 ## Active stage
 
-The PhysX wing-multibody branch now has a shared sine phase contract, frozen measured body/wing properties, an explicit `measured_wing_multibody` plant and an explicit `ideal_coupled_drive`. The measured plant partitions `0.90415 kg` across the body, measured wings and positive tail/rudder placeholders. The ideal drive sends position/velocity targets only to one left-wing PD driver while a hard PhysX mimic constraint enforces `q_left+q_right=0`; the right wing is passive. At the formal `1/240 s` physics step, the 5 Hz no-aerodynamics test achieved `0.010942 deg` maximum synchronization error. Both defaults remain the established near-single-rigid-body plant and per-step kinematic override.
+The PhysX wing-multibody branch now has a shared sine phase contract, frozen measured body/wing properties, an explicit `measured_wing_multibody` plant and an explicit `ideal_coupled_drive`. A no-gravity/no-aerodynamics 2-5 Hz benchmark evaluates Amini's reduced inertial terms from actual joint motion without applying them to PhysX. The PhysX vertical fundamental agrees within `0.20%`, pitch amplitude within `3.4%`, phase within `0.3 deg`, and the response follows the expected frequency-squared law. The formal `1/240 s` step retains less than `0.9%` amplitude error relative to `1 ms`, with up to `3.72 deg` phase error at 5 Hz. Both defaults remain the established near-single-rigid-body plant and per-step kinematic override.
 
 ## Required reading
 
@@ -27,6 +27,7 @@ The PhysX wing-multibody branch now has a shared sine phase contract, frozen mea
 - `docs/decisions/ADR-2026-07-29-measured-wing-multibody-plant.md`
 - `docs/decisions/ADR-2026-07-29-ideal-coupled-wing-drive.md`
 - `docs/audits/2026-07-29-ideal-coupling-feasibility.md`
+- `docs/audits/2026-07-29-physx-sfwm-inertial-validation.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
 ## Known Issues / Deferred Work
@@ -44,4 +45,4 @@ The PhysX wing-multibody branch now has a shared sine phase contract, frozen mea
 
 ## Exact next task
 
-Add a no-aerodynamics SFWM-versus-PhysX inertial benchmark using actual joint motion; do not add the analytic SFWM term to the PhysX plant.
+For the explicit measured-wing multibody variant only, derive aerodynamic wing kinematics from actual joint motion and apply each wing wrench to its wing link; preserve the existing commanded-kinematics/base-wrench path for the baseline variant.

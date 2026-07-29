@@ -70,6 +70,13 @@ from .multibody_mass_distribution import (
     project_diagonal_inertia_to_triangle_cone,
     validate_flapping_bot_plant_variant,
 )
+from .sfwm_inertial_reference import (
+    AminiSfwmInertialResponse,
+    AminiSfwmLongitudinalParams,
+    MEASURED_WING_NEUTRAL_DIHEDRAL_RAD,
+    compute_amini_sfwm_inertial_response,
+    measured_flapping_bot_amini_params,
+)
 
 __all__ = [
     "WingQSMCfg",
@@ -144,4 +151,9 @@ __all__ = [
     "measured_wing_multibody_runtime_properties",
     "build_measured_wing_multibody_tensors",
     "validate_flapping_bot_plant_variant",
+    "AminiSfwmLongitudinalParams",
+    "AminiSfwmInertialResponse",
+    "MEASURED_WING_NEUTRAL_DIHEDRAL_RAD",
+    "measured_flapping_bot_amini_params",
+    "compute_amini_sfwm_inertial_response",
 ]
