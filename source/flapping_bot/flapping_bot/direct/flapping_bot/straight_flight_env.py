@@ -11,7 +11,7 @@ Key design choices for long-horizon iteration:
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import math
 from pathlib import Path
 from typing import Tuple
@@ -37,6 +37,8 @@ from ...assets import (
     validate_wing_drive_variant,
 )
 from ...physics import (
+    ACTUAL_PER_WING_LINK,
+    COMMANDED_BASE_EQUIVALENT,
     DeLaurierParams,
     DeLaurierStripLoads,
     DeLaurierStripWrench,
@@ -51,6 +53,7 @@ from ...physics import (
     FlappingQSMCfg,
     build_measured_wing_multibody_tensors,
     integrate_delaurier_strip_wrench,
+    map_opposed_joint_states_to_physical_wing_kinematics,
     MEASURED_MULTIBODY_DEFAULT_PLACEHOLDER_MASS_KG,
     MEASURED_WING_MULTIBODY_PLANT,
     NEAR_SINGLE_RIGID_BODY_PLANT,
@@ -59,7 +62,9 @@ from ...physics import (
     TailAeroCfg,
     TailAeroModel,
     transform_wang_wrench_to_link,
+    translate_wing_root_wrench_to_com_link,
     translate_wrench_moment,
+    validate_wing_aero_coupling_mode,
     validate_delaurier_dynamic_twist_mode,
     validate_flapping_bot_plant_variant,
     WingQSMCfg,
@@ -90,6 +95,22 @@ from .startup_phase import (
 )
 
 Tensor = torch.Tensor
+
+
+@dataclass(frozen=True)
+class _DeLaurierWingWrenchResult:
+    """Per-wing and equivalent total DeLaurier wrenches.
+
+    ``force_link_n`` and ``moment_link_about_com_nm`` have shape ``(N,2,3)``
+    in each wing link's FLU frame. ``net_force_b_n`` and
+    ``net_moment_b_about_base_com_nm`` have shape ``(N,3)`` in the base-link
+    FLU frame.
+    """
+
+    net_force_b_n: Tensor
+    net_moment_b_about_base_com_nm: Tensor
+    force_link_n: Tensor
+    moment_link_about_com_nm: Tensor
 
 
 @configclass
@@ -327,6 +348,10 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # diagnostics: selectively apply aerodynamic components
     enable_wing_aero: bool = True
     enable_tail_aero: bool = True
+    # The established baseline computes commanded wing kinematics and applies
+    # one equivalent wing wrench at the base COM. The explicit multibody mode
+    # uses actual joint motion and applies one wrench to each wing link.
+    wing_aero_coupling_mode: str = COMMANDED_BASE_EQUIVALENT
 
     # DeLaurier wing model (Stage B)
     use_delaurier_wings: bool = False
@@ -420,6 +445,16 @@ class FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg(
 
 
 @configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledDeLaurierEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg
+):
+    """Measured multibody plant with actual-motion per-wing DeLaurier loads."""
+
+    use_delaurier_wings: bool = True
+    wing_aero_coupling_mode: str = ACTUAL_PER_WING_LINK
+
+
+@configclass
 class FlappingBotStraightFlightDeLaurierEnvCfg(FlappingBotStraightFlightEnvCfg):
     """Detailed wings: DeLaurier wings + tail aero."""
 
@@ -484,11 +519,30 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
     def __init__(self, cfg: FlappingBotStraightFlightEnvCfg, render_mode: str | None = None, **kwargs):
         wing_drive_variant = validate_wing_drive_variant(cfg.wing_drive_variant)
+        wing_aero_coupling_mode = validate_wing_aero_coupling_mode(cfg.wing_aero_coupling_mode)
         if wing_drive_variant == IDEAL_COUPLED_WING_DRIVE:
             if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
                 raise ValueError("ideal_coupled_drive requires plant_variant='measured_wing_multibody'.")
             if bool(cfg.use_kinematic_joint_override):
                 raise ValueError("ideal_coupled_drive cannot use the per-step kinematic joint override.")
+        if wing_aero_coupling_mode == ACTUAL_PER_WING_LINK:
+            if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
+                raise ValueError("actual_per_wing_link requires plant_variant='measured_wing_multibody'.")
+            if wing_drive_variant != IDEAL_COUPLED_WING_DRIVE:
+                raise ValueError("actual_per_wing_link requires wing_drive_variant='ideal_coupled_drive'.")
+            if not bool(cfg.use_delaurier_wings):
+                raise ValueError("actual_per_wing_link requires use_delaurier_wings=True.")
+            if str(cfg.wing_moment_mode) != "strip_integrated":
+                raise ValueError("actual_per_wing_link requires wing_moment_mode='strip_integrated'.")
+            if str(cfg.dynamic_twist_mode) == "legacy_qd_scaled_proxy":
+                raise ValueError(
+                    "actual_per_wing_link does not support dynamic_twist_mode='legacy_qd_scaled_proxy'."
+                )
+            if float(cfg.delaurier_induced_drag_efficiency) != 0.0:
+                raise ValueError(
+                    "actual_per_wing_link requires delaurier_induced_drag_efficiency=0 until a per-wing "
+                    "induced-drag distribution is defined."
+                )
 
         # runtime buffers
         self._robot: Articulation | None = None
@@ -563,6 +617,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_tail_force_b: Tensor | None = None
         self._debug_last_force_b: Tensor | None = None
         self._debug_last_torque_b: Tensor | None = None
+        self._debug_last_wing_force_link_n: Tensor | None = None
+        self._debug_last_wing_moment_link_about_com_nm: Tensor | None = None
+        self._debug_last_wing_aero_position_rad: Tensor | None = None
+        self._debug_last_wing_aero_velocity_rad_s: Tensor | None = None
+        self._debug_last_wing_aero_acceleration_rad_s2: Tensor | None = None
 
         # aero models
         self._qsm_wing_model: QuasiSteadyWingModel | None = None
@@ -638,6 +697,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_tail_force_b = torch.zeros(N, 3, device=self.device)
         self._debug_last_force_b = torch.zeros(N, 3, device=self.device)
         self._debug_last_torque_b = torch.zeros(N, 3, device=self.device)
+        self._debug_last_wing_force_link_n = torch.zeros(N, 2, 3, device=self.device)
+        self._debug_last_wing_moment_link_about_com_nm = torch.zeros(N, 2, 3, device=self.device)
+        self._debug_last_wing_aero_position_rad = torch.zeros(N, 2, device=self.device)
+        self._debug_last_wing_aero_velocity_rad_s = torch.zeros(N, 2, device=self.device)
+        self._debug_last_wing_aero_acceleration_rad_s2 = torch.zeros(N, 2, device=self.device)
         self._mass_total = self._robot.data.default_mass.sum(dim=1).to(device=self.device)
 
         # joint targets
@@ -1436,6 +1500,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             f_tail = torch.zeros_like(v_b)
             tau_tail = torch.zeros_like(v_b)
 
+        delaurier_wrench: _DeLaurierWingWrenchResult | None = None
         if bool(self.cfg.enable_wing_aero):
             if not bool(self.cfg.use_delaurier_wings):
                 # simple wing QSM
@@ -1447,7 +1512,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 f_w_sum = torch.sum(f_w, dim=1)
                 tau_w_sum = torch.sum(tau_w, dim=1)
             else:
-                f_w_sum, tau_w_sum = self._compute_wing_delaurier_wrench(v_air_b)
+                delaurier_wrench = self._compute_wing_delaurier_wrench(v_air_b)
+                f_w_sum = delaurier_wrench.net_force_b_n
+                tau_w_sum = delaurier_wrench.net_moment_b_about_base_com_nm
         else:
             f_w_sum = torch.zeros_like(v_b)
             tau_w_sum = torch.zeros_like(v_b)
@@ -1466,13 +1533,51 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_force_b.copy_(f_w_sum + f_tail + f_drag)
         self._debug_last_torque_b.copy_(tau_w_sum + tau_tail)
 
-        f_sum = (f_w_sum + f_tail + f_drag).unsqueeze(1)  # (N,1,3)
-        t_sum = (tau_w_sum + tau_tail).unsqueeze(1)  # (N,1,3)
-        self._robot.set_external_force_and_torque(
-            forces=f_sum, torques=t_sum, body_ids=self._base_body_ids, is_global=False
-        )
+        wing_aero_coupling_mode = validate_wing_aero_coupling_mode(self.cfg.wing_aero_coupling_mode)
+        if wing_aero_coupling_mode == ACTUAL_PER_WING_LINK:
+            if delaurier_wrench is None:
+                wing_force_link = torch.zeros(
+                    self.num_envs,
+                    2,
+                    3,
+                    device=self.device,
+                    dtype=v_b.dtype,
+                )
+                wing_moment_link_about_com = torch.zeros_like(wing_force_link)
+            else:
+                wing_force_link = delaurier_wrench.force_link_n
+                wing_moment_link_about_com = delaurier_wrench.moment_link_about_com_nm
+            self._debug_last_wing_force_link_n.copy_(wing_force_link)
+            self._debug_last_wing_moment_link_about_com_nm.copy_(wing_moment_link_about_com)
 
-    def _compute_wing_delaurier_wrench(self, v_air_b: Tensor) -> tuple[Tensor, Tensor]:
+            # One call is required because Isaac Lab stores one global/local
+            # wrench-frame flag for the complete articulation. Each row below
+            # is expressed in its selected body's local FLU link frame.
+            forces_link = torch.cat(((f_tail + f_drag).unsqueeze(1), wing_force_link), dim=1)
+            torques_link_about_com = torch.cat(
+                (tau_tail.unsqueeze(1), wing_moment_link_about_com),
+                dim=1,
+            )
+            body_ids = [int(self._base_body_ids[0]), *(int(index) for index in self._wing_body_ids)]
+            self._robot.set_external_force_and_torque(
+                forces=forces_link,
+                torques=torques_link_about_com,
+                body_ids=body_ids,
+                is_global=False,
+            )
+        else:
+            self._debug_last_wing_force_link_n.zero_()
+            self._debug_last_wing_moment_link_about_com_nm.zero_()
+            f_sum = (f_w_sum + f_tail + f_drag).unsqueeze(1)  # (N,1,3)
+            t_sum = (tau_w_sum + tau_tail).unsqueeze(1)  # (N,1,3)
+            self._robot.set_external_force_and_torque(
+                forces=f_sum,
+                torques=t_sum,
+                body_ids=self._base_body_ids,
+                is_global=False,
+            )
+
+    def _compute_wing_delaurier_wrench(self, v_air_b: Tensor) -> _DeLaurierWingWrenchResult:
         """Compute the net DeLaurier wing wrench about the base COM in body frame.
 
         ``legacy_fixed_quarter_chord`` preserves the previous aggregate-force
@@ -1492,9 +1597,61 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         N_strip = int(self._wing_geom.x_mid.numel())
         y = self._wing_geom.x_mid.view(1, N_strip).expand(B, N_strip)
 
-        q = torch.repeat_interleave(self._q_cmd, 2)  # (B,)
-        qd = torch.repeat_interleave(self._qd_cmd, 2)
-        qdd = torch.repeat_interleave(self._qdd_cmd, 2)
+        wing_aero_coupling_mode = validate_wing_aero_coupling_mode(self.cfg.wing_aero_coupling_mode)
+        if wing_aero_coupling_mode == ACTUAL_PER_WING_LINK:
+            left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+            right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+            physical_kinematics = map_opposed_joint_states_to_physical_wing_kinematics(
+                joint_position_rad=torch.stack(
+                    (
+                        self._robot.data.joint_pos[:, left_joint_id],
+                        self._robot.data.joint_pos[:, right_joint_id],
+                    ),
+                    dim=1,
+                ),
+                joint_velocity_rad_s=torch.stack(
+                    (
+                        self._robot.data.joint_vel[:, left_joint_id],
+                        self._robot.data.joint_vel[:, right_joint_id],
+                    ),
+                    dim=1,
+                ),
+                joint_acceleration_rad_s2=torch.stack(
+                    (
+                        self._robot.data.joint_acc[:, left_joint_id],
+                        self._robot.data.joint_acc[:, right_joint_id],
+                    ),
+                    dim=1,
+                ),
+                left_joint_mid_rad=self._wing_mid_L,
+                right_joint_mid_rad=self._wing_mid_R,
+            )
+            q = physical_kinematics.position_rad.reshape(B)
+            qd = physical_kinematics.velocity_rad_s.reshape(B)
+            qdd = physical_kinematics.acceleration_rad_s2.reshape(B)
+            commanded_q = self._q_cmd.unsqueeze(1)
+            commanded_qd = self._qd_cmd.unsqueeze(1)
+            commanded_qdd = self._qdd_cmd.unsqueeze(1)
+            self.extras.setdefault("log", {}).update(
+                {
+                    "WingAero/mean_abs_position_input_error_rad": float(
+                        torch.mean(torch.abs(physical_kinematics.position_rad - commanded_q)).item()
+                    ),
+                    "WingAero/mean_abs_velocity_input_error_rad_s": float(
+                        torch.mean(torch.abs(physical_kinematics.velocity_rad_s - commanded_qd)).item()
+                    ),
+                    "WingAero/mean_abs_acceleration_input_error_rad_s2": float(
+                        torch.mean(torch.abs(physical_kinematics.acceleration_rad_s2 - commanded_qdd)).item()
+                    ),
+                }
+            )
+        else:
+            q = torch.repeat_interleave(self._q_cmd, 2)  # (B,)
+            qd = torch.repeat_interleave(self._qd_cmd, 2)
+            qdd = torch.repeat_interleave(self._qdd_cmd, 2)
+        self._debug_last_wing_aero_position_rad.copy_(q.reshape(N_env, 2))
+        self._debug_last_wing_aero_velocity_rad_s.copy_(qd.reshape(N_env, 2))
+        self._debug_last_wing_aero_acceleration_rad_s2.copy_(qdd.reshape(N_env, 2))
         w = torch.repeat_interleave(2.0 * torch.pi * self._freq, 2)  # (B,)
 
         # theta_a (flapping-axis angle relative to the freestream) per env -> per wing.
@@ -1636,11 +1793,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 return_terms=False,
             )
             force_link = torch.bmm(A_w2l, force_wang.unsqueeze(-1)).squeeze(-1)
-            force_world = quat_apply(q_w_link, force_link)
             wing_application_point_link = self._wing_application_point_link.repeat(N_env, 1)
-            application_point_world = p_wing_origin_w + quat_apply(q_w_link, wing_application_point_link)
-            moment_world_about_base_com = torch.linalg.cross(
-                application_point_world - torch.repeat_interleave(p_base_w, 2, dim=0), force_world
+            moment_link_about_wing_origin = torch.linalg.cross(
+                wing_application_point_link,
+                force_link,
             )
             self._debug_last_delaurier_strip_loads = None
             self._debug_last_delaurier_strip_wrench = None
@@ -1671,14 +1827,6 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 strip_wrench.moment_wang_about_wing_origin,
                 A_w2l,
             )
-            force_world = quat_apply(q_w_link, force_link)
-            moment_world_about_wing_origin = quat_apply(q_w_link, moment_link_about_wing_origin)
-            moment_world_about_base_com = translate_wrench_moment(
-                force_world,
-                moment_world_about_wing_origin,
-                p_wing_origin_w,
-                torch.repeat_interleave(p_base_w, 2, dim=0),
-            )
             if bool(self.cfg.delaurier_store_strip_diagnostics):
                 self._debug_last_delaurier_strip_loads = strip_loads
                 self._debug_last_delaurier_strip_wrench = strip_wrench
@@ -1686,6 +1834,20 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 self._debug_last_delaurier_strip_loads = None
                 self._debug_last_delaurier_strip_wrench = None
 
+        force_world = quat_apply(q_w_link, force_link)
+        moment_world_about_wing_origin = quat_apply(q_w_link, moment_link_about_wing_origin)
+        moment_world_about_base_com = translate_wrench_moment(
+            force_world,
+            moment_world_about_wing_origin,
+            p_wing_origin_w,
+            torch.repeat_interleave(p_base_w, 2, dim=0),
+        )
+        wing_com_position_link = self._robot.data.body_com_pos_b[:, self._wing_body_ids, :]
+        moment_link_about_com = translate_wing_root_wrench_to_com_link(
+            force_link_n=force_link.view(N_env, 2, 3),
+            moment_link_about_wing_origin_nm=moment_link_about_wing_origin.view(N_env, 2, 3),
+            wing_com_position_link_m=wing_com_position_link,
+        )
         force_world_sum = force_world.view(N_env, 2, 3).sum(dim=1)
         moment_world_sum_about_base_com = moment_world_about_base_com.view(N_env, 2, 3).sum(dim=1)
 
@@ -1715,7 +1877,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 D_i = cd_k * (lift_mag * lift_mag) / denom
                 F_b = F_b - D_i.unsqueeze(1) * v_dir
 
-        return F_b, tau_b
+        return _DeLaurierWingWrenchResult(
+            net_force_b_n=F_b,
+            net_moment_b_about_base_com_nm=tau_b,
+            force_link_n=force_link.view(N_env, 2, 3),
+            moment_link_about_com_nm=moment_link_about_com,
+        )
 
     # ------------------------------------------------------------------
     # Reset / Observations / Rewards / Dones

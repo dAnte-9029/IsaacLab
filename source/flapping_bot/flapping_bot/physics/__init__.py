@@ -70,6 +70,15 @@ from .multibody_mass_distribution import (
     project_diagonal_inertia_to_triangle_cone,
     validate_flapping_bot_plant_variant,
 )
+from .multibody_wing_coupling import (
+    ACTUAL_PER_WING_LINK,
+    COMMANDED_BASE_EQUIVALENT,
+    WING_AERO_COUPLING_MODES,
+    PhysicalWingFlapKinematics,
+    map_opposed_joint_states_to_physical_wing_kinematics,
+    translate_wing_root_wrench_to_com_link,
+    validate_wing_aero_coupling_mode,
+)
 from .sfwm_inertial_reference import (
     AminiSfwmInertialResponse,
     AminiSfwmLongitudinalParams,
@@ -151,6 +160,13 @@ __all__ = [
     "measured_wing_multibody_runtime_properties",
     "build_measured_wing_multibody_tensors",
     "validate_flapping_bot_plant_variant",
+    "ACTUAL_PER_WING_LINK",
+    "COMMANDED_BASE_EQUIVALENT",
+    "WING_AERO_COUPLING_MODES",
+    "PhysicalWingFlapKinematics",
+    "map_opposed_joint_states_to_physical_wing_kinematics",
+    "translate_wing_root_wrench_to_com_link",
+    "validate_wing_aero_coupling_mode",
     "AminiSfwmLongitudinalParams",
     "AminiSfwmInertialResponse",
     "MEASURED_WING_NEUTRAL_DIHEDRAL_RAD",

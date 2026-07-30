@@ -12,7 +12,7 @@
 
 ## Active stage
 
-The PhysX wing-multibody branch now has a shared sine phase contract, frozen measured body/wing properties, an explicit `measured_wing_multibody` plant and an explicit `ideal_coupled_drive`. A no-gravity/no-aerodynamics 2-5 Hz benchmark evaluates Amini's reduced inertial terms from actual joint motion without applying them to PhysX. The PhysX vertical fundamental agrees within `0.20%`, pitch amplitude within `3.4%`, phase within `0.3 deg`, and the response follows the expected frequency-squared law. The formal `1/240 s` step retains less than `0.9%` amplitude error relative to `1 ms`, with up to `3.72 deg` phase error at 5 Hz. Both defaults remain the established near-single-rigid-body plant and per-step kinematic override.
+The PhysX wing-multibody branch has a shared sine phase contract, frozen measured body/wing properties, an explicit `measured_wing_multibody` plant and an explicit `ideal_coupled_drive`. Its inertial response agrees with the Amini reduced reference. A separate `actual_per_wing_link` DeLaurier variant now reads actual opposed joint motion, translates each wing-root wrench to the measured wing COM and applies it to the corresponding PhysX wing link. Recomposition about the base COM matches the equivalent net wrench, and a 4 Hz 120-step smoke retained `0.029567 deg` maximum synchronization error with no nonfinite values or termination. The default remains the established near-single-rigid-body, commanded-kinematics, base-wrench and per-step kinematic-override path.
 
 ## Required reading
 
@@ -28,6 +28,7 @@ The PhysX wing-multibody branch now has a shared sine phase contract, frozen mea
 - `docs/decisions/ADR-2026-07-29-ideal-coupled-wing-drive.md`
 - `docs/audits/2026-07-29-ideal-coupling-feasibility.md`
 - `docs/audits/2026-07-29-physx-sfwm-inertial-validation.md`
+- `docs/audits/2026-07-29-multibody-wing-aero-coupling.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
 ## Known Issues / Deferred Work
@@ -45,4 +46,4 @@ The PhysX wing-multibody branch now has a shared sine phase contract, frozen mea
 
 ## Exact next task
 
-For the explicit measured-wing multibody variant only, derive aerodynamic wing kinematics from actual joint motion and apply each wing wrench to its wing link; preserve the existing commanded-kinematics/base-wrench path for the baseline variant.
+Run a 2/3/4/5 Hz and 1/240-versus-1/480 s aerodynamic-coupling sensitivity benchmark to separate the startup joint-acceleration spike from steady force noise; do not add acceleration filtering, motor calibration or controller tuning during that diagnostic.
