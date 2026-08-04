@@ -1,0 +1,20 @@
+[package]
+version = "0.1.0"
+title = "Flapping Bot Holonomic Constraint"
+description = "Native PhysX trajectory constraint for the ideal flapping mechanism."
+category = "physics"
+keywords = ["physics", "physx", "joint", "flapping"]
+
+[dependencies]
+"omni.physx" = {}
+"omni.usdphysics" = {}
+
+[core]
+reloadable = false
+order = -90
+
+[[python.module]]
+name = "omni.flapping_bot.holonomic_constraint"
+
+[[native.library]]
+path = "omni/flapping_bot/holonomic_constraint/_native.so"

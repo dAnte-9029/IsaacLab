@@ -4,17 +4,35 @@ import pytest
 import torch
 
 from flapping_bot.physics import (
+    ACTUAL_JOINT_ACCELERATION,
+    ACTUAL_MOTION_BASE_EQUIVALENT,
     ACTUAL_PER_WING_LINK,
     COMMANDED_BASE_EQUIVALENT,
+    FULL_WING_LINK_WRENCH,
+    PRESCRIBED_ACCELERATION,
+    PRESCRIBED_PER_WING_LINK,
+    SINUSOIDAL_PHASE_PER_WING_LINK,
+    WING_LINK_FORCE_ONLY,
+    WING_LINK_MOMENT_ONLY,
+    ZERO_ACCELERATION,
     map_opposed_joint_states_to_physical_wing_kinematics,
+    resolve_wing_aero_acceleration,
     translate_wing_root_wrench_to_com_link,
+    validate_wing_aero_acceleration_source,
     validate_wing_aero_coupling_mode,
+    validate_wing_link_aero_load_mode,
 )
 
 
 def test_coupling_mode_validation_preserves_explicit_baseline() -> None:
     assert validate_wing_aero_coupling_mode(COMMANDED_BASE_EQUIVALENT) == COMMANDED_BASE_EQUIVALENT
+    assert validate_wing_aero_coupling_mode(ACTUAL_MOTION_BASE_EQUIVALENT) == ACTUAL_MOTION_BASE_EQUIVALENT
     assert validate_wing_aero_coupling_mode(ACTUAL_PER_WING_LINK) == ACTUAL_PER_WING_LINK
+    assert validate_wing_aero_coupling_mode(PRESCRIBED_PER_WING_LINK) == PRESCRIBED_PER_WING_LINK
+    assert (
+        validate_wing_aero_coupling_mode(SINUSOIDAL_PHASE_PER_WING_LINK)
+        == SINUSOIDAL_PHASE_PER_WING_LINK
+    )
     with pytest.raises(ValueError, match="Unsupported wing_aero_coupling_mode"):
         validate_wing_aero_coupling_mode("implicit")
 
@@ -44,6 +62,60 @@ def test_opposed_joint_states_map_to_equal_physical_wing_motion() -> None:
         result.acceleration_rad_s2,
         torch.tensor([[-18.0, -18.0]], dtype=torch.float64),
     )
+    torch.testing.assert_close(
+        torch.mean(result.position_rad, dim=1),
+        torch.tensor([0.29], dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        torch.mean(result.velocity_rad_s, dim=1),
+        torch.tensor([2.4], dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        result.position_rad[:, 0] - result.position_rad[:, 1],
+        torch.tensor([0.0], dtype=torch.float64),
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        (ACTUAL_JOINT_ACCELERATION, [[12.0, -8.0]]),
+        (PRESCRIBED_ACCELERATION, [[3.0, 4.0]]),
+        (ZERO_ACCELERATION, [[0.0, 0.0]]),
+    ),
+)
+def test_wing_aero_acceleration_source_is_explicit(
+    source: str,
+    expected: list[list[float]],
+) -> None:
+    actual = torch.tensor([[12.0, -8.0]], dtype=torch.float64)
+    prescribed = torch.tensor([[3.0, 4.0]], dtype=torch.float64)
+
+    assert validate_wing_aero_acceleration_source(source) == source
+    result = resolve_wing_aero_acceleration(
+        source=source,
+        actual_acceleration_rad_s2=actual,
+        prescribed_acceleration_rad_s2=prescribed,
+    )
+
+    torch.testing.assert_close(result, torch.tensor(expected, dtype=torch.float64))
+
+
+def test_wing_aero_acceleration_source_rejects_unknown_mode() -> None:
+    with pytest.raises(ValueError, match="wing_aero_acceleration_source"):
+        validate_wing_aero_acceleration_source("filtered")
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (
+        FULL_WING_LINK_WRENCH,
+        WING_LINK_FORCE_ONLY,
+        WING_LINK_MOMENT_ONLY,
+    ),
+)
+def test_wing_link_aero_load_mode_is_explicit(mode: str) -> None:
+    assert validate_wing_link_aero_load_mode(mode) == mode
 
 
 def test_wing_root_to_com_translation_preserves_moment_about_root() -> None:

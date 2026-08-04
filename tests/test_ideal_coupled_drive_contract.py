@@ -89,3 +89,84 @@ def test_asset_declares_one_driver_and_one_passive_right_wing() -> None:
     assert "IDEAL_DRIVER_STIFFNESS_NM_PER_RAD = 2_000.0" in source
     assert "IDEAL_DRIVER_DAMPING_NM_S_PER_RAD = 20.0" in source
     assert "IDEAL_DRIVER_EFFORT_LIMIT_NM = 1_000.0" in source
+
+
+def test_prescribed_variant_uses_passive_wings_and_moving_physx_limit() -> None:
+    asset_source = _ASSET_SOURCE.read_text(encoding="utf-8")
+    env_source = _ENV_SOURCE.read_text(encoding="utf-8")
+    module = ast.parse(env_source)
+    config = _class(
+        module,
+        "FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledEnvCfg",
+    )
+    delaurier_config = _class(
+        module,
+        "FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledDeLaurierEnvCfg",
+    )
+
+    drive_variant = _ann_assign(config, "wing_drive_variant")
+    coupling_mode = _ann_assign(delaurier_config, "wing_aero_coupling_mode")
+    assert isinstance(drive_variant.value, ast.Name)
+    assert drive_variant.value.id == "PRESCRIBED_COUPLED_WING_DRIVE"
+    assert isinstance(coupling_mode.value, ast.Name)
+    assert coupling_mode.value.id == "PRESCRIBED_PER_WING_LINK"
+    assert '"passive_wings": ImplicitActuatorCfg(' in asset_source
+    assert 'joint_names_expr=["left_wing", "right_wing"]' in asset_source
+    assert "elif wing_drive_variant == PRESCRIBED_COUPLED_WING_DRIVE:" in env_source
+    assert "self._robot.root_physx_view.set_dof_limits(" in env_source
+
+
+def test_prescribed_branch_does_not_target_a_physical_wing_drive() -> None:
+    module = ast.parse(_ENV_SOURCE.read_text(encoding="utf-8"))
+    env_class = _class(module, "FlappingBotStraightFlightEnv")
+    apply_action = next(
+        node
+        for node in env_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_apply_action"
+    )
+    prescribed_branch = next(
+        node
+        for node in ast.walk(apply_action)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and any(
+            isinstance(comparator, ast.Name)
+            and comparator.id == "PRESCRIBED_COUPLED_WING_DRIVE"
+            for comparator in node.test.comparators
+        )
+    )
+    calls = [
+        node
+        for statement in prescribed_branch.body
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+    assert not any(call.func.attr == "write_joint_state_to_sim" for call in calls)
+    assert not any(call.func.attr == "set_joint_velocity_target" for call in calls)
+
+
+def test_ideal_torque_variant_uses_effort_and_hard_mimic_without_moving_limits() -> None:
+    asset_source = _ASSET_SOURCE.read_text(encoding="utf-8")
+    env_source = _ENV_SOURCE.read_text(encoding="utf-8")
+    module = ast.parse(env_source)
+    config = _class(
+        module,
+        "FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledEnvCfg",
+    )
+    delaurier_config = _class(
+        module,
+        "FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledDeLaurierEnvCfg",
+    )
+
+    drive_variant = _ann_assign(config, "wing_drive_variant")
+    coupling_mode = _ann_assign(delaurier_config, "wing_aero_coupling_mode")
+    assert isinstance(drive_variant.value, ast.Name)
+    assert drive_variant.value.id == "IDEAL_TORQUE_COUPLED_WING_DRIVE"
+    assert isinstance(coupling_mode.value, ast.Name)
+    assert coupling_mode.value.id == "IDEAL_TORQUE_PER_WING_LINK"
+    assert '"wing_driver": ImplicitActuatorCfg(' in asset_source
+    assert "stiffness=0.0" in asset_source
+    assert "damping=0.0" in asset_source
+    assert "elif wing_drive_variant == IDEAL_TORQUE_COUPLED_WING_DRIVE:" in env_source
+    assert "compute_ideal_torque_drive_effort(" in env_source
+    assert "self._robot.set_joint_effort_target(" in env_source

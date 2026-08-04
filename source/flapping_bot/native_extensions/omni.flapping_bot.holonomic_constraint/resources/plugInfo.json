@@ -1,0 +1,24 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "FlappingBotSchemaFlappingWingTrajectoryJoint": {
+                        "alias": {
+                            "UsdSchemaBase": "FlappingWingTrajectoryJoint"
+                        },
+                        "bases": [
+                            "UsdPhysicsJoint"
+                        ],
+                        "schemaKind": "concreteTyped"
+                    }
+                }
+            },
+            "LibraryPath": "../omni/flapping_bot/holonomic_constraint/_native.so",
+            "Name": "FlappingBotHolonomicConstraintSchema",
+            "ResourcePath": ".",
+            "Root": ".",
+            "Type": "library"
+        }
+    ]
+}

@@ -30,19 +30,50 @@ from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_apply_inve
 
 from ...assets import (
     IDEAL_COUPLED_WING_DRIVE,
+    IDEAL_DRIVER_EFFORT_LIMIT_NM,
+    IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+    IDEAL_TORQUE_COUPLED_WING_DRIVE,
+    IDEAL_TORQUE_DAMPING_RATIO,
+    IDEAL_TORQUE_EQUIVALENT_INERTIA_KG_M2,
+    IDEAL_TORQUE_NATURAL_FREQUENCY_HZ,
     KINEMATIC_WING_OVERRIDE,
+    NATIVE_HOLONOMIC_WING_DRIVE,
+    PRESCRIBED_COUPLED_WING_DRIVE,
+    SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
     FlappingBotCfg,
     IdealCoupledFlappingBotCfg,
+    IdealInverseDynamicsPhaseCoupledFlappingBotCfg,
+    IdealTorqueCoupledFlappingBotCfg,
+    NativeHolonomicCoupledFlappingBotCfg,
+    PrescribedCoupledFlappingBotCfg,
+    SinusoidalPhaseSpeedCoupledFlappingBotCfg,
     apply_hard_opposed_wing_mimic,
+    apply_native_holonomic_wing_constraint,
+    apply_quintic_amplitude_ramp,
+    compute_aerodynamic_joint_hinge_torques,
+    compute_common_aerodynamic_hinge_torque,
+    compute_ideal_torque_drive_effort,
+    cloned_native_holonomic_joint_paths,
+    require_native_holonomic_extension,
     validate_wing_drive_variant,
 )
 from ...physics import (
+    ACTUAL_JOINT_ACCELERATION,
+    ACTUAL_MOTION_BASE_EQUIVALENT,
     ACTUAL_PER_WING_LINK,
     COMMANDED_BASE_EQUIVALENT,
     DeLaurierParams,
     DeLaurierStripLoads,
     DeLaurierStripWrench,
     DeLaurierTwistKinematics,
+    FULL_WING_LINK_WRENCH,
+    IDEAL_INVERSE_DYNAMICS_PER_WING_LINK,
+    NATIVE_HOLONOMIC_PER_WING_LINK,
+    IDEAL_TORQUE_PER_WING_LINK,
+    PRESCRIBED_ACCELERATION,
+    PRESCRIBED_PER_WING_LINK,
+    SINUSOIDAL_PHASE_PER_WING_LINK,
+    build_prescribed_dof_position_limits,
     body_air_velocity_to_delaurier_section_velocity,
     compute_aero_wrench_delaurier1993,
     compute_area_weighted_quarter_chord_link_points,
@@ -50,6 +81,9 @@ from ...physics import (
     compute_delaurier_dynamic_twist,
     compute_delaurier_strip_loads,
     compute_legacy_qd_scaled_twist,
+    compute_opposed_wing_kinematics,
+    compute_desired_common_acceleration,
+    compute_sinusoidal_constraint_effort,
     FlappingQSMCfg,
     build_measured_wing_multibody_tensors,
     integrate_delaurier_strip_wrench,
@@ -59,17 +93,31 @@ from ...physics import (
     NEAR_SINGLE_RIGID_BODY_PLANT,
     QuasiSteadyWingModel,
     resolve_delaurier_phase,
+    resolve_wing_aero_acceleration,
+    reduce_common_inverse_dynamics,
+    IdealFrequencyPhaseState,
+    IdealFrequencyPhaseStep,
+    IdealInverseDynamicsPhaseDriveConfig,
+    SinusoidalPhaseDriveState,
+    SinusoidalPhaseDriveStep,
+    SinusoidalPhaseSpeedDriveConfig,
     TailAeroCfg,
     TailAeroModel,
+    WING_LINK_FORCE_ONLY,
+    WING_LINK_MOMENT_ONLY,
     transform_wang_wrench_to_link,
     translate_wing_root_wrench_to_com_link,
     translate_wrench_moment,
     validate_wing_aero_coupling_mode,
+    validate_wing_aero_acceleration_source,
+    validate_wing_link_aero_load_mode,
     validate_delaurier_dynamic_twist_mode,
     validate_flapping_bot_plant_variant,
     WingQSMCfg,
     WingGeometry,
     build_wing_geometry_from_csv,
+    step_sinusoidal_phase_speed_drive,
+    step_ideal_frequency_phase,
 )
 from ...px4_like.rl_training_utils import (
     apply_teacher_guided_actions,
@@ -266,6 +314,29 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # This decouples wing flapping kinematics from rigid-body reaction dynamics and improves stability for
     # aero-driven flight experiments.
     use_kinematic_joint_override: bool = True
+    # The prescribed mechanism uses a moving PhysX position-limit band on the
+    # common coordinate. Zero requests an equality constraint.
+    prescribed_joint_limit_half_width_rad: float = 0.0
+    # Minimal ideal trajectory servo for the measured two-wing common
+    # coordinate. The effort feedback uses physics-step-aware discrete gains;
+    # these runtime values define inertia feedforward and startup behavior.
+    ideal_torque_equivalent_inertia_kg_m2: float = IDEAL_TORQUE_EQUIVALENT_INERTIA_KG_M2
+    ideal_torque_aero_feedforward_scale: float = 1.0
+    ideal_torque_ramp_cycles: float = 2.0
+    # Experimental nonlinear phase-to-wing constraint. These are numerical
+    # mechanism settings, not identified motor parameters.
+    sinusoidal_constraint_natural_frequency_hz: float = 50.0
+    sinusoidal_constraint_damping_ratio: float = 1.0
+    sinusoidal_phase_inertia_kg_m2: float = 0.00435938889653
+    sinusoidal_speed_settling_time_s: float = 0.15
+    sinusoidal_speed_damping_ratio: float = 1.0
+    sinusoidal_effort_limit_nm: float = IDEAL_DRIVER_EFFORT_LIMIT_NM
+    # Scheme B: ideal load-independent frequency source with PhysX reduced
+    # inverse dynamics. These remain numerical mechanism settings.
+    ideal_inverse_frequency_settling_time_s: float = 0.15
+    ideal_inverse_tracking_natural_frequency_hz: float = 50.0
+    ideal_inverse_tracking_damping_ratio: float = 1.0
+    ideal_inverse_effort_limit_nm: float = IDEAL_DRIVER_EFFORT_LIMIT_NM
 
     # dynamics decoupling (mass/inertia)
     # Plant selection is explicit so the established near-single-rigid-body
@@ -352,6 +423,13 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # one equivalent wing wrench at the base COM. The explicit multibody mode
     # uses actual joint motion and applies one wrench to each wing link.
     wing_aero_coupling_mode: str = COMMANDED_BASE_EQUIVALENT
+    # Diagnostic source for the acceleration-dependent DeLaurier heave input.
+    # It is used only by actual_per_wing_link; the default preserves the
+    # implemented PhysX joint-acceleration behavior.
+    wing_aero_acceleration_source: str = ACTUAL_JOINT_ACCELERATION
+    # Diagnostic ablation for loads applied to each wing COM. The default
+    # applies the complete computed wrench.
+    wing_link_aero_load_mode: str = FULL_WING_LINK_WRENCH
 
     # DeLaurier wing model (Stage B)
     use_delaurier_wings: bool = False
@@ -455,10 +533,202 @@ class FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledDeLaurierEnvCfg(
 
 
 @configclass
-class FlappingBotStraightFlightDeLaurierEnvCfg(FlappingBotStraightFlightEnvCfg):
-    """Detailed wings: DeLaurier wings + tail aero."""
+class FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg
+):
+    """Measured plant with one explicit ideal common-coordinate effort servo."""
+
+    wing_drive_variant: str = IDEAL_TORQUE_COUPLED_WING_DRIVE
+    use_kinematic_joint_override: bool = False
+    robot: ArticulationCfg = IdealTorqueCoupledFlappingBotCfg.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=IdealTorqueCoupledFlappingBotCfg.spawn.replace(
+            rigid_props=IdealTorqueCoupledFlappingBotCfg.spawn.rigid_props.replace(disable_gravity=False),
+        ),
+    )
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledDeLaurierEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledEnvCfg
+):
+    """Ideal-torque measured plant with actual-state per-wing DeLaurier loads."""
 
     use_delaurier_wings: bool = True
+    wing_aero_coupling_mode: str = IDEAL_TORQUE_PER_WING_LINK
+    wing_aero_acceleration_source: str = PRESCRIBED_ACCELERATION
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg
+):
+    """Measured plant with passive wings constrained to a prescribed common coordinate."""
+
+    wing_drive_variant: str = PRESCRIBED_COUPLED_WING_DRIVE
+    use_kinematic_joint_override: bool = False
+    robot: ArticulationCfg = PrescribedCoupledFlappingBotCfg.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=PrescribedCoupledFlappingBotCfg.spawn.replace(
+            rigid_props=PrescribedCoupledFlappingBotCfg.spawn.rigid_props.replace(disable_gravity=False),
+        ),
+    )
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledDeLaurierEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledEnvCfg
+):
+    """Prescribed measured multibody plant with per-wing DeLaurier loads."""
+
+    use_delaurier_wings: bool = True
+    wing_aero_coupling_mode: str = PRESCRIBED_PER_WING_LINK
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg
+):
+    """No-aerodynamics technical gate for the nonlinear phase mechanism."""
+
+    wing_drive_variant: str = SINUSOIDAL_PHASE_SPEED_WING_DRIVE
+    use_kinematic_joint_override: bool = False
+    min_flap_hz: float = 0.0
+    max_flap_hz: float = 5.0
+    reset_flap_hz: float = 0.0
+    enable_wing_aero: bool = False
+    enable_tail_aero: bool = False
+    robot: ArticulationCfg = SinusoidalPhaseSpeedCoupledFlappingBotCfg.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=SinusoidalPhaseSpeedCoupledFlappingBotCfg.spawn.replace(
+            rigid_props=SinusoidalPhaseSpeedCoupledFlappingBotCfg.spawn.rigid_props.replace(
+                disable_gravity=False
+            ),
+        ),
+    )
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledDeLaurierEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledEnvCfg
+):
+    """Sinusoidal phase mechanism with actual-state per-wing DeLaurier loads."""
+
+    enable_wing_aero: bool = True
+    use_delaurier_wings: bool = True
+    wing_aero_coupling_mode: str = SINUSOIDAL_PHASE_PER_WING_LINK
+    wing_aero_acceleration_source: str = ACTUAL_JOINT_ACCELERATION
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg
+):
+    """Measured plant with an ideal frequency source and reduced inverse dynamics."""
+
+    wing_drive_variant: str = IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE
+    use_kinematic_joint_override: bool = False
+    min_flap_hz: float = 0.0
+    max_flap_hz: float = 5.0
+    reset_flap_hz: float = 0.0
+    enable_wing_aero: bool = False
+    enable_tail_aero: bool = False
+    robot: ArticulationCfg = IdealInverseDynamicsPhaseCoupledFlappingBotCfg.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=IdealInverseDynamicsPhaseCoupledFlappingBotCfg.spawn.replace(
+            rigid_props=IdealInverseDynamicsPhaseCoupledFlappingBotCfg.spawn.rigid_props.replace(
+                disable_gravity=False
+            ),
+        ),
+    )
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledDeLaurierEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledEnvCfg
+):
+    """Scheme-B measured plant with per-wing DeLaurier loads."""
+
+    enable_wing_aero: bool = True
+    use_delaurier_wings: bool = True
+    wing_aero_coupling_mode: str = IDEAL_INVERSE_DYNAMICS_PER_WING_LINK
+    wing_aero_acceleration_source: str = PRESCRIBED_ACCELERATION
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg
+):
+    """Measured plant with a native ideal sinusoidal mechanism constraint."""
+
+    # Keep the 1/120 s controller cadence while using the physics step that
+    # passed the 2/3/4/5 Hz aerodynamic trajectory matrix.
+    decimation: int = 4
+    sim: SimulationCfg = SimulationCfg(
+        dt=1.0 / 480.0,
+        render_interval=decimation,
+        device="cpu",
+        gravity=(0.0, 0.0, -9.81),
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.8,
+            dynamic_friction=0.6,
+            restitution=0.0,
+        ),
+    )
+    wing_drive_variant: str = NATIVE_HOLONOMIC_WING_DRIVE
+    use_kinematic_joint_override: bool = False
+    min_flap_hz: float = 0.0
+    max_flap_hz: float = 5.0
+    reset_flap_hz: float = 0.0
+    enable_wing_aero: bool = False
+    enable_tail_aero: bool = False
+    scene: InteractiveSceneCfg = FlappingRoomSceneCfg(
+        num_envs=256,
+        env_spacing=5.0,
+        replicate_physics=False,
+    )
+    robot: ArticulationCfg = NativeHolonomicCoupledFlappingBotCfg.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=NativeHolonomicCoupledFlappingBotCfg.spawn.replace(
+            rigid_props=NativeHolonomicCoupledFlappingBotCfg.spawn.rigid_props.replace(
+                disable_gravity=False,
+                retain_accelerations=False,
+            ),
+        ),
+    )
+
+
+@configclass
+class FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicDeLaurierEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicEnvCfg
+):
+    """Native holonomic measured plant with per-wing DeLaurier loads."""
+
+    enable_wing_aero: bool = True
+    use_delaurier_wings: bool = True
+    wing_aero_coupling_mode: str = NATIVE_HOLONOMIC_PER_WING_LINK
+    wing_aero_acceleration_source: str = PRESCRIBED_ACCELERATION
+
+
+@configclass
+class FlappingBotStraightFlightCommandedKinematicsDeLaurierEnvCfg(
+    FlappingBotStraightFlightEnvCfg
+):
+    """Legacy commanded-kinematics/base-wrench DeLaurier comparison plant."""
+
+    use_delaurier_wings: bool = True
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierEnvCfg(
+    FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicDeLaurierEnvCfg
+):
+    """Default measured-wing native-holonomic DeLaurier flight plant."""
+
+    min_flap_hz: float = 2.0
+    max_flap_hz: float = 5.0
+    reset_flap_hz: float = 4.0
+    enable_tail_aero: bool = True
 
 
 @configclass
@@ -520,20 +790,107 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     def __init__(self, cfg: FlappingBotStraightFlightEnvCfg, render_mode: str | None = None, **kwargs):
         wing_drive_variant = validate_wing_drive_variant(cfg.wing_drive_variant)
         wing_aero_coupling_mode = validate_wing_aero_coupling_mode(cfg.wing_aero_coupling_mode)
-        if wing_drive_variant == IDEAL_COUPLED_WING_DRIVE:
+        validate_wing_aero_acceleration_source(cfg.wing_aero_acceleration_source)
+        validate_wing_link_aero_load_mode(cfg.wing_link_aero_load_mode)
+        if wing_drive_variant in {
+            IDEAL_COUPLED_WING_DRIVE,
+            PRESCRIBED_COUPLED_WING_DRIVE,
+            IDEAL_TORQUE_COUPLED_WING_DRIVE,
+            SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
+            IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+            NATIVE_HOLONOMIC_WING_DRIVE,
+        }:
             if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
-                raise ValueError("ideal_coupled_drive requires plant_variant='measured_wing_multibody'.")
+                raise ValueError(f"{wing_drive_variant} requires plant_variant='measured_wing_multibody'.")
             if bool(cfg.use_kinematic_joint_override):
-                raise ValueError("ideal_coupled_drive cannot use the per-step kinematic joint override.")
-        if wing_aero_coupling_mode == ACTUAL_PER_WING_LINK:
+                raise ValueError(f"{wing_drive_variant} cannot use the per-step kinematic joint override.")
+        if float(cfg.prescribed_joint_limit_half_width_rad) < 0.0:
+            raise ValueError("prescribed_joint_limit_half_width_rad must be nonnegative.")
+        if float(cfg.ideal_torque_equivalent_inertia_kg_m2) <= 0.0:
+            raise ValueError("ideal_torque_equivalent_inertia_kg_m2 must be positive.")
+        if float(cfg.ideal_torque_aero_feedforward_scale) < 0.0:
+            raise ValueError("ideal_torque_aero_feedforward_scale must be nonnegative.")
+        if float(cfg.ideal_torque_ramp_cycles) <= 0.0:
+            raise ValueError("ideal_torque_ramp_cycles must be positive.")
+        if float(cfg.sinusoidal_constraint_natural_frequency_hz) <= 0.0:
+            raise ValueError("sinusoidal_constraint_natural_frequency_hz must be positive.")
+        if float(cfg.sinusoidal_constraint_damping_ratio) <= 0.0:
+            raise ValueError("sinusoidal_constraint_damping_ratio must be positive.")
+        if float(cfg.sinusoidal_phase_inertia_kg_m2) <= 0.0:
+            raise ValueError("sinusoidal_phase_inertia_kg_m2 must be positive.")
+        if float(cfg.sinusoidal_speed_settling_time_s) <= 0.0:
+            raise ValueError("sinusoidal_speed_settling_time_s must be positive.")
+        if float(cfg.sinusoidal_speed_damping_ratio) <= 0.0:
+            raise ValueError("sinusoidal_speed_damping_ratio must be positive.")
+        if float(cfg.sinusoidal_effort_limit_nm) <= 0.0:
+            raise ValueError("sinusoidal_effort_limit_nm must be positive.")
+        if float(cfg.ideal_inverse_frequency_settling_time_s) <= 0.0:
+            raise ValueError("ideal_inverse_frequency_settling_time_s must be positive.")
+        if float(cfg.ideal_inverse_tracking_natural_frequency_hz) <= 0.0:
+            raise ValueError("ideal_inverse_tracking_natural_frequency_hz must be positive.")
+        if not math.isclose(
+            float(cfg.ideal_inverse_tracking_damping_ratio),
+            1.0,
+            rel_tol=0.0,
+            abs_tol=1.0e-12,
+        ):
+            raise ValueError("ideal_inverse_tracking_damping_ratio must equal one.")
+        if float(cfg.ideal_inverse_effort_limit_nm) <= 0.0:
+            raise ValueError("ideal_inverse_effort_limit_nm must be positive.")
+        if wing_drive_variant == SINUSOIDAL_PHASE_SPEED_WING_DRIVE:
+            if bool(cfg.enable_tail_aero):
+                raise ValueError(
+                    "sinusoidal_phase_speed_drive aerodynamic validation currently excludes tail aerodynamics."
+                )
+            if (
+                bool(cfg.enable_wing_aero)
+                and wing_aero_coupling_mode != SINUSOIDAL_PHASE_PER_WING_LINK
+            ):
+                raise ValueError(
+                    "sinusoidal_phase_speed_drive wing aerodynamics require "
+                    "wing_aero_coupling_mode='sinusoidal_phase_per_wing_link'."
+                )
+        if wing_drive_variant == IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE:
+            if bool(cfg.enable_tail_aero):
+                raise ValueError(
+                    "ideal_inverse_dynamics_phase_drive validation currently excludes tail aerodynamics."
+                )
+            if (
+                bool(cfg.enable_wing_aero)
+                and wing_aero_coupling_mode != IDEAL_INVERSE_DYNAMICS_PER_WING_LINK
+            ):
+                raise ValueError(
+                    "ideal_inverse_dynamics_phase_drive wing aerodynamics require "
+                    "wing_aero_coupling_mode='ideal_inverse_dynamics_per_wing_link'."
+                )
+        if wing_drive_variant == NATIVE_HOLONOMIC_WING_DRIVE:
+            if str(cfg.sim.device).startswith("cuda"):
+                raise ValueError(
+                    "native_holonomic_drive currently requires CPU PhysX; its custom "
+                    "PxConstraint is not compatible with a direct-GPU scene."
+                )
+            if bool(cfg.scene.replicate_physics):
+                raise ValueError(
+                    "native_holonomic_drive requires scene.replicate_physics=False because "
+                    "external custom joints cannot resolve PhysX fast-replicated bodies."
+                )
+            if bool(cfg.enable_wing_aero) and wing_aero_coupling_mode != NATIVE_HOLONOMIC_PER_WING_LINK:
+                raise ValueError(
+                    "native_holonomic_drive wing aerodynamics require "
+                    "wing_aero_coupling_mode='native_holonomic_per_wing_link'."
+                )
+        if wing_aero_coupling_mode in {
+            ACTUAL_MOTION_BASE_EQUIVALENT,
+            ACTUAL_PER_WING_LINK,
+        }:
             if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
-                raise ValueError("actual_per_wing_link requires plant_variant='measured_wing_multibody'.")
+                raise ValueError("Actual-motion wing aerodynamics require plant_variant='measured_wing_multibody'.")
             if wing_drive_variant != IDEAL_COUPLED_WING_DRIVE:
-                raise ValueError("actual_per_wing_link requires wing_drive_variant='ideal_coupled_drive'.")
+                raise ValueError("Actual-motion wing aerodynamics require wing_drive_variant='ideal_coupled_drive'.")
             if not bool(cfg.use_delaurier_wings):
-                raise ValueError("actual_per_wing_link requires use_delaurier_wings=True.")
+                raise ValueError("Actual-motion wing aerodynamics require use_delaurier_wings=True.")
             if str(cfg.wing_moment_mode) != "strip_integrated":
-                raise ValueError("actual_per_wing_link requires wing_moment_mode='strip_integrated'.")
+                raise ValueError("Actual-motion wing aerodynamics require wing_moment_mode='strip_integrated'.")
             if str(cfg.dynamic_twist_mode) == "legacy_qd_scaled_proxy":
                 raise ValueError(
                     "actual_per_wing_link does not support dynamic_twist_mode='legacy_qd_scaled_proxy'."
@@ -542,6 +899,142 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError(
                     "actual_per_wing_link requires delaurier_induced_drag_efficiency=0 until a per-wing "
                     "induced-drag distribution is defined."
+                )
+        if wing_aero_coupling_mode == PRESCRIBED_PER_WING_LINK:
+            if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
+                raise ValueError("prescribed_per_wing_link requires plant_variant='measured_wing_multibody'.")
+            if wing_drive_variant != PRESCRIBED_COUPLED_WING_DRIVE:
+                raise ValueError("prescribed_per_wing_link requires wing_drive_variant='prescribed_coupled_drive'.")
+            if not bool(cfg.use_delaurier_wings):
+                raise ValueError("prescribed_per_wing_link requires use_delaurier_wings=True.")
+            if str(cfg.wing_moment_mode) != "strip_integrated":
+                raise ValueError("prescribed_per_wing_link requires wing_moment_mode='strip_integrated'.")
+            if str(cfg.dynamic_twist_mode) == "legacy_qd_scaled_proxy":
+                raise ValueError(
+                    "prescribed_per_wing_link does not support dynamic_twist_mode='legacy_qd_scaled_proxy'."
+                )
+            if float(cfg.delaurier_induced_drag_efficiency) != 0.0:
+                raise ValueError(
+                    "prescribed_per_wing_link requires delaurier_induced_drag_efficiency=0 until a per-wing "
+                    "induced-drag distribution is defined."
+                )
+        if wing_aero_coupling_mode == IDEAL_TORQUE_PER_WING_LINK:
+            if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
+                raise ValueError("ideal_torque_per_wing_link requires plant_variant='measured_wing_multibody'.")
+            if wing_drive_variant != IDEAL_TORQUE_COUPLED_WING_DRIVE:
+                raise ValueError(
+                    "ideal_torque_per_wing_link requires wing_drive_variant='ideal_torque_coupled_drive'."
+                )
+            if not bool(cfg.use_delaurier_wings):
+                raise ValueError("ideal_torque_per_wing_link requires use_delaurier_wings=True.")
+            if str(cfg.wing_moment_mode) != "strip_integrated":
+                raise ValueError("ideal_torque_per_wing_link requires wing_moment_mode='strip_integrated'.")
+            if str(cfg.dynamic_twist_mode) == "legacy_qd_scaled_proxy":
+                raise ValueError(
+                    "ideal_torque_per_wing_link does not support dynamic_twist_mode='legacy_qd_scaled_proxy'."
+                )
+            if float(cfg.delaurier_induced_drag_efficiency) != 0.0:
+                raise ValueError(
+                    "ideal_torque_per_wing_link requires delaurier_induced_drag_efficiency=0 until a per-wing "
+                    "induced-drag distribution is defined."
+                )
+        if wing_aero_coupling_mode == SINUSOIDAL_PHASE_PER_WING_LINK:
+            if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
+                raise ValueError(
+                    "sinusoidal_phase_per_wing_link requires plant_variant='measured_wing_multibody'."
+                )
+            if wing_drive_variant != SINUSOIDAL_PHASE_SPEED_WING_DRIVE:
+                raise ValueError(
+                    "sinusoidal_phase_per_wing_link requires "
+                    "wing_drive_variant='sinusoidal_phase_speed_drive'."
+                )
+            if not bool(cfg.enable_wing_aero) or not bool(cfg.use_delaurier_wings):
+                raise ValueError(
+                    "sinusoidal_phase_per_wing_link requires enabled DeLaurier wing aerodynamics."
+                )
+            if str(cfg.wing_moment_mode) != "strip_integrated":
+                raise ValueError(
+                    "sinusoidal_phase_per_wing_link requires wing_moment_mode='strip_integrated'."
+                )
+            if str(cfg.dynamic_twist_mode) == "legacy_qd_scaled_proxy":
+                raise ValueError(
+                    "sinusoidal_phase_per_wing_link does not support "
+                    "dynamic_twist_mode='legacy_qd_scaled_proxy'."
+                )
+            if float(cfg.delaurier_induced_drag_efficiency) != 0.0:
+                raise ValueError(
+                    "sinusoidal_phase_per_wing_link requires delaurier_induced_drag_efficiency=0 "
+                    "until a per-wing induced-drag distribution is defined."
+                )
+        if wing_aero_coupling_mode == IDEAL_INVERSE_DYNAMICS_PER_WING_LINK:
+            if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
+                raise ValueError(
+                    "ideal_inverse_dynamics_per_wing_link requires plant_variant='measured_wing_multibody'."
+                )
+            if wing_drive_variant != IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE:
+                raise ValueError(
+                    "ideal_inverse_dynamics_per_wing_link requires "
+                    "wing_drive_variant='ideal_inverse_dynamics_phase_drive'."
+                )
+            if not bool(cfg.enable_wing_aero) or not bool(cfg.use_delaurier_wings):
+                raise ValueError(
+                    "ideal_inverse_dynamics_per_wing_link requires enabled DeLaurier wing aerodynamics."
+                )
+            if str(cfg.wing_aero_acceleration_source) != PRESCRIBED_ACCELERATION:
+                raise ValueError(
+                    "ideal_inverse_dynamics_per_wing_link requires prescribed_acceleration "
+                    "for the DeLaurier apparent-mass input."
+                )
+            if str(cfg.wing_moment_mode) != "strip_integrated":
+                raise ValueError(
+                    "ideal_inverse_dynamics_per_wing_link requires wing_moment_mode='strip_integrated'."
+                )
+            if str(cfg.dynamic_twist_mode) == "legacy_qd_scaled_proxy":
+                raise ValueError(
+                    "ideal_inverse_dynamics_per_wing_link does not support "
+                    "dynamic_twist_mode='legacy_qd_scaled_proxy'."
+                )
+            if float(cfg.delaurier_induced_drag_efficiency) != 0.0:
+                raise ValueError(
+                    "ideal_inverse_dynamics_per_wing_link requires delaurier_induced_drag_efficiency=0 "
+                    "until a per-wing induced-drag distribution is defined."
+                )
+            if str(cfg.wing_link_aero_load_mode) != FULL_WING_LINK_WRENCH:
+                raise ValueError(
+                    "ideal_inverse_dynamics_per_wing_link currently requires the full wing-link wrench "
+                    "so inverse-dynamics feedforward matches the applied load."
+                )
+        if wing_aero_coupling_mode == NATIVE_HOLONOMIC_PER_WING_LINK:
+            if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
+                raise ValueError(
+                    "native_holonomic_per_wing_link requires plant_variant='measured_wing_multibody'."
+                )
+            if wing_drive_variant != NATIVE_HOLONOMIC_WING_DRIVE:
+                raise ValueError(
+                    "native_holonomic_per_wing_link requires wing_drive_variant='native_holonomic_drive'."
+                )
+            if not bool(cfg.enable_wing_aero) or not bool(cfg.use_delaurier_wings):
+                raise ValueError(
+                    "native_holonomic_per_wing_link requires enabled DeLaurier wing aerodynamics."
+                )
+            if str(cfg.wing_aero_acceleration_source) != PRESCRIBED_ACCELERATION:
+                raise ValueError(
+                    "native_holonomic_per_wing_link requires prescribed_acceleration for the "
+                    "DeLaurier apparent-mass input."
+                )
+            if str(cfg.wing_moment_mode) != "strip_integrated":
+                raise ValueError(
+                    "native_holonomic_per_wing_link requires wing_moment_mode='strip_integrated'."
+                )
+            if str(cfg.dynamic_twist_mode) == "legacy_qd_scaled_proxy":
+                raise ValueError(
+                    "native_holonomic_per_wing_link does not support "
+                    "dynamic_twist_mode='legacy_qd_scaled_proxy'."
+                )
+            if float(cfg.delaurier_induced_drag_efficiency) != 0.0:
+                raise ValueError(
+                    "native_holonomic_per_wing_link requires delaurier_induced_drag_efficiency=0 "
+                    "until a per-wing induced-drag distribution is defined."
                 )
 
         # runtime buffers
@@ -558,10 +1051,25 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._freeze_steps: Tensor | None = None
         self._spawn_root_state: Tensor | None = None
         self._mass_total: Tensor | None = None
+        self._nominal_dof_position_limits_cpu: Tensor | None = None
+        self._native_holonomic = (
+            require_native_holonomic_extension()
+            if wing_drive_variant == NATIVE_HOLONOMIC_WING_DRIVE
+            else None
+        )
+        self._native_holonomic_joint_paths: list[str] = []
 
         # wing phase and frequency
         self._phase: Tensor | None = None  # (N,)
         self._freq: Tensor | None = None  # (N,)
+        self._ideal_torque_elapsed_s: Tensor | None = None  # (N,)
+        self._phase_throttle: Tensor | None = None  # (N,), normalized 0--1
+        self._phase_target_frequency_hz: Tensor | None = None  # (N,)
+        self._phase_acceleration_rad_s2: Tensor | None = None  # (N,)
+        self._sinusoidal_phase_drive_state: SinusoidalPhaseDriveState | None = None
+        self._sinusoidal_phase_drive_cfg: SinusoidalPhaseSpeedDriveConfig | None = None
+        self._ideal_inverse_phase_state: IdealFrequencyPhaseState | None = None
+        self._ideal_inverse_phase_cfg: IdealInverseDynamicsPhaseDriveConfig | None = None
 
         # tail command buffers
         self._elevon_pitch_cmd: Tensor | None = None  # (N,)
@@ -622,6 +1130,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_wing_aero_position_rad: Tensor | None = None
         self._debug_last_wing_aero_velocity_rad_s: Tensor | None = None
         self._debug_last_wing_aero_acceleration_rad_s2: Tensor | None = None
+        self._debug_last_wing_actual_acceleration_rad_s2: Tensor | None = None
 
         # aero models
         self._qsm_wing_model: QuasiSteadyWingModel | None = None
@@ -639,6 +1148,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_delaurier_twist_kinematics: DeLaurierTwistKinematics | None = None
 
         super().__init__(cfg, render_mode, **kwargs)
+        if self._native_holonomic is not None:
+            active_joint_count = int(self._native_holonomic.get_active_joint_count())
+            expected_joint_count = len(self._native_holonomic_joint_paths)
+            if active_joint_count != expected_joint_count:
+                raise RuntimeError(
+                    "PhysX did not instantiate the expected native holonomic constraints: "
+                    f"active={active_joint_count}, expected={expected_joint_count}."
+                )
         self._teacher_state_inputs = resolve_teacher_state_inputs(
             self.cfg.teacher_state_source,
             self.cfg.policy_state_source,
@@ -664,6 +1181,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._joint_lower_limits = lower + margin
         self._joint_upper_limits = upper - margin
         self._default_joint_pos = self._robot.data.default_joint_pos[0, self._joint_ids].to(device=self.device)
+        self._nominal_dof_position_limits_cpu = self._robot.root_physx_view.get_dof_limits().clone()
 
         # action buffer
         action_dim = gym.spaces.flatdim(self.single_action_space)
@@ -702,6 +1220,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_wing_aero_position_rad = torch.zeros(N, 2, device=self.device)
         self._debug_last_wing_aero_velocity_rad_s = torch.zeros(N, 2, device=self.device)
         self._debug_last_wing_aero_acceleration_rad_s2 = torch.zeros(N, 2, device=self.device)
+        self._debug_last_wing_actual_acceleration_rad_s2 = torch.zeros(N, 2, device=self.device)
         self._mass_total = self._robot.data.default_mass.sum(dim=1).to(device=self.device)
 
         # joint targets
@@ -731,7 +1250,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         # wing phase/frequency
         self._phase = torch.zeros(self.num_envs, device=self.device)
+        self._ideal_torque_elapsed_s = torch.zeros(self.num_envs, device=self.device)
         self._freq = torch.full((self.num_envs,), float(self.cfg.min_flap_hz), device=self.device)
+        self._phase_throttle = torch.zeros(self.num_envs, device=self.device)
+        self._phase_target_frequency_hz = torch.zeros(self.num_envs, device=self.device)
+        self._phase_acceleration_rad_s2 = torch.zeros(self.num_envs, device=self.device)
 
         # initialize commands
         self._vx_cmd = torch.full((self.num_envs,), float(self.cfg.vx_cmd), device=self.device)
@@ -765,6 +1288,64 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._wing_mid_L = float(mid_L.item())
         self._wing_mid_R = float(mid_R.item())
         self._wing_amp = float(amp.item())
+        if (
+            validate_wing_drive_variant(self.cfg.wing_drive_variant)
+            in {
+                PRESCRIBED_COUPLED_WING_DRIVE,
+                IDEAL_TORQUE_COUPLED_WING_DRIVE,
+                SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
+                IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+                NATIVE_HOLONOMIC_WING_DRIVE,
+            }
+            and abs(self._wing_mid_L + self._wing_mid_R) > 1.0e-6
+        ):
+            raise ValueError(
+                f"{self.cfg.wing_drive_variant} requires mirrored wing joint midpoints whose sum is zero."
+            )
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) == SINUSOIDAL_PHASE_SPEED_WING_DRIVE:
+            standalone_phase_cfg = SinusoidalPhaseSpeedDriveConfig(
+                amplitude_rad=self._wing_amp,
+                max_frequency_hz=float(self.cfg.max_flap_hz),
+            )
+            self._sinusoidal_phase_drive_cfg = SinusoidalPhaseSpeedDriveConfig(
+                amplitude_rad=self._wing_amp,
+                max_frequency_hz=float(self.cfg.max_flap_hz),
+                common_joint_inertia_kg_m2=0.0,
+                constant_phase_inertia_kg_m2=float(self.cfg.sinusoidal_phase_inertia_kg_m2),
+                phase_inertia_floor_ratio=standalone_phase_cfg.phase_inertia_floor_ratio,
+                phase_viscous_damping_nm_s=0.0,
+                frequency_settling_time_s=float(self.cfg.sinusoidal_speed_settling_time_s),
+                frequency_damping_ratio=float(self.cfg.sinusoidal_speed_damping_ratio),
+                effort_limit_nm=float(self.cfg.sinusoidal_effort_limit_nm),
+            )
+            phase_rate = 2.0 * math.pi * self._freq
+            self._sinusoidal_phase_drive_state = SinusoidalPhaseDriveState(
+                phase_rad=self._phase,
+                phase_rate_rad_s=phase_rate,
+                speed_error_integral_rad=torch.zeros_like(self._phase),
+            )
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) in {
+            IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+            NATIVE_HOLONOMIC_WING_DRIVE,
+        }:
+            self._ideal_inverse_phase_cfg = IdealInverseDynamicsPhaseDriveConfig(
+                amplitude_rad=self._wing_amp,
+                max_frequency_hz=float(self.cfg.max_flap_hz),
+                frequency_settling_time_s=float(
+                    self.cfg.ideal_inverse_frequency_settling_time_s
+                ),
+                tracking_natural_frequency_hz=float(
+                    self.cfg.ideal_inverse_tracking_natural_frequency_hz
+                ),
+                tracking_damping_ratio=float(
+                    self.cfg.ideal_inverse_tracking_damping_ratio
+                ),
+                effort_limit_nm=float(self.cfg.ideal_inverse_effort_limit_nm),
+            )
+            self._ideal_inverse_phase_state = IdealFrequencyPhaseState(
+                phase_rad=self._phase,
+                frequency_hz=self._freq,
+            )
 
         # aero models
         tail_aero_cfg = replace(
@@ -992,7 +1573,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     # ------------------------------------------------------------------
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
-        if validate_wing_drive_variant(self.cfg.wing_drive_variant) == IDEAL_COUPLED_WING_DRIVE:
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) in {
+            IDEAL_COUPLED_WING_DRIVE,
+            IDEAL_TORQUE_COUPLED_WING_DRIVE,
+            SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
+            IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+            NATIVE_HOLONOMIC_WING_DRIVE,
+        }:
             source_robot_path = f"{self.scene.env_prim_paths[0]}/Robot"
             apply_hard_opposed_wing_mimic(
                 self._robot.stage,
@@ -1000,6 +1587,38 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             )
         self.scene.articulations["robot"] = self._robot
         self.scene.clone_environments(copy_from_source=False)
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) == NATIVE_HOLONOMIC_WING_DRIVE:
+            assert self._native_holonomic is not None
+            self._native_holonomic_joint_paths = cloned_native_holonomic_joint_paths(
+                self.scene.env_prim_paths
+            )
+            for env_prim_path, constraint_path in zip(
+                self.scene.env_prim_paths,
+                self._native_holonomic_joint_paths,
+                strict=True,
+            ):
+                apply_native_holonomic_wing_constraint(
+                    self._robot.stage,
+                    articulation_root_path=f"{env_prim_path}/Robot",
+                    constraint_prim_path=constraint_path,
+                    native_module=self._native_holonomic,
+                )
+            missing_paths = [
+                path
+                for path in self._native_holonomic_joint_paths
+                if not self._robot.stage.GetPrimAtPath(path)
+            ]
+            if missing_paths:
+                raise RuntimeError(
+                    "Failed to author per-environment native holonomic joints: "
+                    f"{missing_paths[:3]}."
+                )
+            zeros = [0.0] * len(self._native_holonomic_joint_paths)
+            self._native_holonomic.set_targets(
+                self._native_holonomic_joint_paths,
+                zeros,
+                zeros,
+            )
 
     # ------------------------------------------------------------------
     # Control
@@ -1335,7 +1954,28 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # frequency from action 0 in [min_flap_hz, max_flap_hz]
         a0 = self._act_cmd[:, 0]
         f = 0.5 * (a0 + 1.0) * (self.cfg.max_flap_hz - self.cfg.min_flap_hz) + self.cfg.min_flap_hz
-        self._freq = torch.clamp(f, min=float(self.cfg.min_flap_hz), max=float(self.cfg.max_flap_hz))
+        frequency_setpoint = torch.clamp(
+            f,
+            min=float(self.cfg.min_flap_hz),
+            max=float(self.cfg.max_flap_hz),
+        )
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) in {
+            SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
+            IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+            NATIVE_HOLONOMIC_WING_DRIVE,
+        }:
+            assert self._phase_throttle is not None
+            assert self._phase_target_frequency_hz is not None
+            self._phase_target_frequency_hz.copy_(frequency_setpoint)
+            self._phase_throttle.copy_(
+                torch.clamp(
+                    frequency_setpoint / float(self.cfg.max_flap_hz),
+                    min=0.0,
+                    max=1.0,
+                )
+            )
+        else:
+            self._freq = frequency_setpoint
 
         # rudder (action 1) -> virtual rudder channel
         rud_lim = torch.deg2rad(torch.tensor(float(self.cfg.rudder_max_deg), device=self.device))
@@ -1386,22 +2026,78 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._debug_last_exec_right_elevon_rad.copy_(self._right_elevon_cmd)
 
     def _apply_action(self):
-        # advance phase (per-physics step)
-        self._phase = advance_flap_phase(
+        wing_drive_variant = validate_wing_drive_variant(self.cfg.wing_drive_variant)
+        ideal_torque_drive_effort: Tensor | None = None
+        sinusoidal_phase_step: SinusoidalPhaseDriveStep | None = None
+        ideal_inverse_phase_step: IdealFrequencyPhaseStep | None = None
+        ideal_inverse_desired_acceleration: Tensor | None = None
+        next_phase = advance_flap_phase(
             phase=self._phase,
             freq_hz=self._freq,
             physics_dt_s=float(self.physics_dt),
             freeze_steps=self._freeze_steps,
         )
+        if wing_drive_variant in {
+            IDEAL_TORQUE_COUPLED_WING_DRIVE,
+            SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
+            IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+            NATIVE_HOLONOMIC_WING_DRIVE,
+        }:
+            reference_phase = self._phase
+        else:
+            self._phase = next_phase
+            reference_phase = self._phase
 
         # Cache commanded wing kinematics for the articulation and DeLaurier
         # backend. The default phase zero is the neutral pose starting upstroke.
         self._q_cmd, self._qd_cmd, self._qdd_cmd = compute_prescribed_flap_kinematics(
-            phase=self._phase,
+            phase=reference_phase,
             freq_hz=self._freq,
             amplitude_rad=self._wing_amp,
             convention=self.cfg.flap_phase_convention,
         )
+        if wing_drive_variant == SINUSOIDAL_PHASE_SPEED_WING_DRIVE:
+            assert self._sinusoidal_phase_drive_state is not None
+            assert self._phase_acceleration_rad_s2 is not None
+            phase_kinematics = compute_opposed_wing_kinematics(
+                phase_rad=self._sinusoidal_phase_drive_state.phase_rad,
+                phase_rate_rad_s=self._sinusoidal_phase_drive_state.phase_rate_rad_s,
+                phase_acceleration_rad_s2=self._phase_acceleration_rad_s2,
+                amplitude_rad=self._wing_amp,
+                left_joint_mid_rad=self._wing_mid_L,
+                right_joint_mid_rad=self._wing_mid_R,
+            )
+            self._q_cmd = phase_kinematics.common_position_rad
+            self._qd_cmd = phase_kinematics.common_velocity_rad_s
+            self._qdd_cmd = phase_kinematics.common_acceleration_rad_s2
+        if wing_drive_variant in {
+            IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+            NATIVE_HOLONOMIC_WING_DRIVE,
+        }:
+            assert self._ideal_inverse_phase_state is not None
+            assert self._ideal_inverse_phase_cfg is not None
+            assert self._phase_throttle is not None
+            ideal_inverse_phase_step = step_ideal_frequency_phase(
+                state=self._ideal_inverse_phase_state,
+                throttle_01=self._phase_throttle,
+                physics_dt_s=float(self.physics_dt),
+                config=self._ideal_inverse_phase_cfg,
+                left_joint_mid_rad=self._wing_mid_L,
+                right_joint_mid_rad=self._wing_mid_R,
+            )
+            self._q_cmd = ideal_inverse_phase_step.kinematics.common_position_rad
+            self._qd_cmd = ideal_inverse_phase_step.kinematics.common_velocity_rad_s
+            self._qdd_cmd = ideal_inverse_phase_step.kinematics.common_acceleration_rad_s2
+        if wing_drive_variant == IDEAL_TORQUE_COUPLED_WING_DRIVE:
+            assert self._ideal_torque_elapsed_s is not None
+            ramp_duration_s = float(self.cfg.ideal_torque_ramp_cycles) / self._freq
+            self._q_cmd, self._qd_cmd, self._qdd_cmd = apply_quintic_amplitude_ramp(
+                position_rad=self._q_cmd,
+                velocity_rad_s=self._qd_cmd,
+                acceleration_rad_s2=self._qdd_cmd,
+                elapsed_time_s=self._ideal_torque_elapsed_s,
+                duration_s=ramp_duration_s,
+            )
 
         left_cmd, right_cmd, left_qd_cmd, right_qd_cmd = map_symmetric_flap_coordinate_to_joint_space(
             flap_position_rad=self._q_cmd,
@@ -1417,7 +2113,6 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # visualization joints for tail (treated as left/right elevons)
         jt[:, self._IDX_LEFT_TAIL] = self._left_elevon_cmd
         jt[:, self._IDX_RIGHT_TAIL] = self._right_elevon_cmd
-        wing_drive_variant = validate_wing_drive_variant(self.cfg.wing_drive_variant)
         if bool(self.cfg.use_kinematic_joint_override):
             jvel = torch.zeros_like(jt)
             jvel[:, self._IDX_LEFT_WING] = left_qd_cmd
@@ -1451,6 +2146,290 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                         torch.mean(torch.abs(qd_left - left_qd_cmd)).item()
                     ),
                     "WingDrive/mean_abs_driver_torque_Nm": float(torch.mean(torch.abs(drive_torque)).item()),
+                }
+            )
+        elif wing_drive_variant == PRESCRIBED_COUPLED_WING_DRIVE:
+            assert self._nominal_dof_position_limits_cpu is not None
+            left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+            right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+            prescribed_limits_cpu = build_prescribed_dof_position_limits(
+                nominal_limits_rad=self._nominal_dof_position_limits_cpu,
+                target_position_rad=left_cmd.detach().to(
+                    device=self._nominal_dof_position_limits_cpu.device,
+                    dtype=self._nominal_dof_position_limits_cpu.dtype,
+                ),
+                joint_id=left_joint_id,
+                half_width_rad=float(self.cfg.prescribed_joint_limit_half_width_rad),
+            )
+            prescribed_limits_cpu = build_prescribed_dof_position_limits(
+                nominal_limits_rad=prescribed_limits_cpu,
+                target_position_rad=right_cmd.detach().to(
+                    device=prescribed_limits_cpu.device,
+                    dtype=prescribed_limits_cpu.dtype,
+                ),
+                joint_id=right_joint_id,
+                half_width_rad=float(self.cfg.prescribed_joint_limit_half_width_rad),
+            )
+            physx_env_ids_cpu = torch.arange(self.num_envs, dtype=torch.int32, device="cpu")
+            self._robot.root_physx_view.set_dof_limits(
+                prescribed_limits_cpu,
+                indices=physx_env_ids_cpu,
+            )
+            non_wing_local_ids = [self._IDX_RUDDER, self._IDX_LEFT_TAIL, self._IDX_RIGHT_TAIL]
+            non_wing_joint_ids = [int(self._joint_ids[index]) for index in non_wing_local_ids]
+            self._robot.set_joint_position_target(
+                jt[:, non_wing_local_ids],
+                joint_ids=non_wing_joint_ids,
+            )
+            q_left = self._robot.data.joint_pos[:, left_joint_id]
+            q_right = self._robot.data.joint_pos[:, right_joint_id]
+            qd_left = self._robot.data.joint_vel[:, left_joint_id]
+            self.extras.setdefault("log", {}).update(
+                {
+                    "WingDrive/mean_abs_sync_error_rad": float(torch.mean(torch.abs(q_left + q_right)).item()),
+                    "WingDrive/mean_abs_tracking_error_rad": float(torch.mean(torch.abs(q_left - left_cmd)).item()),
+                    "WingDrive/mean_abs_velocity_error_rad_s": float(
+                        torch.mean(torch.abs(qd_left - left_qd_cmd)).item()
+                    ),
+                }
+            )
+        elif wing_drive_variant == NATIVE_HOLONOMIC_WING_DRIVE:
+            assert ideal_inverse_phase_step is not None
+            assert self._native_holonomic is not None
+            left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+            right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+            self._native_holonomic.set_targets(
+                self._native_holonomic_joint_paths,
+                left_cmd.detach().to(device="cpu", dtype=torch.float64).tolist(),
+                left_qd_cmd.detach().to(device="cpu", dtype=torch.float64).tolist(),
+            )
+            non_wing_local_ids = [
+                self._IDX_RUDDER,
+                self._IDX_LEFT_TAIL,
+                self._IDX_RIGHT_TAIL,
+            ]
+            non_wing_joint_ids = [int(self._joint_ids[index]) for index in non_wing_local_ids]
+            self._robot.set_joint_position_target(
+                jt[:, non_wing_local_ids],
+                joint_ids=non_wing_joint_ids,
+            )
+            common_position = self._robot.data.joint_pos[:, left_joint_id] - float(self._wing_mid_L)
+            common_velocity = self._robot.data.joint_vel[:, left_joint_id]
+            q_right_physical = -(
+                self._robot.data.joint_pos[:, right_joint_id] - float(self._wing_mid_R)
+            )
+            self.extras.setdefault("log", {}).update(
+                {
+                    "WingDrive/mean_abs_sync_error_rad": float(
+                        torch.mean(torch.abs(common_position - q_right_physical)).item()
+                    ),
+                    "WingDrive/mean_abs_tracking_error_rad": float(
+                        torch.mean(torch.abs(common_position - self._q_cmd)).item()
+                    ),
+                    "WingDrive/mean_abs_velocity_error_rad_s": float(
+                        torch.mean(torch.abs(common_velocity - self._qd_cmd)).item()
+                    ),
+                    "WingDrive/actual_frequency_hz": float(
+                        torch.mean(self._ideal_inverse_phase_state.frequency_hz).item()
+                    ),
+                    "WingDrive/target_frequency_hz": float(
+                        torch.mean(ideal_inverse_phase_step.target_frequency_hz).item()
+                    ),
+                }
+            )
+        elif wing_drive_variant == IDEAL_TORQUE_COUPLED_WING_DRIVE:
+            left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+            right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+            common_position = self._robot.data.joint_pos[:, left_joint_id] - float(self._wing_mid_L)
+            common_velocity = self._robot.data.joint_vel[:, left_joint_id]
+            ideal_torque_drive_effort = compute_ideal_torque_drive_effort(
+                position_rad=common_position,
+                velocity_rad_s=common_velocity,
+                reference_position_rad=self._q_cmd,
+                reference_velocity_rad_s=self._qd_cmd,
+                reference_acceleration_rad_s2=self._qdd_cmd,
+                equivalent_inertia_kg_m2=float(self.cfg.ideal_torque_equivalent_inertia_kg_m2),
+                natural_frequency_hz=IDEAL_TORQUE_NATURAL_FREQUENCY_HZ,
+                damping_ratio=IDEAL_TORQUE_DAMPING_RATIO,
+                effort_limit_nm=IDEAL_DRIVER_EFFORT_LIMIT_NM,
+                physics_dt_s=float(self.physics_dt),
+            )
+            non_wing_local_ids = [self._IDX_RUDDER, self._IDX_LEFT_TAIL, self._IDX_RIGHT_TAIL]
+            non_wing_joint_ids = [int(self._joint_ids[index]) for index in non_wing_local_ids]
+            self._robot.set_joint_position_target(
+                jt[:, non_wing_local_ids],
+                joint_ids=non_wing_joint_ids,
+            )
+            q_right_physical = -(
+                self._robot.data.joint_pos[:, right_joint_id] - float(self._wing_mid_R)
+            )
+            self.extras.setdefault("log", {}).update(
+                {
+                    "WingDrive/mean_abs_sync_error_rad": float(
+                        torch.mean(torch.abs(common_position - q_right_physical)).item()
+                    ),
+                    "WingDrive/mean_abs_tracking_error_rad": float(
+                        torch.mean(torch.abs(common_position - self._q_cmd)).item()
+                    ),
+                    "WingDrive/mean_abs_velocity_error_rad_s": float(
+                        torch.mean(torch.abs(common_velocity - self._qd_cmd)).item()
+                    ),
+                    "WingDrive/mean_abs_driver_torque_Nm": float(
+                        torch.mean(torch.abs(ideal_torque_drive_effort)).item()
+                    ),
+                }
+            )
+        elif wing_drive_variant == SINUSOIDAL_PHASE_SPEED_WING_DRIVE:
+            assert self._sinusoidal_phase_drive_state is not None
+            assert self._sinusoidal_phase_drive_cfg is not None
+            assert self._phase_throttle is not None
+            left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+            right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+            common_position = (
+                self._robot.data.joint_pos[:, left_joint_id] - float(self._wing_mid_L)
+            )
+            common_velocity = self._robot.data.joint_vel[:, left_joint_id]
+            constraint = compute_sinusoidal_constraint_effort(
+                actual_common_position_rad=common_position,
+                actual_common_velocity_rad_s=common_velocity,
+                reference_common_position_rad=self._q_cmd,
+                reference_common_velocity_rad_s=self._qd_cmd,
+                phase_rad=self._sinusoidal_phase_drive_state.phase_rad,
+                amplitude_rad=self._wing_amp,
+                equivalent_common_inertia_kg_m2=float(
+                    self.cfg.ideal_torque_equivalent_inertia_kg_m2
+                ),
+                natural_frequency_hz=float(
+                    self.cfg.sinusoidal_constraint_natural_frequency_hz
+                ),
+                damping_ratio=float(self.cfg.sinusoidal_constraint_damping_ratio),
+                effort_limit_nm=float(self.cfg.sinusoidal_effort_limit_nm),
+                physics_dt_s=float(self.physics_dt),
+            )
+            sinusoidal_phase_step = step_sinusoidal_phase_speed_drive(
+                state=self._sinusoidal_phase_drive_state,
+                throttle_01=self._phase_throttle,
+                common_joint_external_torque_nm=-constraint.common_wing_effort_nm,
+                physics_dt_s=float(self.physics_dt),
+                config=self._sinusoidal_phase_drive_cfg,
+                left_joint_mid_rad=self._wing_mid_L,
+                right_joint_mid_rad=self._wing_mid_R,
+            )
+            self._qdd_cmd = sinusoidal_phase_step.kinematics.common_acceleration_rad_s2
+            non_wing_local_ids = [
+                self._IDX_RUDDER,
+                self._IDX_LEFT_TAIL,
+                self._IDX_RIGHT_TAIL,
+            ]
+            non_wing_joint_ids = [
+                int(self._joint_ids[index]) for index in non_wing_local_ids
+            ]
+            self._robot.set_joint_position_target(
+                jt[:, non_wing_local_ids],
+                joint_ids=non_wing_joint_ids,
+            )
+            self._robot.set_joint_effort_target(
+                constraint.common_wing_effort_nm.unsqueeze(-1),
+                joint_ids=[left_joint_id],
+            )
+            self._robot.set_joint_effort_target(
+                torch.zeros_like(constraint.common_wing_effort_nm).unsqueeze(-1),
+                joint_ids=[right_joint_id],
+            )
+            q_right_physical = -(
+                self._robot.data.joint_pos[:, right_joint_id] - float(self._wing_mid_R)
+            )
+            constraint_power_residual = (
+                constraint.common_wing_effort_nm * common_velocity
+                + constraint.phase_reaction_torque_nm
+                * self._sinusoidal_phase_drive_state.phase_rate_rad_s
+                - constraint.common_wing_effort_nm
+                * constraint.velocity_error_rad_s
+            )
+            self.extras.setdefault("log", {}).update(
+                {
+                    "WingDrive/mean_abs_sync_error_rad": float(
+                        torch.mean(torch.abs(common_position - q_right_physical)).item()
+                    ),
+                    "WingDrive/mean_abs_tracking_error_rad": float(
+                        torch.mean(torch.abs(constraint.position_error_rad)).item()
+                    ),
+                    "WingDrive/mean_abs_velocity_error_rad_s": float(
+                        torch.mean(torch.abs(constraint.velocity_error_rad_s)).item()
+                    ),
+                    "WingDrive/mean_abs_driver_torque_Nm": float(
+                        torch.mean(torch.abs(constraint.common_wing_effort_nm)).item()
+                    ),
+                    "WingDrive/actual_frequency_hz": float(
+                        torch.mean(sinusoidal_phase_step.actual_frequency_hz).item()
+                    ),
+                    "WingDrive/target_frequency_hz": float(
+                        torch.mean(sinusoidal_phase_step.target_frequency_hz).item()
+                    ),
+                    "WingDrive/constraint_saturation_fraction": float(
+                        constraint.saturated.to(dtype=torch.float32).mean().item()
+                    ),
+                    "WingDrive/phase_drive_saturation_fraction": float(
+                        sinusoidal_phase_step.drive_saturated.to(dtype=torch.float32)
+                        .mean()
+                        .item()
+                    ),
+                    "WingDrive/constraint_power_residual_W": float(
+                        torch.mean(torch.abs(constraint_power_residual)).item()
+                    ),
+                }
+            )
+        elif wing_drive_variant == IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE:
+            assert ideal_inverse_phase_step is not None
+            assert self._ideal_inverse_phase_cfg is not None
+            left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+            right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+            common_position = (
+                self._robot.data.joint_pos[:, left_joint_id] - float(self._wing_mid_L)
+            )
+            common_velocity = self._robot.data.joint_vel[:, left_joint_id]
+            ideal_inverse_desired_acceleration = compute_desired_common_acceleration(
+                actual_position_rad=common_position,
+                actual_velocity_rad_s=common_velocity,
+                reference_position_rad=self._q_cmd,
+                reference_velocity_rad_s=self._qd_cmd,
+                reference_acceleration_rad_s2=self._qdd_cmd,
+                natural_frequency_hz=self._ideal_inverse_phase_cfg.tracking_natural_frequency_hz,
+                damping_ratio=self._ideal_inverse_phase_cfg.tracking_damping_ratio,
+                physics_dt_s=float(self.physics_dt),
+            )
+            non_wing_local_ids = [
+                self._IDX_RUDDER,
+                self._IDX_LEFT_TAIL,
+                self._IDX_RIGHT_TAIL,
+            ]
+            non_wing_joint_ids = [
+                int(self._joint_ids[index]) for index in non_wing_local_ids
+            ]
+            self._robot.set_joint_position_target(
+                jt[:, non_wing_local_ids],
+                joint_ids=non_wing_joint_ids,
+            )
+            q_right_physical = -(
+                self._robot.data.joint_pos[:, right_joint_id] - float(self._wing_mid_R)
+            )
+            self.extras.setdefault("log", {}).update(
+                {
+                    "WingDrive/mean_abs_sync_error_rad": float(
+                        torch.mean(torch.abs(common_position - q_right_physical)).item()
+                    ),
+                    "WingDrive/mean_abs_tracking_error_rad": float(
+                        torch.mean(torch.abs(common_position - self._q_cmd)).item()
+                    ),
+                    "WingDrive/mean_abs_velocity_error_rad_s": float(
+                        torch.mean(torch.abs(common_velocity - self._qd_cmd)).item()
+                    ),
+                    "WingDrive/actual_frequency_hz": float(
+                        torch.mean(self._ideal_inverse_phase_state.frequency_hz).item()
+                    ),
+                    "WingDrive/target_frequency_hz": float(
+                        torch.mean(ideal_inverse_phase_step.target_frequency_hz).item()
+                    ),
                 }
             )
         else:
@@ -1534,31 +2513,55 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_torque_b.copy_(tau_w_sum + tau_tail)
 
         wing_aero_coupling_mode = validate_wing_aero_coupling_mode(self.cfg.wing_aero_coupling_mode)
-        if wing_aero_coupling_mode == ACTUAL_PER_WING_LINK:
-            if delaurier_wrench is None:
-                wing_force_link = torch.zeros(
-                    self.num_envs,
-                    2,
-                    3,
-                    device=self.device,
-                    dtype=v_b.dtype,
-                )
-                wing_moment_link_about_com = torch.zeros_like(wing_force_link)
-            else:
-                wing_force_link = delaurier_wrench.force_link_n
-                wing_moment_link_about_com = delaurier_wrench.moment_link_about_com_nm
-            self._debug_last_wing_force_link_n.copy_(wing_force_link)
-            self._debug_last_wing_moment_link_about_com_nm.copy_(wing_moment_link_about_com)
+        if delaurier_wrench is None:
+            wing_force_link = torch.zeros(
+                self.num_envs,
+                2,
+                3,
+                device=self.device,
+                dtype=v_b.dtype,
+            )
+            wing_moment_link_about_com = torch.zeros_like(wing_force_link)
+        else:
+            wing_force_link = delaurier_wrench.force_link_n
+            wing_moment_link_about_com = delaurier_wrench.moment_link_about_com_nm
+        self._debug_last_wing_force_link_n.copy_(wing_force_link)
+        self._debug_last_wing_moment_link_about_com_nm.copy_(wing_moment_link_about_com)
 
+        if wing_aero_coupling_mode in {
+            ACTUAL_PER_WING_LINK,
+            PRESCRIBED_PER_WING_LINK,
+            IDEAL_TORQUE_PER_WING_LINK,
+            SINUSOIDAL_PHASE_PER_WING_LINK,
+            IDEAL_INVERSE_DYNAMICS_PER_WING_LINK,
+            NATIVE_HOLONOMIC_PER_WING_LINK,
+        }:
+            wing_link_aero_load_mode = validate_wing_link_aero_load_mode(
+                self.cfg.wing_link_aero_load_mode
+            )
+            applied_wing_force_link = wing_force_link
+            applied_wing_moment_link_about_com = wing_moment_link_about_com
+            if wing_link_aero_load_mode == WING_LINK_FORCE_ONLY:
+                applied_wing_moment_link_about_com = torch.zeros_like(
+                    wing_moment_link_about_com
+                )
+            elif wing_link_aero_load_mode == WING_LINK_MOMENT_ONLY:
+                applied_wing_force_link = torch.zeros_like(wing_force_link)
             # One call is required because Isaac Lab stores one global/local
             # wrench-frame flag for the complete articulation. Each row below
             # is expressed in its selected body's local FLU link frame.
-            forces_link = torch.cat(((f_tail + f_drag).unsqueeze(1), wing_force_link), dim=1)
-            torques_link_about_com = torch.cat(
-                (tau_tail.unsqueeze(1), wing_moment_link_about_com),
+            forces_link = torch.cat(
+                ((f_tail + f_drag).unsqueeze(1), applied_wing_force_link),
                 dim=1,
             )
             body_ids = [int(self._base_body_ids[0]), *(int(index) for index in self._wing_body_ids)]
+            torques_link_about_com = torch.cat(
+                (
+                    tau_tail.unsqueeze(1),
+                    applied_wing_moment_link_about_com,
+                ),
+                dim=1,
+            )
             self._robot.set_external_force_and_torque(
                 forces=forces_link,
                 torques=torques_link_about_com,
@@ -1566,8 +2569,6 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 is_global=False,
             )
         else:
-            self._debug_last_wing_force_link_n.zero_()
-            self._debug_last_wing_moment_link_about_com_nm.zero_()
             f_sum = (f_w_sum + f_tail + f_drag).unsqueeze(1)  # (N,1,3)
             t_sum = (tau_w_sum + tau_tail).unsqueeze(1)  # (N,1,3)
             self._robot.set_external_force_and_torque(
@@ -1576,6 +2577,160 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 body_ids=self._base_body_ids,
                 is_global=False,
             )
+        if wing_drive_variant == IDEAL_TORQUE_COUPLED_WING_DRIVE:
+            assert ideal_torque_drive_effort is not None
+            left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+            right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+            if delaurier_wrench is not None:
+                common_aero_torque = compute_common_aerodynamic_hinge_torque(
+                    force_link_n=delaurier_wrench.force_link_n,
+                    moment_link_about_com_nm=delaurier_wrench.moment_link_about_com_nm,
+                    wing_com_position_link_m=self._robot.data.body_com_pos_b[:, self._wing_body_ids, :],
+                )
+                ideal_torque_drive_effort = (
+                    ideal_torque_drive_effort
+                    - float(self.cfg.ideal_torque_aero_feedforward_scale) * common_aero_torque
+                )
+            ideal_torque_drive_effort = torch.clamp(
+                ideal_torque_drive_effort,
+                min=-IDEAL_DRIVER_EFFORT_LIMIT_NM,
+                max=IDEAL_DRIVER_EFFORT_LIMIT_NM,
+            )
+            self._robot.set_joint_effort_target(
+                ideal_torque_drive_effort.unsqueeze(-1),
+                joint_ids=[left_joint_id],
+            )
+            self._robot.set_joint_effort_target(
+                torch.zeros_like(ideal_torque_drive_effort).unsqueeze(-1),
+                joint_ids=[right_joint_id],
+            )
+            self.extras.setdefault("log", {})["WingDrive/mean_abs_driver_torque_Nm"] = float(
+                torch.mean(torch.abs(ideal_torque_drive_effort)).item()
+            )
+            self._phase = next_phase
+            self._ideal_torque_elapsed_s += (
+                (self._freeze_steps <= 0).to(dtype=self._ideal_torque_elapsed_s.dtype)
+                * float(self.physics_dt)
+            )
+        elif wing_drive_variant == SINUSOIDAL_PHASE_SPEED_WING_DRIVE:
+            assert sinusoidal_phase_step is not None
+            assert self._phase_acceleration_rad_s2 is not None
+            self._sinusoidal_phase_drive_state = sinusoidal_phase_step.next_state
+            self._phase = sinusoidal_phase_step.next_state.phase_rad
+            self._freq = (
+                sinusoidal_phase_step.next_state.phase_rate_rad_s
+                / (2.0 * math.pi)
+            )
+            self._phase_acceleration_rad_s2 = (
+                sinusoidal_phase_step.phase_acceleration_rad_s2
+            )
+        elif wing_drive_variant == NATIVE_HOLONOMIC_WING_DRIVE:
+            assert ideal_inverse_phase_step is not None
+            assert self._ideal_inverse_phase_state is not None
+            self._ideal_inverse_phase_state = ideal_inverse_phase_step.next_state
+            self._phase = ideal_inverse_phase_step.next_state.phase_rad
+            self._freq = ideal_inverse_phase_step.next_state.frequency_hz
+            self._phase_acceleration_rad_s2 = ideal_inverse_phase_step.phase_acceleration_rad_s2
+        elif wing_drive_variant == IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE:
+            assert ideal_inverse_phase_step is not None
+            assert ideal_inverse_desired_acceleration is not None
+            assert self._ideal_inverse_phase_cfg is not None
+            assert self._ideal_inverse_phase_state is not None
+            left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+            right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+            generalized_mass = self._robot.root_physx_view.get_generalized_mass_matrices().to(
+                device=self.device
+            )
+            coriolis_bias = (
+                self._robot.root_physx_view.get_coriolis_and_centrifugal_compensation_forces().to(
+                    device=self.device
+                )
+            )
+            gravity_bias = self._robot.root_physx_view.get_gravity_compensation_forces().to(
+                device=self.device
+            )
+            generalized_bias = coriolis_bias + gravity_bias
+            joint_count = len(self._robot.joint_names)
+            base_dof_count = generalized_mass.shape[-1] - joint_count
+            external_generalized = torch.zeros_like(generalized_bias)
+            if base_dof_count == 6:
+                external_generalized[:, :3] = quat_apply(
+                    quat_w,
+                    f_w_sum + f_tail + f_drag,
+                )
+                external_generalized[:, 3:6] = quat_apply(
+                    quat_w,
+                    tau_w_sum + tau_tail,
+                )
+            elif base_dof_count != 0:
+                raise RuntimeError(
+                    "PhysX generalized coordinates must contain either zero or six base DOFs."
+                )
+            if delaurier_wrench is not None:
+                wing_hinge_torque = compute_aerodynamic_joint_hinge_torques(
+                    force_link_n=delaurier_wrench.force_link_n,
+                    moment_link_about_com_nm=delaurier_wrench.moment_link_about_com_nm,
+                    wing_com_position_link_m=self._robot.data.body_com_pos_b[:, self._wing_body_ids, :],
+                )
+                external_generalized[:, base_dof_count + left_joint_id] = wing_hinge_torque[:, 0]
+                external_generalized[:, base_dof_count + right_joint_id] = wing_hinge_torque[:, 1]
+            joint_direction = torch.zeros(
+                joint_count,
+                device=generalized_mass.device,
+                dtype=generalized_mass.dtype,
+            )
+            joint_direction[left_joint_id] = 1.0
+            joint_direction[right_joint_id] = -1.0
+            inverse_dynamics = reduce_common_inverse_dynamics(
+                generalized_mass_matrix=generalized_mass,
+                generalized_bias_effort=generalized_bias,
+                external_generalized_effort=external_generalized,
+                joint_direction=joint_direction,
+                desired_common_acceleration_rad_s2=ideal_inverse_desired_acceleration.to(
+                    dtype=generalized_mass.dtype
+                ),
+                effort_limit_nm=self._ideal_inverse_phase_cfg.effort_limit_nm,
+            )
+            self._robot.set_joint_effort_target(
+                inverse_dynamics.effort_nm.unsqueeze(-1),
+                joint_ids=[left_joint_id],
+            )
+            self._robot.set_joint_effort_target(
+                torch.zeros_like(inverse_dynamics.effort_nm).unsqueeze(-1),
+                joint_ids=[right_joint_id],
+            )
+            common_velocity = self._robot.data.joint_vel[:, left_joint_id]
+            self.extras.setdefault("log", {}).update(
+                {
+                    "WingDrive/mean_abs_driver_torque_Nm": float(
+                        torch.mean(torch.abs(inverse_dynamics.effort_nm)).item()
+                    ),
+                    "WingDrive/mean_abs_inverse_inertia_torque_Nm": float(
+                        torch.mean(
+                            torch.abs(
+                                inverse_dynamics.common_inertia_kg_m2
+                                * inverse_dynamics.desired_acceleration_rad_s2
+                            )
+                        ).item()
+                    ),
+                    "WingDrive/mean_abs_inverse_bias_torque_Nm": float(
+                        torch.mean(torch.abs(inverse_dynamics.common_bias_effort_nm)).item()
+                    ),
+                    "WingDrive/mean_abs_aero_feedforward_torque_Nm": float(
+                        torch.mean(torch.abs(inverse_dynamics.common_external_effort_nm)).item()
+                    ),
+                    "WingDrive/inverse_effort_saturation_fraction": float(
+                        inverse_dynamics.saturated.to(dtype=torch.float32).mean().item()
+                    ),
+                    "WingDrive/mean_abs_mechanism_power_W": float(
+                        torch.mean(torch.abs(inverse_dynamics.effort_nm * common_velocity)).item()
+                    ),
+                }
+            )
+            self._ideal_inverse_phase_state = ideal_inverse_phase_step.next_state
+            self._phase = ideal_inverse_phase_step.next_state.phase_rad
+            self._freq = ideal_inverse_phase_step.next_state.frequency_hz
+            self._phase_acceleration_rad_s2 = ideal_inverse_phase_step.phase_acceleration_rad_s2
 
     def _compute_wing_delaurier_wrench(self, v_air_b: Tensor) -> _DeLaurierWingWrenchResult:
         """Compute the net DeLaurier wing wrench about the base COM in body frame.
@@ -1598,7 +2753,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         y = self._wing_geom.x_mid.view(1, N_strip).expand(B, N_strip)
 
         wing_aero_coupling_mode = validate_wing_aero_coupling_mode(self.cfg.wing_aero_coupling_mode)
-        if wing_aero_coupling_mode == ACTUAL_PER_WING_LINK:
+        if wing_aero_coupling_mode in {
+            ACTUAL_MOTION_BASE_EQUIVALENT,
+            ACTUAL_PER_WING_LINK,
+            IDEAL_TORQUE_PER_WING_LINK,
+            SINUSOIDAL_PHASE_PER_WING_LINK,
+            IDEAL_INVERSE_DYNAMICS_PER_WING_LINK,
+            NATIVE_HOLONOMIC_PER_WING_LINK,
+        }:
             left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
             right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
             physical_kinematics = map_opposed_joint_states_to_physical_wing_kinematics(
@@ -1628,10 +2790,18 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             )
             q = physical_kinematics.position_rad.reshape(B)
             qd = physical_kinematics.velocity_rad_s.reshape(B)
-            qdd = physical_kinematics.acceleration_rad_s2.reshape(B)
             commanded_q = self._q_cmd.unsqueeze(1)
             commanded_qd = self._qd_cmd.unsqueeze(1)
-            commanded_qdd = self._qdd_cmd.unsqueeze(1)
+            commanded_qdd = self._qdd_cmd.unsqueeze(1).expand_as(
+                physical_kinematics.acceleration_rad_s2
+            )
+            selected_qdd = resolve_wing_aero_acceleration(
+                source=self.cfg.wing_aero_acceleration_source,
+                actual_acceleration_rad_s2=physical_kinematics.acceleration_rad_s2,
+                prescribed_acceleration_rad_s2=commanded_qdd,
+            )
+            qdd = selected_qdd.reshape(B)
+            actual_qdd = physical_kinematics.acceleration_rad_s2
             self.extras.setdefault("log", {}).update(
                 {
                     "WingAero/mean_abs_position_input_error_rad": float(
@@ -1641,7 +2811,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                         torch.mean(torch.abs(physical_kinematics.velocity_rad_s - commanded_qd)).item()
                     ),
                     "WingAero/mean_abs_acceleration_input_error_rad_s2": float(
-                        torch.mean(torch.abs(physical_kinematics.acceleration_rad_s2 - commanded_qdd)).item()
+                        torch.mean(torch.abs(selected_qdd - commanded_qdd)).item()
+                    ),
+                    "WingAero/mean_abs_physx_acceleration_error_rad_s2": float(
+                        torch.mean(torch.abs(actual_qdd - commanded_qdd)).item()
                     ),
                 }
             )
@@ -1649,9 +2822,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             q = torch.repeat_interleave(self._q_cmd, 2)  # (B,)
             qd = torch.repeat_interleave(self._qd_cmd, 2)
             qdd = torch.repeat_interleave(self._qdd_cmd, 2)
+            actual_qdd = qdd.reshape(N_env, 2)
         self._debug_last_wing_aero_position_rad.copy_(q.reshape(N_env, 2))
         self._debug_last_wing_aero_velocity_rad_s.copy_(qd.reshape(N_env, 2))
         self._debug_last_wing_aero_acceleration_rad_s2.copy_(qdd.reshape(N_env, 2))
+        self._debug_last_wing_actual_acceleration_rad_s2.copy_(actual_qdd)
         w = torch.repeat_interleave(2.0 * torch.pi * self._freq, 2)  # (B,)
 
         # theta_a (flapping-axis angle relative to the freestream) per env -> per wing.
@@ -1955,6 +3130,37 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._spawn_root_state[env_ids] = root_state
 
         # joints to default and zero velocity
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) == PRESCRIBED_COUPLED_WING_DRIVE:
+            assert self._nominal_dof_position_limits_cpu is not None
+            env_ids_cpu = env_ids.detach().to(device="cpu", dtype=torch.int64)
+            reset_limits_cpu = build_prescribed_dof_position_limits(
+                nominal_limits_rad=self._nominal_dof_position_limits_cpu[env_ids_cpu],
+                target_position_rad=torch.full(
+                    (n,),
+                    self._wing_mid_L,
+                    device=self._nominal_dof_position_limits_cpu.device,
+                    dtype=self._nominal_dof_position_limits_cpu.dtype,
+                ),
+                joint_id=int(self._joint_ids[self._IDX_LEFT_WING]),
+                half_width_rad=float(self.cfg.prescribed_joint_limit_half_width_rad),
+            )
+            reset_limits_cpu = build_prescribed_dof_position_limits(
+                nominal_limits_rad=reset_limits_cpu,
+                target_position_rad=torch.full(
+                    (n,),
+                    self._wing_mid_R,
+                    device=reset_limits_cpu.device,
+                    dtype=reset_limits_cpu.dtype,
+                ),
+                joint_id=int(self._joint_ids[self._IDX_RIGHT_WING]),
+                half_width_rad=float(self.cfg.prescribed_joint_limit_half_width_rad),
+            )
+            self._robot.root_physx_view.set_dof_limits(
+                reset_limits_cpu,
+                indices=env_ids_cpu.to(dtype=torch.int32),
+            )
+        f0 = float(self.cfg.reset_flap_hz)
+        f0 = max(float(self.cfg.min_flap_hz), min(float(self.cfg.max_flap_hz), f0))
         jpos = self._default_joint_pos.expand(n, -1).clone()
         # initialize tail joints from mixed reset elevon commands
         elevon_lim = torch.deg2rad(torch.tensor(float(self.cfg.elevon_max_deg), device=self.device))
@@ -1979,6 +3185,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         jpos[:, self._IDX_LEFT_TAIL] = left0
         jpos[:, self._IDX_RIGHT_TAIL] = right0
         jvel = torch.zeros_like(jpos)
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) in {
+            SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
+            IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
+            NATIVE_HOLONOMIC_WING_DRIVE,
+        }:
+            initial_common_velocity = self._wing_amp * 2.0 * math.pi * f0
+            jvel[:, self._IDX_LEFT_WING] = initial_common_velocity
+            jvel[:, self._IDX_RIGHT_WING] = -initial_common_velocity
         self._robot.write_joint_state_to_sim(jpos, jvel, joint_ids=self._joint_ids, env_ids=env_ids)
 
         # clear actions and phases
@@ -1986,10 +3200,38 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._act_lpf[env_ids] = 0.0
         self._act_cmd[env_ids] = 0.0
         self._phase[env_ids] = 0.0
+        self._ideal_torque_elapsed_s[env_ids] = 0.0
         # start near trim frequency to avoid immediate drop before the policy stabilizes
-        f0 = float(self.cfg.reset_flap_hz)
-        f0 = max(float(self.cfg.min_flap_hz), min(float(self.cfg.max_flap_hz), f0))
         self._freq[env_ids] = f0
+        if self._phase_throttle is not None:
+            self._phase_throttle[env_ids] = f0 / float(self.cfg.max_flap_hz)
+        if self._phase_target_frequency_hz is not None:
+            self._phase_target_frequency_hz[env_ids] = f0
+        if self._phase_acceleration_rad_s2 is not None:
+            self._phase_acceleration_rad_s2[env_ids] = 0.0
+        if self._sinusoidal_phase_drive_state is not None:
+            self._sinusoidal_phase_drive_state.phase_rad[env_ids] = 0.0
+            self._sinusoidal_phase_drive_state.phase_rate_rad_s[env_ids] = (
+                2.0 * math.pi * f0
+            )
+            self._sinusoidal_phase_drive_state.speed_error_integral_rad[env_ids] = 0.0
+        if self._ideal_inverse_phase_state is not None:
+            self._ideal_inverse_phase_state.phase_rad[env_ids] = 0.0
+            self._ideal_inverse_phase_state.frequency_hz[env_ids] = f0
+        if validate_wing_drive_variant(self.cfg.wing_drive_variant) == NATIVE_HOLONOMIC_WING_DRIVE:
+            assert self._native_holonomic is not None
+            assert self._ideal_inverse_phase_state is not None
+            phase = self._ideal_inverse_phase_state.phase_rad
+            frequency = self._ideal_inverse_phase_state.frequency_hz
+            target_position = float(self._wing_mid_L) + float(self._wing_amp) * torch.sin(phase)
+            target_velocity = (
+                float(self._wing_amp) * 2.0 * math.pi * frequency * torch.cos(phase)
+            )
+            self._native_holonomic.set_targets(
+                self._native_holonomic_joint_paths,
+                target_position.detach().to(device="cpu", dtype=torch.float64).tolist(),
+                target_velocity.detach().to(device="cpu", dtype=torch.float64).tolist(),
+            )
         # initialize action history to match the reset frequency so action filtering doesn't create a large transient
         a0 = 2.0 * (f0 - float(self.cfg.min_flap_hz)) / (float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz)) - 1.0
         self._actions[env_ids, 0] = a0

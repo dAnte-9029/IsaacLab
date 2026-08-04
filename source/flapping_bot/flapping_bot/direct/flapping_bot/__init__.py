@@ -19,7 +19,18 @@ __all__ = [
     "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg",
     "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg",
     "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledDeLaurierEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledDeLaurierEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledDeLaurierEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledDeLaurierEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledDeLaurierEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicEnvCfg",
+    "FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicDeLaurierEnvCfg",
     "FlappingBotStraightFlightSimpleEnvCfg",
+    "FlappingBotStraightFlightCommandedKinematicsDeLaurierEnvCfg",
     "FlappingBotStraightFlightDeLaurierEnvCfg",
     "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
     "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
@@ -69,7 +80,18 @@ def __getattr__(name: str):
         "FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg",
         "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg",
         "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledDeLaurierEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledDeLaurierEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledDeLaurierEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledDeLaurierEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledDeLaurierEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicEnvCfg",
+        "FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicDeLaurierEnvCfg",
         "FlappingBotStraightFlightSimpleEnvCfg",
+        "FlappingBotStraightFlightCommandedKinematicsDeLaurierEnvCfg",
         "FlappingBotStraightFlightDeLaurierEnvCfg",
         "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg",
         "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
@@ -82,10 +104,21 @@ def __getattr__(name: str):
             FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
             FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
             FlappingBotStraightFlightDeLaurierEnvCfg,
+            FlappingBotStraightFlightCommandedKinematicsDeLaurierEnvCfg,
             FlappingBotStraightFlightEnv,
             FlappingBotStraightFlightEnvCfg,
             FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledEnvCfg,
             FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledDeLaurierEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledDeLaurierEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledDeLaurierEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledDeLaurierEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledDeLaurierEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicEnvCfg,
+            FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicDeLaurierEnvCfg,
             FlappingBotStraightFlightMeasuredWingMultibodyEnvCfg,
             FlappingBotStraightFlightSimpleEnvCfg,
         )
@@ -102,7 +135,40 @@ def __getattr__(name: str):
             "FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledDeLaurierEnvCfg": (
                 FlappingBotStraightFlightMeasuredWingMultibodyIdealCoupledDeLaurierEnvCfg
             ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledDeLaurierEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyIdealTorqueCoupledDeLaurierEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledDeLaurierEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyPrescribedCoupledDeLaurierEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledDeLaurierEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodySinusoidalPhaseCoupledDeLaurierEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledDeLaurierEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyIdealInverseDynamicsPhaseCoupledDeLaurierEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicEnvCfg
+            ),
+            "FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicDeLaurierEnvCfg": (
+                FlappingBotStraightFlightMeasuredWingMultibodyNativeHolonomicDeLaurierEnvCfg
+            ),
             "FlappingBotStraightFlightSimpleEnvCfg": FlappingBotStraightFlightSimpleEnvCfg,
+            "FlappingBotStraightFlightCommandedKinematicsDeLaurierEnvCfg": (
+                FlappingBotStraightFlightCommandedKinematicsDeLaurierEnvCfg
+            ),
             "FlappingBotStraightFlightDeLaurierEnvCfg": FlappingBotStraightFlightDeLaurierEnvCfg,
             "FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg": FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
             "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg": FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
