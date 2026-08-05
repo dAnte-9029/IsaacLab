@@ -133,12 +133,14 @@ from .sinusoidal_phase_drive import (
     step_sinusoidal_phase_speed_drive,
 )
 from .ideal_inverse_dynamics_phase_drive import (
+    CommonConstraintLoadEstimate,
     IdealFrequencyPhaseState,
     IdealFrequencyPhaseStep,
     IdealInverseDynamicsPhaseDriveConfig,
     ReducedCommonInverseDynamics,
     compute_desired_common_acceleration,
     discrete_tracking_acceleration_gains,
+    estimate_common_constraint_load,
     reduce_common_inverse_dynamics,
     step_ideal_frequency_phase,
 )
@@ -274,8 +276,10 @@ __all__ = [
     "IdealFrequencyPhaseStep",
     "IdealInverseDynamicsPhaseDriveConfig",
     "ReducedCommonInverseDynamics",
+    "CommonConstraintLoadEstimate",
     "compute_desired_common_acceleration",
     "discrete_tracking_acceleration_gains",
+    "estimate_common_constraint_load",
     "reduce_common_inverse_dynamics",
     "step_ideal_frequency_phase",
 ]

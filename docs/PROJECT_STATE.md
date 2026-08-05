@@ -16,6 +16,8 @@ The accepted mechanism decision is the project-local native `FlappingWingTraject
 
 As accepted in `docs/decisions/ADR-2026-08-04-promote-native-multibody-default.md`, the canonical `FlappingBotStraightFlightDeLaurierEnvCfg` now selects the CPU native measured-wing plant at 1/480 s, decimation 4 and disabled physics replication. The previous near-single-rigid-body commanded-kinematics DeLaurier behavior remains available as `FlappingBotStraightFlightCommandedKinematicsDeLaurierEnvCfg`. Canonical DeLaurier processes must build and enable `omni.flapping_bot.holonomic_constraint` at Kit startup; controller and learned-policy compatibility is not assumed.
 
+Opt-in native diagnostics now expose a common-coordinate multibody inverse-dynamics estimate of ideal mechanism torque/power and a non-applied actual-joint-acceleration DeLaurier shadow wrench. The 2--5 Hz continuous-frequency fixed/free-root matrix confirms the 0.1 degree mechanism gate at 1/480 and 1/1000 s but not 1/240 s. At 1/480 s, inverse-dynamics RMS metrics differed by at most 2.45 percent from 1/1000 s. The shadow-wrench difference decreased approximately linearly with time step, so prescribed analytical acceleration remains the applied aerodynamic input. See `docs/decisions/ADR-2026-08-05-native-holonomic-load-and-transient-diagnostics.md` and `docs/audits/2026-08-05-native-holonomic-transient-diagnostics.md`.
+
 ## Required reading
 
 - `docs/handoffs/2026-07-13-current-simulation-audit.md`
@@ -34,6 +36,7 @@ As accepted in `docs/decisions/ADR-2026-08-04-promote-native-multibody-default.m
 - `docs/decisions/ADR-2026-08-01-ideal-inverse-dynamics-phase-drive.md`
 - `docs/decisions/ADR-2026-08-03-native-holonomic-wing-mechanism.md`
 - `docs/decisions/ADR-2026-08-04-promote-native-multibody-default.md`
+- `docs/decisions/ADR-2026-08-05-native-holonomic-load-and-transient-diagnostics.md`
 - `docs/audits/2026-07-29-ideal-coupling-feasibility.md`
 - `docs/audits/2026-07-29-physx-sfwm-inertial-validation.md`
 - `docs/audits/2026-07-29-multibody-wing-aero-coupling.md`
@@ -42,6 +45,7 @@ As accepted in `docs/decisions/ADR-2026-08-04-promote-native-multibody-default.m
 - `docs/audits/2026-08-01-ideal-inverse-dynamics-phase-gate.md`
 - `docs/audits/2026-08-03-native-holonomic-validation.md`
 - `docs/audits/2026-08-04-multibody-training-runtime-feasibility.md`
+- `docs/audits/2026-08-05-native-holonomic-transient-diagnostics.md`
 - `docs/plans/closed_loop_model_integration_plan.md`
 
 ## Known Issues / Deferred Work
@@ -64,6 +68,7 @@ As accepted in `docs/decisions/ADR-2026-08-04-promote-native-multibody-default.m
 - The free-body aerodynamic gate closes linear momentum to below 4e-6 relative error and angular momentum to below 2.9 percent at 2/5 Hz. This is numerical integration evidence, not aerodynamic-model or real-flight validation.
 - The repository `isaaclab.sh -p` wrapper discards the child Python exit status. Automated validation must inspect `all_cases_accepted` in the JSON output or invoke the worker with the activated Conda Python directly.
 - The direct-GPU implicit-drive probe is only a fixed-root, one-second capability and throughput result. It has not passed the native plant's full frequency, momentum, free-flight, reset or controller gates and must not be treated as the latest authoritative multibody plant.
+- Native mechanism torque and power are available only as explicitly labeled multibody inverse-dynamics estimates. The exact PhysX constraint multiplier and motor-shaft quantities are not exposed or claimed.
 
 ## Exact next task
 

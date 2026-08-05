@@ -42,6 +42,8 @@ def test_native_holonomic_mechanism_rejects_per_wing_aerodynamic_loads() -> None
     cfg.act_rate_limit_per_s = 0.0
     cfg.wind_enabled = True
     cfg.wind_xy_mps = (-8.0, 0.0)
+    cfg.native_holonomic_load_diagnostics = True
+    cfg.delaurier_shadow_actual_acceleration = True
     cfg.robot = cfg.robot.replace(
         spawn=cfg.robot.spawn.replace(
             rigid_props=cfg.robot.spawn.rigid_props.replace(
@@ -67,6 +69,8 @@ def test_native_holonomic_mechanism_rejects_per_wing_aerodynamic_loads() -> None
         max_tracking_error = 0.0
         max_sync_error = 0.0
         max_wing_force = 0.0
+        max_constraint_torque_estimate = 0.0
+        max_shadow_force_delta = 0.0
         total_steps = int(round(0.75 / cfg.sim.dt))
         discard_steps = int(round(0.25 / cfg.sim.dt))
         for step in range(total_steps):
@@ -75,6 +79,20 @@ def test_native_holonomic_mechanism_rejects_per_wing_aerodynamic_loads() -> None
             max_wing_force = max(
                 max_wing_force,
                 float(torch.linalg.vector_norm(env._debug_last_wing_force_link_n, dim=-1).max()),
+            )
+            max_constraint_torque_estimate = max(
+                max_constraint_torque_estimate,
+                float(torch.max(torch.abs(env._debug_last_native_constraint_torque_estimate_nm))),
+            )
+            max_shadow_force_delta = max(
+                max_shadow_force_delta,
+                float(
+                    torch.linalg.vector_norm(
+                        env._debug_last_shadow_actual_accel_wing_force_b_n
+                        - env._debug_last_wing_force_b,
+                        dim=-1,
+                    ).max()
+                ),
             )
             env.scene.write_data_to_sim()
             env.sim.step(render=False)
@@ -100,13 +118,19 @@ def test_native_holonomic_mechanism_rejects_per_wing_aerodynamic_loads() -> None
             "native holonomic aero gate:"
             f" max_tracking={math.degrees(max_tracking_error):.9f}deg,"
             f" max_sync={math.degrees(max_sync_error):.9f}deg,"
-            f" max_wing_force={max_wing_force:.6f}N"
+            f" max_wing_force={max_wing_force:.6f}N,"
+            f" max_constraint_torque_estimate={max_constraint_torque_estimate:.6f}Nm,"
+            f" max_shadow_force_delta={max_shadow_force_delta:.6f}N"
         )
         assert max_wing_force > 1.0e-4
         assert max_tracking_error < math.radians(0.1)
         assert max_sync_error < math.radians(0.1)
         assert torch.all(torch.isfinite(env._debug_last_wing_force_link_n))
         assert torch.all(torch.isfinite(env._debug_last_wing_moment_link_about_com_nm))
+        assert max_constraint_torque_estimate > 1.0e-5
+        assert max_shadow_force_delta > 1.0e-5
+        assert torch.all(env._debug_last_native_common_inertia_kg_m2 > 0.0)
+        assert torch.all(torch.isfinite(env._debug_last_native_constraint_power_estimate_w))
     finally:
         omni.physx.get_physx_simulation_interface().detach_stage()
         env.close()

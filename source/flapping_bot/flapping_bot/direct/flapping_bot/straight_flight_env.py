@@ -83,6 +83,7 @@ from ...physics import (
     compute_legacy_qd_scaled_twist,
     compute_opposed_wing_kinematics,
     compute_desired_common_acceleration,
+    estimate_common_constraint_load,
     compute_sinusoidal_constraint_effort,
     FlappingQSMCfg,
     build_measured_wing_multibody_tensors,
@@ -455,6 +456,13 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     delaurier_include_aerodynamic_center_moment: bool = True
     delaurier_include_apparent_mass_moment: bool = True
     delaurier_store_strip_diagnostics: bool = False
+    # Opt-in diagnostics for the native ideal mechanism. The load is a
+    # multibody inverse-dynamics estimate in the common wing coordinate, not a
+    # PhysX constraint multiplier or motor-shaft quantity.
+    native_holonomic_load_diagnostics: bool = False
+    # Compute a non-applied DeLaurier wrench using actual PhysX joint
+    # acceleration alongside the prescribed-acceleration plant calculation.
+    delaurier_shadow_actual_acceleration: bool = False
     # Induced drag correction (simple Oswald efficiency model).
     # DeLaurier strip theory as used here does not include a finite-wing induced drag term, which can lead to
     # unrealistic positive chordwise force and runaway acceleration in free-flight simulations.
@@ -879,6 +887,31 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     "native_holonomic_drive wing aerodynamics require "
                     "wing_aero_coupling_mode='native_holonomic_per_wing_link'."
                 )
+        if bool(cfg.native_holonomic_load_diagnostics) and wing_drive_variant != NATIVE_HOLONOMIC_WING_DRIVE:
+            raise ValueError(
+                "native_holonomic_load_diagnostics requires wing_drive_variant='native_holonomic_drive'."
+            )
+        if (
+            bool(cfg.native_holonomic_load_diagnostics)
+            and str(cfg.wing_link_aero_load_mode) != FULL_WING_LINK_WRENCH
+        ):
+            raise ValueError(
+                "native_holonomic_load_diagnostics requires the full wing-link wrench so the "
+                "inverse-dynamics estimate matches the applied load."
+            )
+        if bool(cfg.delaurier_shadow_actual_acceleration):
+            if wing_drive_variant != NATIVE_HOLONOMIC_WING_DRIVE:
+                raise ValueError(
+                    "delaurier_shadow_actual_acceleration requires wing_drive_variant='native_holonomic_drive'."
+                )
+            if not bool(cfg.enable_wing_aero) or not bool(cfg.use_delaurier_wings):
+                raise ValueError(
+                    "delaurier_shadow_actual_acceleration requires enabled DeLaurier wing aerodynamics."
+                )
+            if str(cfg.wing_link_aero_load_mode) != FULL_WING_LINK_WRENCH:
+                raise ValueError(
+                    "delaurier_shadow_actual_acceleration requires the full wing-link wrench."
+                )
         if wing_aero_coupling_mode in {
             ACTUAL_MOTION_BASE_EQUIVALENT,
             ACTUAL_PER_WING_LINK,
@@ -1122,6 +1155,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         # Debug caches (filled in _apply_action) for offline analysis and scripts.
         self._debug_last_wing_force_b: Tensor | None = None
+        self._debug_last_wing_moment_b_about_base_com_nm: Tensor | None = None
         self._debug_last_tail_force_b: Tensor | None = None
         self._debug_last_force_b: Tensor | None = None
         self._debug_last_torque_b: Tensor | None = None
@@ -1131,6 +1165,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_wing_aero_velocity_rad_s: Tensor | None = None
         self._debug_last_wing_aero_acceleration_rad_s2: Tensor | None = None
         self._debug_last_wing_actual_acceleration_rad_s2: Tensor | None = None
+        self._debug_last_shadow_actual_accel_wing_force_b_n: Tensor | None = None
+        self._debug_last_shadow_actual_accel_wing_moment_b_nm: Tensor | None = None
+        self._debug_last_native_common_inertia_kg_m2: Tensor | None = None
+        self._debug_last_native_inertia_torque_nm: Tensor | None = None
+        self._debug_last_native_bias_torque_nm: Tensor | None = None
+        self._debug_last_native_external_load_torque_nm: Tensor | None = None
+        self._debug_last_native_constraint_torque_estimate_nm: Tensor | None = None
+        self._debug_last_native_constraint_power_estimate_w: Tensor | None = None
 
         # aero models
         self._qsm_wing_model: QuasiSteadyWingModel | None = None
@@ -1212,6 +1254,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         # debug caches
         self._debug_last_wing_force_b = torch.zeros(N, 3, device=self.device)
+        self._debug_last_wing_moment_b_about_base_com_nm = torch.zeros(N, 3, device=self.device)
         self._debug_last_tail_force_b = torch.zeros(N, 3, device=self.device)
         self._debug_last_force_b = torch.zeros(N, 3, device=self.device)
         self._debug_last_torque_b = torch.zeros(N, 3, device=self.device)
@@ -1221,6 +1264,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_wing_aero_velocity_rad_s = torch.zeros(N, 2, device=self.device)
         self._debug_last_wing_aero_acceleration_rad_s2 = torch.zeros(N, 2, device=self.device)
         self._debug_last_wing_actual_acceleration_rad_s2 = torch.zeros(N, 2, device=self.device)
+        self._debug_last_shadow_actual_accel_wing_force_b_n = torch.zeros(N, 3, device=self.device)
+        self._debug_last_shadow_actual_accel_wing_moment_b_nm = torch.zeros(N, 3, device=self.device)
+        self._debug_last_native_common_inertia_kg_m2 = torch.zeros(N, device=self.device)
+        self._debug_last_native_inertia_torque_nm = torch.zeros(N, device=self.device)
+        self._debug_last_native_bias_torque_nm = torch.zeros(N, device=self.device)
+        self._debug_last_native_external_load_torque_nm = torch.zeros(N, device=self.device)
+        self._debug_last_native_constraint_torque_estimate_nm = torch.zeros(N, device=self.device)
+        self._debug_last_native_constraint_power_estimate_w = torch.zeros(N, device=self.device)
         self._mass_total = self._robot.data.default_mass.sum(dim=1).to(device=self.device)
 
         # joint targets
@@ -2494,6 +2545,18 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 delaurier_wrench = self._compute_wing_delaurier_wrench(v_air_b)
                 f_w_sum = delaurier_wrench.net_force_b_n
                 tau_w_sum = delaurier_wrench.net_moment_b_about_base_com_nm
+                if bool(self.cfg.delaurier_shadow_actual_acceleration):
+                    shadow_wrench = self._compute_wing_delaurier_wrench(
+                        v_air_b,
+                        acceleration_source=ACTUAL_JOINT_ACCELERATION,
+                        store_diagnostics=False,
+                    )
+                    self._debug_last_shadow_actual_accel_wing_force_b_n.copy_(
+                        shadow_wrench.net_force_b_n
+                    )
+                    self._debug_last_shadow_actual_accel_wing_moment_b_nm.copy_(
+                        shadow_wrench.net_moment_b_about_base_com_nm
+                    )
         else:
             f_w_sum = torch.zeros_like(v_b)
             tau_w_sum = torch.zeros_like(v_b)
@@ -2508,6 +2571,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         # debug caches (body frame)
         self._debug_last_wing_force_b.copy_(f_w_sum)
+        self._debug_last_wing_moment_b_about_base_com_nm.copy_(tau_w_sum)
         self._debug_last_tail_force_b.copy_(f_tail)
         self._debug_last_force_b.copy_(f_w_sum + f_tail + f_drag)
         self._debug_last_torque_b.copy_(tau_w_sum + tau_tail)
@@ -2576,6 +2640,16 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 torques=t_sum,
                 body_ids=self._base_body_ids,
                 is_global=False,
+            )
+        if (
+            wing_drive_variant == NATIVE_HOLONOMIC_WING_DRIVE
+            and bool(self.cfg.native_holonomic_load_diagnostics)
+        ):
+            self._update_native_holonomic_load_diagnostics(
+                root_quaternion_w=quat_w,
+                net_external_force_b_n=f_w_sum + f_tail + f_drag,
+                net_external_moment_b_about_base_com_nm=tau_w_sum + tau_tail,
+                delaurier_wrench=delaurier_wrench,
             )
         if wing_drive_variant == IDEAL_TORQUE_COUPLED_WING_DRIVE:
             assert ideal_torque_drive_effort is not None
@@ -2732,7 +2806,112 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._freq = ideal_inverse_phase_step.next_state.frequency_hz
             self._phase_acceleration_rad_s2 = ideal_inverse_phase_step.phase_acceleration_rad_s2
 
-    def _compute_wing_delaurier_wrench(self, v_air_b: Tensor) -> _DeLaurierWingWrenchResult:
+    def _update_native_holonomic_load_diagnostics(
+        self,
+        *,
+        root_quaternion_w: Tensor,
+        net_external_force_b_n: Tensor,
+        net_external_moment_b_about_base_com_nm: Tensor,
+        delaurier_wrench: _DeLaurierWingWrenchResult | None,
+    ) -> None:
+        """Cache an ideal common-coordinate multibody inverse-dynamics estimate.
+
+        Root force and moment inputs are body-FLU quantities about the base COM.
+        The cached torque is in N m and positive in the left-upstroke common
+        coordinate. It estimates ideal wing-mechanism output load and is not a
+        PhysX solver multiplier or a motor-shaft quantity.
+        """
+
+        assert self._qdd_cmd is not None
+        generalized_mass = self._robot.root_physx_view.get_generalized_mass_matrices().to(
+            device=self.device
+        )
+        coriolis_bias = (
+            self._robot.root_physx_view.get_coriolis_and_centrifugal_compensation_forces().to(
+                device=self.device
+            )
+        )
+        gravity_bias = self._robot.root_physx_view.get_gravity_compensation_forces().to(
+            device=self.device
+        )
+        generalized_bias = coriolis_bias + gravity_bias
+        joint_count = len(self._robot.joint_names)
+        base_dof_count = generalized_mass.shape[-1] - joint_count
+        external_generalized = torch.zeros_like(generalized_bias)
+        if base_dof_count == 6:
+            external_generalized[:, :3] = quat_apply(
+                root_quaternion_w,
+                net_external_force_b_n,
+            )
+            external_generalized[:, 3:6] = quat_apply(
+                root_quaternion_w,
+                net_external_moment_b_about_base_com_nm,
+            )
+        elif base_dof_count != 0:
+            raise RuntimeError(
+                "PhysX generalized coordinates must contain either zero or six base DOFs."
+            )
+
+        left_joint_id = int(self._joint_ids[self._IDX_LEFT_WING])
+        right_joint_id = int(self._joint_ids[self._IDX_RIGHT_WING])
+        if delaurier_wrench is not None:
+            wing_hinge_torque = compute_aerodynamic_joint_hinge_torques(
+                force_link_n=delaurier_wrench.force_link_n,
+                moment_link_about_com_nm=delaurier_wrench.moment_link_about_com_nm,
+                wing_com_position_link_m=self._robot.data.body_com_pos_b[:, self._wing_body_ids, :],
+            )
+            external_generalized[:, base_dof_count + left_joint_id] = wing_hinge_torque[:, 0]
+            external_generalized[:, base_dof_count + right_joint_id] = wing_hinge_torque[:, 1]
+
+        joint_direction = torch.zeros(
+            joint_count,
+            device=generalized_mass.device,
+            dtype=generalized_mass.dtype,
+        )
+        joint_direction[left_joint_id] = 1.0
+        joint_direction[right_joint_id] = -1.0
+        actual_common_velocity = 0.5 * (
+            self._robot.data.joint_vel[:, left_joint_id]
+            - self._robot.data.joint_vel[:, right_joint_id]
+        )
+        estimate = estimate_common_constraint_load(
+            generalized_mass_matrix=generalized_mass,
+            generalized_bias_effort=generalized_bias,
+            external_generalized_effort=external_generalized,
+            joint_direction=joint_direction,
+            prescribed_common_acceleration_rad_s2=self._qdd_cmd.to(
+                dtype=generalized_mass.dtype
+            ),
+            actual_common_velocity_rad_s=actual_common_velocity.to(
+                dtype=generalized_mass.dtype
+            ),
+        )
+        self._debug_last_native_common_inertia_kg_m2.copy_(estimate.common_inertia_kg_m2)
+        self._debug_last_native_inertia_torque_nm.copy_(estimate.inertia_torque_nm)
+        self._debug_last_native_bias_torque_nm.copy_(estimate.bias_torque_nm)
+        self._debug_last_native_external_load_torque_nm.copy_(estimate.external_load_torque_nm)
+        self._debug_last_native_constraint_torque_estimate_nm.copy_(
+            estimate.equivalent_constraint_torque_nm
+        )
+        self._debug_last_native_constraint_power_estimate_w.copy_(estimate.mechanical_power_w)
+        self.extras.setdefault("log", {}).update(
+            {
+                "WingDrive/mean_abs_inverse_dynamics_constraint_torque_estimate_Nm": float(
+                    torch.mean(torch.abs(estimate.equivalent_constraint_torque_nm)).item()
+                ),
+                "WingDrive/mean_abs_inverse_dynamics_constraint_power_estimate_W": float(
+                    torch.mean(torch.abs(estimate.mechanical_power_w)).item()
+                ),
+            }
+        )
+
+    def _compute_wing_delaurier_wrench(
+        self,
+        v_air_b: Tensor,
+        *,
+        acceleration_source: str | None = None,
+        store_diagnostics: bool = True,
+    ) -> _DeLaurierWingWrenchResult:
         """Compute the net DeLaurier wing wrench about the base COM in body frame.
 
         ``legacy_fixed_quarter_chord`` preserves the previous aggregate-force
@@ -2795,38 +2974,45 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             commanded_qdd = self._qdd_cmd.unsqueeze(1).expand_as(
                 physical_kinematics.acceleration_rad_s2
             )
+            resolved_acceleration_source = validate_wing_aero_acceleration_source(
+                self.cfg.wing_aero_acceleration_source
+                if acceleration_source is None
+                else acceleration_source
+            )
             selected_qdd = resolve_wing_aero_acceleration(
-                source=self.cfg.wing_aero_acceleration_source,
+                source=resolved_acceleration_source,
                 actual_acceleration_rad_s2=physical_kinematics.acceleration_rad_s2,
                 prescribed_acceleration_rad_s2=commanded_qdd,
             )
             qdd = selected_qdd.reshape(B)
             actual_qdd = physical_kinematics.acceleration_rad_s2
-            self.extras.setdefault("log", {}).update(
-                {
-                    "WingAero/mean_abs_position_input_error_rad": float(
-                        torch.mean(torch.abs(physical_kinematics.position_rad - commanded_q)).item()
-                    ),
-                    "WingAero/mean_abs_velocity_input_error_rad_s": float(
-                        torch.mean(torch.abs(physical_kinematics.velocity_rad_s - commanded_qd)).item()
-                    ),
-                    "WingAero/mean_abs_acceleration_input_error_rad_s2": float(
-                        torch.mean(torch.abs(selected_qdd - commanded_qdd)).item()
-                    ),
-                    "WingAero/mean_abs_physx_acceleration_error_rad_s2": float(
-                        torch.mean(torch.abs(actual_qdd - commanded_qdd)).item()
-                    ),
-                }
-            )
+            if store_diagnostics:
+                self.extras.setdefault("log", {}).update(
+                    {
+                        "WingAero/mean_abs_position_input_error_rad": float(
+                            torch.mean(torch.abs(physical_kinematics.position_rad - commanded_q)).item()
+                        ),
+                        "WingAero/mean_abs_velocity_input_error_rad_s": float(
+                            torch.mean(torch.abs(physical_kinematics.velocity_rad_s - commanded_qd)).item()
+                        ),
+                        "WingAero/mean_abs_acceleration_input_error_rad_s2": float(
+                            torch.mean(torch.abs(selected_qdd - commanded_qdd)).item()
+                        ),
+                        "WingAero/mean_abs_physx_acceleration_error_rad_s2": float(
+                            torch.mean(torch.abs(actual_qdd - commanded_qdd)).item()
+                        ),
+                    }
+                )
         else:
             q = torch.repeat_interleave(self._q_cmd, 2)  # (B,)
             qd = torch.repeat_interleave(self._qd_cmd, 2)
             qdd = torch.repeat_interleave(self._qdd_cmd, 2)
             actual_qdd = qdd.reshape(N_env, 2)
-        self._debug_last_wing_aero_position_rad.copy_(q.reshape(N_env, 2))
-        self._debug_last_wing_aero_velocity_rad_s.copy_(qd.reshape(N_env, 2))
-        self._debug_last_wing_aero_acceleration_rad_s2.copy_(qdd.reshape(N_env, 2))
-        self._debug_last_wing_actual_acceleration_rad_s2.copy_(actual_qdd)
+        if store_diagnostics:
+            self._debug_last_wing_aero_position_rad.copy_(q.reshape(N_env, 2))
+            self._debug_last_wing_aero_velocity_rad_s.copy_(qd.reshape(N_env, 2))
+            self._debug_last_wing_aero_acceleration_rad_s2.copy_(qdd.reshape(N_env, 2))
+            self._debug_last_wing_actual_acceleration_rad_s2.copy_(actual_qdd)
         w = torch.repeat_interleave(2.0 * torch.pi * self._freq, 2)  # (B,)
 
         # theta_a (flapping-axis angle relative to the freestream) per env -> per wing.
@@ -2925,9 +3111,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         theta = twist_kinematics.theta
         thetad = twist_kinematics.theta_dot
         thetadd = twist_kinematics.theta_ddot
-        self._debug_last_delaurier_twist_kinematics = (
-            twist_kinematics if bool(self.cfg.delaurier_store_strip_diagnostics) else None
-        )
+        if store_diagnostics:
+            self._debug_last_delaurier_twist_kinematics = (
+                twist_kinematics if bool(self.cfg.delaurier_store_strip_diagnostics) else None
+            )
 
         omega_ref = w.view(B, 1).expand(B, N_strip)
 
@@ -2973,8 +3160,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 wing_application_point_link,
                 force_link,
             )
-            self._debug_last_delaurier_strip_loads = None
-            self._debug_last_delaurier_strip_wrench = None
+            if store_diagnostics:
+                self._debug_last_delaurier_strip_loads = None
+                self._debug_last_delaurier_strip_wrench = None
         else:
             strip_loads = compute_delaurier_strip_loads(
                 h,
@@ -3002,12 +3190,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 strip_wrench.moment_wang_about_wing_origin,
                 A_w2l,
             )
-            if bool(self.cfg.delaurier_store_strip_diagnostics):
-                self._debug_last_delaurier_strip_loads = strip_loads
-                self._debug_last_delaurier_strip_wrench = strip_wrench
-            else:
-                self._debug_last_delaurier_strip_loads = None
-                self._debug_last_delaurier_strip_wrench = None
+            if store_diagnostics:
+                if bool(self.cfg.delaurier_store_strip_diagnostics):
+                    self._debug_last_delaurier_strip_loads = strip_loads
+                    self._debug_last_delaurier_strip_wrench = strip_wrench
+                else:
+                    self._debug_last_delaurier_strip_loads = None
+                    self._debug_last_delaurier_strip_wrench = None
 
         force_world = quat_apply(q_w_link, force_link)
         moment_world_about_wing_origin = quat_apply(q_w_link, moment_link_about_wing_origin)

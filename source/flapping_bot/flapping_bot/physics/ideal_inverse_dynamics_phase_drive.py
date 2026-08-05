@@ -87,6 +87,28 @@ class ReducedCommonInverseDynamics:
     saturated: Tensor
 
 
+@dataclass(frozen=True)
+class CommonConstraintLoadEstimate:
+    """Ideal common-coordinate constraint-load estimate.
+
+    Every tensor has shape ``(N,)``. ``common_inertia_kg_m2`` is the reduced
+    articulation inertia. The four torque terms are in N m about the ideal
+    upstroke-positive common wing coordinate, with
+    ``equivalent_constraint_torque_nm = inertia_torque_nm + bias_torque_nm -
+    external_load_torque_nm``. ``mechanical_power_w`` is that estimated torque
+    times the actual common-coordinate angular velocity. This is a multibody
+    inverse-dynamics estimate at the wing mechanism output; it is neither the
+    PhysX solver's constraint multiplier nor motor-shaft torque or power.
+    """
+
+    common_inertia_kg_m2: Tensor
+    inertia_torque_nm: Tensor
+    bias_torque_nm: Tensor
+    external_load_torque_nm: Tensor
+    equivalent_constraint_torque_nm: Tensor
+    mechanical_power_w: Tensor
+
+
 def _validate_same_tensor_contract(reference: Tensor, *others: Tensor) -> None:
     if not isinstance(reference, torch.Tensor) or any(not isinstance(value, torch.Tensor) for value in others):
         raise TypeError("All values must be torch tensors.")
@@ -203,16 +225,15 @@ def compute_desired_common_acceleration(
     )
 
 
-def reduce_common_inverse_dynamics(
+def _reduce_common_dynamics_terms(
     *,
     generalized_mass_matrix: Tensor,
     generalized_bias_effort: Tensor,
     external_generalized_effort: Tensor,
     joint_direction: Tensor,
-    desired_common_acceleration_rad_s2: Tensor,
-    effort_limit_nm: float,
-) -> ReducedCommonInverseDynamics:
-    """Reduce fixed- or floating-base PhysX inverse dynamics to one wing DOF.
+    common_value: Tensor,
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Return inertia, bias and external load reduced to one common DOF.
 
     ``generalized_mass_matrix`` has shape ``(N,D,D)``. The bias and external
     effort tensors have shape ``(N,D)``. ``joint_direction`` has shape ``(J,)``
@@ -232,8 +253,8 @@ def reduce_common_inverse_dynamics(
         raise ValueError("external_generalized_effort must have shape (N,D).")
     if joint_direction.ndim != 1:
         raise ValueError("joint_direction must have shape (J,).")
-    if desired_common_acceleration_rad_s2.shape != (batch_size,):
-        raise ValueError("desired_common_acceleration_rad_s2 must have shape (N,).")
+    if common_value.shape != (batch_size,):
+        raise ValueError("common_value must have shape (N,).")
     if any(
         value.device != generalized_mass_matrix.device
         or value.dtype != generalized_mass_matrix.dtype
@@ -241,7 +262,7 @@ def reduce_common_inverse_dynamics(
             generalized_bias_effort,
             external_generalized_effort,
             joint_direction,
-            desired_common_acceleration_rad_s2,
+            common_value,
         )
     ):
         raise ValueError("Inverse-dynamics tensors must share device and dtype.")
@@ -252,13 +273,10 @@ def reduce_common_inverse_dynamics(
             generalized_bias_effort,
             external_generalized_effort,
             joint_direction,
-            desired_common_acceleration_rad_s2,
+            common_value,
         )
     ):
         raise ValueError("Inverse-dynamics tensors must be finite.")
-    effort_limit = float(effort_limit_nm)
-    if effort_limit <= 0.0:
-        raise ValueError("effort_limit_nm must be positive.")
 
     joint_count = int(joint_direction.numel())
     base_dof_count = generalized_size - joint_count
@@ -295,6 +313,70 @@ def reduce_common_inverse_dynamics(
     common_external = (direction.transpose(1, 2) @ reduced_external.unsqueeze(-1)).reshape(batch_size)
     if bool(torch.any(common_inertia <= 0.0)):
         raise ValueError("Reduced common-coordinate inertia must be positive.")
+    return common_inertia, common_bias, common_external
+
+
+def estimate_common_constraint_load(
+    *,
+    generalized_mass_matrix: Tensor,
+    generalized_bias_effort: Tensor,
+    external_generalized_effort: Tensor,
+    joint_direction: Tensor,
+    prescribed_common_acceleration_rad_s2: Tensor,
+    actual_common_velocity_rad_s: Tensor,
+) -> CommonConstraintLoadEstimate:
+    """Estimate the ideal trajectory-constraint load and mechanical power.
+
+    The input generalized quantities follow the fixed/floating-base PhysX
+    convention documented by :func:`reduce_common_inverse_dynamics`. Positive
+    external generalized load assists positive upstroke. Therefore it is
+    subtracted from the torque the ideal mechanism must supply.
+    """
+
+    _validate_same_tensor_contract(
+        prescribed_common_acceleration_rad_s2,
+        actual_common_velocity_rad_s,
+    )
+    common_inertia, common_bias, common_external = _reduce_common_dynamics_terms(
+        generalized_mass_matrix=generalized_mass_matrix,
+        generalized_bias_effort=generalized_bias_effort,
+        external_generalized_effort=external_generalized_effort,
+        joint_direction=joint_direction,
+        common_value=prescribed_common_acceleration_rad_s2,
+    )
+    inertia_torque = common_inertia * prescribed_common_acceleration_rad_s2
+    equivalent_constraint_torque = inertia_torque + common_bias - common_external
+    return CommonConstraintLoadEstimate(
+        common_inertia_kg_m2=common_inertia,
+        inertia_torque_nm=inertia_torque,
+        bias_torque_nm=common_bias,
+        external_load_torque_nm=common_external,
+        equivalent_constraint_torque_nm=equivalent_constraint_torque,
+        mechanical_power_w=equivalent_constraint_torque * actual_common_velocity_rad_s,
+    )
+
+
+def reduce_common_inverse_dynamics(
+    *,
+    generalized_mass_matrix: Tensor,
+    generalized_bias_effort: Tensor,
+    external_generalized_effort: Tensor,
+    joint_direction: Tensor,
+    desired_common_acceleration_rad_s2: Tensor,
+    effort_limit_nm: float,
+) -> ReducedCommonInverseDynamics:
+    """Reduce fixed- or floating-base PhysX inverse dynamics to one wing DOF."""
+
+    effort_limit = float(effort_limit_nm)
+    if effort_limit <= 0.0:
+        raise ValueError("effort_limit_nm must be positive.")
+    common_inertia, common_bias, common_external = _reduce_common_dynamics_terms(
+        generalized_mass_matrix=generalized_mass_matrix,
+        generalized_bias_effort=generalized_bias_effort,
+        external_generalized_effort=external_generalized_effort,
+        joint_direction=joint_direction,
+        common_value=desired_common_acceleration_rad_s2,
+    )
     unlimited_effort = (
         common_inertia * desired_common_acceleration_rad_s2
         + common_bias
@@ -313,12 +395,14 @@ def reduce_common_inverse_dynamics(
 
 
 __all__ = [
+    "CommonConstraintLoadEstimate",
     "IdealFrequencyPhaseState",
     "IdealFrequencyPhaseStep",
     "IdealInverseDynamicsPhaseDriveConfig",
     "ReducedCommonInverseDynamics",
     "compute_desired_common_acceleration",
     "discrete_tracking_acceleration_gains",
+    "estimate_common_constraint_load",
     "reduce_common_inverse_dynamics",
     "step_ideal_frequency_phase",
 ]

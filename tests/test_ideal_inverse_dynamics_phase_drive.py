@@ -10,6 +10,7 @@ from flapping_bot.physics.ideal_inverse_dynamics_phase_drive import (
     IdealInverseDynamicsPhaseDriveConfig,
     compute_desired_common_acceleration,
     discrete_tracking_acceleration_gains,
+    estimate_common_constraint_load,
     reduce_common_inverse_dynamics,
     step_ideal_frequency_phase,
 )
@@ -121,6 +122,56 @@ def test_fixed_base_reduction_projects_opposed_joint_coordinate() -> None:
     torch.testing.assert_close(result.common_bias_effort_nm, torch.tensor([-1.0], dtype=torch.float64))
     torch.testing.assert_close(result.common_external_effort_nm, torch.tensor([0.7], dtype=torch.float64))
     torch.testing.assert_close(result.effort_nm, torch.tensor([6.3], dtype=torch.float64))
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_fixed_base_constraint_load_estimate_has_explicit_sign_and_power(dtype: torch.dtype) -> None:
+    result = estimate_common_constraint_load(
+        generalized_mass_matrix=torch.tensor([[[2.0, 0.5], [0.5, 3.0]]], dtype=dtype),
+        generalized_bias_effort=torch.tensor([[1.0, 2.0]], dtype=dtype),
+        external_generalized_effort=torch.tensor([[0.3, -0.4]], dtype=dtype),
+        joint_direction=torch.tensor([1.0, -1.0], dtype=dtype),
+        prescribed_common_acceleration_rad_s2=torch.tensor([2.0], dtype=dtype),
+        actual_common_velocity_rad_s=torch.tensor([-3.0], dtype=dtype),
+    )
+
+    expected = torch.tensor([6.3], dtype=dtype)
+    torch.testing.assert_close(result.common_inertia_kg_m2, torch.tensor([4.0], dtype=dtype))
+    torch.testing.assert_close(result.inertia_torque_nm, torch.tensor([8.0], dtype=dtype))
+    torch.testing.assert_close(result.bias_torque_nm, torch.tensor([-1.0], dtype=dtype))
+    torch.testing.assert_close(result.external_load_torque_nm, torch.tensor([0.7], dtype=dtype))
+    torch.testing.assert_close(result.equivalent_constraint_torque_nm, expected)
+    torch.testing.assert_close(result.mechanical_power_w, -3.0 * expected)
+
+
+def test_constraint_load_estimate_uses_floating_base_schur_reduction() -> None:
+    mass = torch.zeros((1, 8, 8), dtype=torch.float64)
+    mass[:, :6, :6] = 2.0 * torch.eye(6, dtype=torch.float64)
+    mass[:, 6:, 6:] = torch.tensor([[2.0, 0.5], [0.5, 3.0]], dtype=torch.float64)
+    mass[:, 0, 6] = 1.0
+    mass[:, 6, 0] = 1.0
+    bias = torch.zeros((1, 8), dtype=torch.float64)
+    bias[:, 0] = 2.0
+    bias[:, 6:] = torch.tensor([1.0, 2.0], dtype=torch.float64)
+    external = torch.zeros((1, 8), dtype=torch.float64)
+    external[:, 0] = 4.0
+    external[:, 6:] = torch.tensor([0.3, -0.4], dtype=torch.float64)
+
+    result = estimate_common_constraint_load(
+        generalized_mass_matrix=mass,
+        generalized_bias_effort=bias,
+        external_generalized_effort=external,
+        joint_direction=torch.tensor([1.0, -1.0], dtype=torch.float64),
+        prescribed_common_acceleration_rad_s2=torch.tensor([2.0], dtype=torch.float64),
+        actual_common_velocity_rad_s=torch.tensor([1.5], dtype=torch.float64),
+    )
+
+    torch.testing.assert_close(result.common_inertia_kg_m2, torch.tensor([3.5], dtype=torch.float64))
+    torch.testing.assert_close(result.inertia_torque_nm, torch.tensor([7.0], dtype=torch.float64))
+    torch.testing.assert_close(result.bias_torque_nm, torch.tensor([-2.0], dtype=torch.float64))
+    torch.testing.assert_close(result.external_load_torque_nm, torch.tensor([-1.3], dtype=torch.float64))
+    torch.testing.assert_close(result.equivalent_constraint_torque_nm, torch.tensor([6.3], dtype=torch.float64))
+    torch.testing.assert_close(result.mechanical_power_w, torch.tensor([9.45], dtype=torch.float64))
 
 
 def test_floating_base_reduction_eliminates_unactuated_base_acceleration() -> None:

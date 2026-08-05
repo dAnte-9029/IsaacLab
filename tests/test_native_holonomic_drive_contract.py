@@ -11,6 +11,7 @@ from flapping_bot.physics import NATIVE_HOLONOMIC_PER_WING_LINK, validate_wing_a
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _ASSET_PATH = _REPO_ROOT / "source/flapping_bot/flapping_bot/assets/ideal_coupled_drive.py"
 _HELPER_PATH = _REPO_ROOT / "source/flapping_bot/flapping_bot/assets/native_holonomic_drive.py"
+_ENV_PATH = _REPO_ROOT / "source/flapping_bot/flapping_bot/direct/flapping_bot/straight_flight_env.py"
 
 
 def _load_helper():
@@ -66,3 +67,20 @@ def test_native_joint_paths_are_external_to_replicated_articulation() -> None:
         "/World/flapping_bot_constraints/env_0/flapping_wing_trajectory",
         "/World/flapping_bot_constraints/env_1/flapping_wing_trajectory",
     ]
+
+
+def test_native_load_and_shadow_diagnostics_are_opt_in() -> None:
+    tree = ast.parse(_ENV_PATH.read_text(encoding="utf-8"))
+    base_cfg = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "FlappingBotStraightFlightEnvCfg"
+    )
+    assignments = {
+        node.target.id: node.value
+        for node in base_cfg.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    }
+
+    assert ast.literal_eval(assignments["native_holonomic_load_diagnostics"]) is False
+    assert ast.literal_eval(assignments["delaurier_shadow_actual_acceleration"]) is False
