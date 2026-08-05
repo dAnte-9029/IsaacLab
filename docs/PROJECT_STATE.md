@@ -20,6 +20,7 @@ Opt-in native diagnostics now expose a common-coordinate multibody inverse-dynam
 
 ## Required reading
 
+- `docs/handoffs/2026-08-05-native-multibody-plant.md`
 - `docs/handoffs/2026-07-13-current-simulation-audit.md`
 - `docs/architecture/current_simulation_call_chain.md`
 - `docs/architecture/coordinate_frames_and_units.md`
