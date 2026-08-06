@@ -237,3 +237,96 @@ def test_refresh_best_checkpoint_artifacts_persists_success_gate(tmp_path: Path)
     assert int(best["success_gate_passed"]) == 1
     payload = json.loads((eval_dir / "best_checkpoint.json").read_text())
     assert int(payload["success_gate_passed"]) == 1
+
+
+def test_select_best_suite_row_filters_and_prioritizes_pure_rl_contract(tmp_path: Path) -> None:
+    summary_csv = tmp_path / "summary.csv"
+    common = {
+        "case": "suite",
+        "evaluation_contract": "pure_rl_curriculum1_v1",
+        "episodes": 16,
+        "mean_abs_cross_track_error_m": 0.2,
+        "mean_abs_height_error_m": 0.2,
+        "mean_along_track_progress_m": 10.0,
+        "frequency_limit_fraction": 0.0,
+        "tail_limit_fraction": 0.0,
+    }
+    _write_summary(
+        summary_csv,
+        [
+            {
+                **common,
+                "checkpoint": str(tmp_path / "model_0.pt"),
+                "ckpt_index": 0,
+                "score": 90.0,
+                "termination_rate": 1.0,
+                "timeout_rate": 0.0,
+                "mean_episode_duration_s": 1.0,
+            },
+            {
+                **common,
+                "checkpoint": str(tmp_path / "model_1.pt"),
+                "ckpt_index": 1,
+                "score": 70.0,
+                "termination_rate": 0.0,
+                "timeout_rate": 1.0,
+                "mean_episode_duration_s": 12.0,
+            },
+        ],
+    )
+
+    best = checkpoint_selection.select_best_checkpoint_row(
+        summary_csv,
+        evaluation_contract="pure_rl_curriculum1_v1",
+    )
+
+    assert best is not None
+    assert best["checkpoint"].endswith("model_1.pt")
+    assert int(best["success_gate_passed"]) == 1
+
+
+def test_select_best_suite_row_does_not_mix_legacy_and_pure_rl_scores(tmp_path: Path) -> None:
+    summary_csv = tmp_path / "summary.csv"
+    _write_summary(
+        summary_csv,
+        [
+            {
+                "checkpoint": str(tmp_path / "legacy.pt"),
+                "case": "suite",
+                "evaluation_contract": "",
+                "ckpt_index": 0,
+                "score": 999.0,
+                "termination_rate": 0.0,
+                "timeout_rate": 1.0,
+                "mean_episode_duration_s": 12.0,
+                "mean_along_track_progress_m": 999.0,
+                "mean_abs_cross_track_error_m": 0.0,
+                "mean_abs_height_error_m": 0.0,
+                "frequency_limit_fraction": 0.0,
+                "tail_limit_fraction": 0.0,
+            },
+            {
+                "checkpoint": str(tmp_path / "pure.pt"),
+                "case": "suite",
+                "evaluation_contract": "pure_rl_curriculum1_v1",
+                "ckpt_index": 1,
+                "score": 1.0,
+                "termination_rate": 0.0,
+                "timeout_rate": 1.0,
+                "mean_episode_duration_s": 12.0,
+                "mean_along_track_progress_m": 1.0,
+                "mean_abs_cross_track_error_m": 0.1,
+                "mean_abs_height_error_m": 0.1,
+                "frequency_limit_fraction": 0.0,
+                "tail_limit_fraction": 0.0,
+            },
+        ],
+    )
+
+    best = checkpoint_selection.select_best_checkpoint_row(
+        summary_csv,
+        evaluation_contract="pure_rl_curriculum1_v1",
+    )
+
+    assert best is not None
+    assert best["checkpoint"].endswith("pure.pt")

@@ -111,6 +111,63 @@ def test_watch_and_eval_resolves_primitive_path_tracking_task_to_estimated_primi
     assert resolved == "path_tracking_estimated_primitives_nowind_v1"
 
 
+def test_watch_and_eval_resolves_measured_pure_rl_to_fixed_grid_suite() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    resolved = watch_and_eval._resolve_eval_suite(
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+        "straight_standard",
+    )
+    shape = watch_and_eval._resolve_eval_shape(
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+        resolved,
+        num_envs=None,
+        episodes=None,
+    )
+
+    assert resolved == "pure_rl_curriculum1_nowind_v1"
+    assert shape == (16, 16)
+
+
+def test_watch_and_eval_applies_pure_rl_fixed_heading_phase_schedule() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    cfg = types.SimpleNamespace(
+        randomize_commands=True,
+        teacher_guidance_enabled=True,
+        wind_curriculum_enabled=True,
+        wind_enabled=True,
+        randomize_wind=True,
+        wind_xy_mps=(1.0, 1.0),
+        wind_x_range_mps=(1.0, 1.0),
+        wind_y_range_mps=(1.0, 1.0),
+        wind_ou_enabled=True,
+        wind_ou_tau_s=1.0,
+        wind_ou_sigma_xy_mps=(1.0, 1.0),
+        wind_ou_clip_to_range=True,
+        randomize_straight_line_heading=True,
+        randomize_flap_phase_at_reset=True,
+        pure_rl_eval_heading_schedule_rad=None,
+        pure_rl_eval_flap_phase_schedule_rad=None,
+    )
+    case = {
+        "name": "fixed_grid",
+        "wind_enabled": False,
+        "wind_xy_mps": (0.0, 0.0),
+        "wind_ou_enabled": False,
+        "wind_ou_tau_s": 2.0,
+        "wind_ou_sigma_xy_mps": (0.0, 0.0),
+        "straight_line_heading_schedule_rad": (0.0, 1.0),
+        "flap_phase_schedule_rad": (0.5, 1.5),
+    }
+
+    watch_and_eval._apply_eval_case_to_cfg(case, cfg, vx_cmd=None, height_cmd=None)
+
+    assert cfg.randomize_straight_line_heading is False
+    assert cfg.randomize_flap_phase_at_reset is False
+    assert cfg.pure_rl_eval_heading_schedule_rad == (0.0, 1.0)
+    assert cfg.pure_rl_eval_flap_phase_schedule_rad == (0.5, 1.5)
+
+
 def test_watch_and_eval_applies_path_tracking_mission_overrides() -> None:
     watch_and_eval = _load_watch_and_eval_module()
 
@@ -193,6 +250,25 @@ def test_watch_and_eval_scores_path_tracking_rows_with_completion_priority() -> 
     )
 
     assert better > worse
+
+
+def test_watch_and_eval_scores_pure_rl_without_legacy_vx_error() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    row = {
+        "evaluation_contract": "pure_rl_curriculum1_v1",
+        "timeout_rate": 1.0,
+        "mean_along_track_progress_m": 12.0,
+        "mean_abs_cross_track_error_m": 0.1,
+        "mean_abs_height_error_m": 0.1,
+        "mean_max_tilt_deg": 10.0,
+        "frequency_limit_fraction": 0.0,
+        "tail_limit_fraction": 0.0,
+    }
+
+    score = watch_and_eval._score_row(row)
+
+    assert score > 0.0
+    assert "mean_abs_vx_err" not in row
 
 
 def test_watch_and_eval_scores_path_tracking_rows_with_progress_priority() -> None:

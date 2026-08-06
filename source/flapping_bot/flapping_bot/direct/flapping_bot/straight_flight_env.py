@@ -150,6 +150,12 @@ from .pure_rl_observation import (
     normalize_actor_observation,
     transform_world_preview_points_to_body,
 )
+from .pure_rl_reward import (
+    PURE_RL_CURRICULUM1_TERMINATION_CONFIG,
+    PureRLRewardConfig,
+    compute_pure_rl_reward_terms,
+    compute_pure_rl_termination_terms,
+)
 from .state_source_contract import (
     TeacherStateInputs,
     resolve_imu_source,
@@ -199,8 +205,13 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     use_pure_rl_actor_observation: bool = False
     randomize_straight_line_heading: bool = False
     randomize_flap_phase_at_reset: bool = False
+    pure_rl_eval_heading_schedule_rad: tuple[float, ...] | None = None
+    pure_rl_eval_flap_phase_schedule_rad: tuple[float, ...] | None = None
     pure_rl_preview_minimum_speed_mps: float = 1.0
     pure_rl_preview_maximum_speed_mps: float = 12.0
+    use_pure_rl_curriculum1_reward: bool = False
+    pure_rl_reward_telemetry_enabled: bool = False
+    pure_rl_reward_cfg: PureRLRewardConfig = PureRLRewardConfig()
 
     # commands
     vx_cmd: float = 7.0
@@ -272,7 +283,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pitch_cmd_deg: float = 10.0
     roll_cmd_deg: float = 0.0
 
-    # reward weights (tuned for stable long-horizon flight learning)
+    # Legacy reward weights retained for controller-facing environments.
     w_height: float = 0.45
     w_vx: float = 0.45
     w_att: float = 0.20
@@ -330,6 +341,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     terminate_ground_height: float = 0.05
     terminate_tilt_deg: float = 75.0
     terminate_abs_y: float = 20.0
+    pure_rl_terminate_abs_height_error_m: float = 3.0
 
     # flapping frequency action mapping
     # Keep the initial action range fairly tight around typical trimmed conditions.
@@ -814,7 +826,7 @@ class FlappingBotStraightFlightDeLaurierPureRLEnvCfg(FlappingBotStraightFlightDe
 
 @configclass
 class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraightFlightDeLaurierPureRLEnvCfg):
-    """Pure-RL measured-plant smoke config with a no-wind curriculum."""
+    """Canonical curriculum-1 PureRL defaults for the measured native plant."""
 
     # The policy produces one command every eight 480 Hz physics steps.
     decimation: int = 8
@@ -833,8 +845,20 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraight
     tail_aero_deflection_source: str = ACTUAL_JOINT_TAIL_AERO_DEFLECTION
     observation_space: int = PURE_RL_RAW_OBSERVATION_LAYOUT.observation_dim
     use_pure_rl_actor_observation: bool = True
+    pure_rl_preview_minimum_speed_mps: float = 1.0
+    pure_rl_preview_maximum_speed_mps: float = 12.0
     randomize_straight_line_heading: bool = True
     randomize_flap_phase_at_reset: bool = True
+    randomize_commands: bool = False
+    teacher_guidance_enabled: bool = False
+    use_pure_rl_curriculum1_reward: bool = True
+    pure_rl_reward_telemetry_enabled: bool = True
+    pure_rl_reward_cfg: PureRLRewardConfig = PureRLRewardConfig()
+    terminate_ground_height: float = 0.05
+    terminate_tilt_deg: float = 75.0
+    terminate_abs_y: float = 3.0
+    pure_rl_terminate_abs_height_error_m: float = 3.0
+    freeze_steps_after_reset: int = 0
 
     # Preserve the intrinsic frequency-state and PhysX tail-servo dynamics without adding a second action lag.
     act_lpf_tau_s: float = 0.0
@@ -847,6 +871,7 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraight
     wind_ou_enabled: bool = False
     wind_curriculum_enabled: bool = False
     min_flap_hz: float = 0.0
+    max_flap_hz: float = 5.0
 
 
 class FlappingBotStraightFlightEnv(DirectRLEnv):
@@ -871,6 +896,24 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError("PureRL preview-speed bounds must satisfy 0 <= minimum <= maximum.")
             if float(cfg.min_flap_hz) != 0.0 or float(cfg.max_flap_hz) != 5.0:
                 raise ValueError("The fixed PureRL frequency observation contract requires a 0--5 Hz action range.")
+        eval_heading_schedule = cfg.pure_rl_eval_heading_schedule_rad
+        eval_phase_schedule = cfg.pure_rl_eval_flap_phase_schedule_rad
+        if (eval_heading_schedule is None) != (eval_phase_schedule is None):
+            raise ValueError("PureRL evaluation heading and flap-phase schedules must be configured together.")
+        if eval_heading_schedule is not None:
+            if len(eval_heading_schedule) == 0 or len(eval_heading_schedule) != len(eval_phase_schedule):
+                raise ValueError("PureRL evaluation schedules must be non-empty and have equal lengths.")
+            if bool(cfg.randomize_straight_line_heading) or bool(cfg.randomize_flap_phase_at_reset):
+                raise ValueError("PureRL evaluation schedules require heading and flap-phase randomization to be disabled.")
+        if bool(cfg.use_pure_rl_curriculum1_reward):
+            if action_interface != DIRECT_TAIL_SURFACE_ACTION:
+                raise ValueError("PureRL curriculum-1 reward requires the direct-tail-surface action interface.")
+            if float(cfg.min_flap_hz) != 0.0 or float(cfg.max_flap_hz) != float(
+                cfg.pure_rl_reward_cfg.maximum_flap_frequency_hz
+            ):
+                raise ValueError("PureRL reward frequency scale must match the configured 0--5 Hz action range.")
+            if float(cfg.terminate_abs_y) <= 0.0 or float(cfg.pure_rl_terminate_abs_height_error_m) <= 0.0:
+                raise ValueError("PureRL route-relative termination thresholds must be positive.")
         if action_interface == DIRECT_TAIL_SURFACE_ACTION and bool(cfg.teacher_guidance_enabled):
             raise ValueError(
                 "teacher_guidance_enabled is incompatible with the direct-tail-surface action interface."
@@ -1226,6 +1269,28 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._pure_rl_previous_orientation_wxyz: Tensor | None = None
         self._pure_rl_sensor_history: Tensor | None = None
         self._pure_rl_action_history: Tensor | None = None
+        self._pure_rl_previous_reward_action: Tensor | None = None
+        self._eval_pure_rl_cross_track_error_m: Tensor | None = None
+        self._eval_pure_rl_height_error_m: Tensor | None = None
+        self._eval_pure_rl_along_track_progress_m: Tensor | None = None
+        self._eval_pure_rl_along_track_velocity_mps: Tensor | None = None
+        self._eval_pure_rl_tilt_rad: Tensor | None = None
+        self._eval_pure_rl_angular_rate_rad_s: Tensor | None = None
+        self._eval_pure_rl_actual_flap_frequency_hz: Tensor | None = None
+        self._eval_pure_rl_frequency_limit_active: Tensor | None = None
+        self._eval_pure_rl_tail_limit_active: Tensor | None = None
+        self._eval_pure_rl_normalized_action_delta: Tensor | None = None
+        self._eval_pure_rl_ground_termination: Tensor | None = None
+        self._eval_pure_rl_tilt_termination: Tensor | None = None
+        self._eval_pure_rl_cross_track_termination: Tensor | None = None
+        self._eval_pure_rl_height_termination: Tensor | None = None
+        self._pure_rl_termination_cfg = replace(
+            PURE_RL_CURRICULUM1_TERMINATION_CONFIG,
+            ground_height_m=float(cfg.terminate_ground_height),
+            maximum_tilt_rad=math.radians(float(cfg.terminate_tilt_deg)),
+            maximum_cross_track_error_m=float(cfg.terminate_abs_y),
+            maximum_height_error_m=float(cfg.pure_rl_terminate_abs_height_error_m),
+        )
 
         # indices
         self._IDX_LEFT_WING = None
@@ -1365,6 +1430,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 PURE_RL_RAW_OBSERVATION_LAYOUT.action_dim,
                 device=self.device,
             )
+        if bool(self.cfg.use_pure_rl_curriculum1_reward):
+            self._pure_rl_previous_reward_action = torch.zeros_like(self._actions)
+            self._eval_pure_rl_cross_track_error_m = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_height_error_m = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_along_track_progress_m = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_along_track_velocity_mps = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_tilt_rad = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_angular_rate_rad_s = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_actual_flap_frequency_hz = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_frequency_limit_active = torch.zeros(N, dtype=torch.bool, device=self.device)
+            self._eval_pure_rl_tail_limit_active = torch.zeros(N, dtype=torch.bool, device=self.device)
+            self._eval_pure_rl_normalized_action_delta = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_ground_termination = torch.zeros(N, dtype=torch.bool, device=self.device)
+            self._eval_pure_rl_tilt_termination = torch.zeros(N, dtype=torch.bool, device=self.device)
+            self._eval_pure_rl_cross_track_termination = torch.zeros(N, dtype=torch.bool, device=self.device)
+            self._eval_pure_rl_height_termination = torch.zeros(N, dtype=torch.bool, device=self.device)
 
         # debug caches
         self._debug_last_wing_force_b = torch.zeros(N, 3, device=self.device)
@@ -3461,7 +3542,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # Randomize the world-frame line direction while keeping the vehicle,
         # initial velocity and route geometry mutually aligned.
         n = env_ids.shape[0]
-        if bool(self.cfg.randomize_straight_line_heading):
+        if self.cfg.pure_rl_eval_heading_schedule_rad is not None:
+            schedule = torch.as_tensor(
+                self.cfg.pure_rl_eval_heading_schedule_rad,
+                dtype=torch.float32,
+                device=self.device,
+            )
+            heading = schedule[env_ids.to(dtype=torch.long) % schedule.numel()]
+        elif bool(self.cfg.randomize_straight_line_heading):
             heading = (2.0 * torch.rand((n,), device=self.device) - 1.0) * math.pi
         else:
             heading = torch.zeros((n,), device=self.device)
@@ -3531,7 +3619,17 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             )
         f0 = float(self.cfg.reset_flap_hz)
         f0 = max(float(self.cfg.min_flap_hz), min(float(self.cfg.max_flap_hz), f0))
-        if bool(self.cfg.randomize_flap_phase_at_reset):
+        if self.cfg.pure_rl_eval_flap_phase_schedule_rad is not None:
+            schedule = torch.as_tensor(
+                self.cfg.pure_rl_eval_flap_phase_schedule_rad,
+                dtype=torch.float32,
+                device=self.device,
+            )
+            phase0 = torch.remainder(
+                schedule[env_ids.to(dtype=torch.long) % schedule.numel()],
+                2.0 * math.pi,
+            )
+        elif bool(self.cfg.randomize_flap_phase_at_reset):
             phase0 = 2.0 * math.pi * torch.rand((n,), device=self.device)
         else:
             phase0 = torch.zeros((n,), device=self.device)
@@ -3684,6 +3782,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._hist_valid[env_ids] = False
         if self._pure_rl_history_valid is not None:
             self._pure_rl_history_valid[env_ids] = False
+        if self._pure_rl_previous_reward_action is not None:
+            self._pure_rl_previous_reward_action[env_ids] = self._act_cmd[env_ids]
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
     def _get_pure_rl_observations(self) -> dict[str, Tensor]:
@@ -3828,7 +3928,129 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         return torch.sum(local_position_w * self._straight_line_normal_w, dim=1)
 
+    def _get_pure_rl_curriculum1_reward(self) -> Tensor:
+        """Compute and expose the approved geometric straight-flight reward."""
+
+        assert self._pure_rl_previous_reward_action is not None
+        local_position_w = self._robot.data.root_pos_w - self.scene.env_origins
+        height_error_m = local_position_w[:, 2] - self._height_cmd
+        cross_track_error_m = self._straight_line_cross_track_m(local_position_w)
+        ground_velocity_w = self._robot.data.root_lin_vel_w
+        along_track_velocity_mps = torch.sum(ground_velocity_w * self._straight_line_tangent_w, dim=1)
+        cross_track_velocity_mps = torch.sum(ground_velocity_w * self._straight_line_normal_w, dim=1)
+        vertical_velocity_mps = ground_velocity_w[:, 2]
+        roll_rad, pitch_rad, _yaw_rad = euler_xyz_from_quat(self._robot.data.root_quat_w)
+        reward_cfg = self.cfg.pure_rl_reward_cfg
+        terms = compute_pure_rl_reward_terms(
+            cross_track_error_m=cross_track_error_m,
+            height_error_m=height_error_m,
+            along_track_velocity_mps=along_track_velocity_mps,
+            cross_track_velocity_mps=cross_track_velocity_mps,
+            vertical_velocity_mps=vertical_velocity_mps,
+            roll_rad=roll_rad,
+            pitch_rad=pitch_rad,
+            angular_velocity_body_rad_s=self._robot.data.root_ang_vel_b,
+            actual_flap_frequency_hz=self._freq,
+            applied_action=self._act_cmd,
+            previous_applied_action=self._pure_rl_previous_reward_action,
+            config=reward_cfg,
+        )
+        assert self._eval_pure_rl_cross_track_error_m is not None
+        assert self._eval_pure_rl_height_error_m is not None
+        assert self._eval_pure_rl_along_track_progress_m is not None
+        assert self._eval_pure_rl_along_track_velocity_mps is not None
+        assert self._eval_pure_rl_angular_rate_rad_s is not None
+        assert self._eval_pure_rl_actual_flap_frequency_hz is not None
+        assert self._eval_pure_rl_frequency_limit_active is not None
+        assert self._eval_pure_rl_tail_limit_active is not None
+        assert self._eval_pure_rl_normalized_action_delta is not None
+        self._eval_pure_rl_cross_track_error_m.copy_(cross_track_error_m)
+        self._eval_pure_rl_height_error_m.copy_(height_error_m)
+        self._eval_pure_rl_along_track_progress_m.copy_(
+            torch.sum(local_position_w * self._straight_line_tangent_w, dim=1)
+        )
+        self._eval_pure_rl_along_track_velocity_mps.copy_(along_track_velocity_mps)
+        self._eval_pure_rl_angular_rate_rad_s.copy_(
+            torch.linalg.vector_norm(self._robot.data.root_ang_vel_b, dim=1)
+        )
+        self._eval_pure_rl_actual_flap_frequency_hz.copy_(self._freq)
+        self._eval_pure_rl_frequency_limit_active.copy_(
+            self._freq >= 0.95 * float(reward_cfg.maximum_flap_frequency_hz)
+        )
+        self._eval_pure_rl_tail_limit_active.copy_(
+            torch.any(
+                torch.abs(self._act_cmd[:, 1:4]) >= float(reward_cfg.tail_action_limit_threshold),
+                dim=1,
+            )
+        )
+        self._eval_pure_rl_normalized_action_delta.copy_(
+            torch.mean(0.5 * torch.abs(self._act_cmd - self._pure_rl_previous_reward_action), dim=1)
+        )
+        self._pure_rl_previous_reward_action.copy_(self._act_cmd)
+
+        if bool(self.cfg.pure_rl_reward_telemetry_enabled):
+            log = self.extras.setdefault("log", {})
+            log.update(
+                {
+                    "PureRLReward/total": terms.total_reward.mean(),
+                    "PureRLReward/path": terms.path_reward.mean(),
+                    "PureRLReward/progress": terms.progress_reward.mean(),
+                    "PureRLReward/velocity": terms.velocity_reward.mean(),
+                    "PureRLReward/roll": terms.roll_reward.mean(),
+                    "PureRLReward/angular_rate": terms.angular_rate_reward.mean(),
+                    "PureRLPenalty/pitch_envelope": terms.pitch_envelope_penalty.mean(),
+                    "PureRLPenalty/flap": terms.flap_penalty.mean(),
+                    "PureRLPenalty/frequency_action_delta": (
+                        terms.frequency_action_delta_penalty.mean()
+                    ),
+                    "PureRLPenalty/tail_action_delta": terms.tail_action_delta_penalty.mean(),
+                    "PureRLPenalty/tail_action_limit": terms.tail_action_limit_penalty.mean(),
+                    "PureRLContribution/path": reward_cfg.path_reward_weight * terms.path_reward.mean(),
+                    "PureRLContribution/progress": (
+                        reward_cfg.progress_reward_weight * terms.progress_reward.mean()
+                    ),
+                    "PureRLContribution/velocity": (
+                        reward_cfg.velocity_reward_weight * terms.velocity_reward.mean()
+                    ),
+                    "PureRLContribution/roll": reward_cfg.roll_reward_weight * terms.roll_reward.mean(),
+                    "PureRLContribution/angular_rate": (
+                        reward_cfg.angular_rate_reward_weight * terms.angular_rate_reward.mean()
+                    ),
+                    "PureRLContribution/pitch_envelope": (
+                        -reward_cfg.pitch_envelope_penalty_weight
+                        * terms.pitch_envelope_penalty.mean()
+                    ),
+                    "PureRLContribution/flap": -reward_cfg.flap_penalty_weight * terms.flap_penalty.mean(),
+                    "PureRLContribution/frequency_action_delta": (
+                        -reward_cfg.frequency_action_delta_penalty_weight
+                        * terms.frequency_action_delta_penalty.mean()
+                    ),
+                    "PureRLContribution/tail_action_delta": (
+                        -reward_cfg.tail_action_delta_penalty_weight
+                        * terms.tail_action_delta_penalty.mean()
+                    ),
+                    "PureRLContribution/tail_action_limit": (
+                        -reward_cfg.tail_action_limit_penalty_weight
+                        * terms.tail_action_limit_penalty.mean()
+                    ),
+                    "PureRLState/mean_abs_cross_track_error_m": cross_track_error_m.abs().mean(),
+                    "PureRLState/mean_abs_height_error_m": height_error_m.abs().mean(),
+                    "PureRLState/mean_along_track_velocity_mps": along_track_velocity_mps.mean(),
+                    "PureRLState/mean_abs_cross_track_velocity_mps": (
+                        cross_track_velocity_mps.abs().mean()
+                    ),
+                    "PureRLState/mean_abs_vertical_velocity_mps": vertical_velocity_mps.abs().mean(),
+                    "PureRLState/mean_abs_roll_rad": roll_rad.abs().mean(),
+                    "PureRLState/mean_abs_pitch_rad": pitch_rad.abs().mean(),
+                    "PureRLState/mean_actual_flap_frequency_hz": self._freq.mean(),
+                }
+            )
+        return terms.total_reward
+
     def _get_rewards(self) -> Tensor:
+        if bool(self.cfg.use_pure_rl_curriculum1_reward):
+            return self._get_pure_rl_curriculum1_reward()
+
         pos_w = self._robot.data.root_pos_w - self.scene.env_origins
         # Height tracking
         height = pos_w[:, 2]
@@ -3878,6 +4100,48 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[Tensor, Tensor]:
         pos_w = self._robot.data.root_pos_w - self.scene.env_origins
         height = pos_w[:, 2]
+        timed_out = self.episode_length_buf >= self.max_episode_length - 1
+        if bool(self.cfg.use_pure_rl_curriculum1_reward):
+            cross_track_error_m = self._straight_line_cross_track_m(pos_w)
+            height_error_m = height - self._height_cmd
+            terms = compute_pure_rl_termination_terms(
+                height_m=height,
+                cross_track_error_m=cross_track_error_m,
+                height_error_m=height_error_m,
+                projected_gravity_body=self._robot.data.projected_gravity_b,
+                config=self._pure_rl_termination_cfg,
+            )
+            assert self._eval_pure_rl_tilt_rad is not None
+            assert self._eval_pure_rl_ground_termination is not None
+            assert self._eval_pure_rl_tilt_termination is not None
+            assert self._eval_pure_rl_cross_track_termination is not None
+            assert self._eval_pure_rl_height_termination is not None
+            self._eval_pure_rl_tilt_rad.copy_(terms.tilt_rad)
+            self._eval_pure_rl_ground_termination.copy_(terms.ground)
+            self._eval_pure_rl_tilt_termination.copy_(terms.tilt)
+            self._eval_pure_rl_cross_track_termination.copy_(terms.cross_track)
+            self._eval_pure_rl_height_termination.copy_(terms.height_error)
+            if bool(self.cfg.pure_rl_reward_telemetry_enabled):
+                log = self.extras.setdefault("log", {})
+                log.update(
+                    {
+                        "PureRLTermination/ground_fraction": terms.ground.to(torch.float32).mean(),
+                        "PureRLTermination/tilt_fraction": terms.tilt.to(torch.float32).mean(),
+                        "PureRLTermination/cross_track_fraction": (
+                            terms.cross_track.to(torch.float32).mean()
+                        ),
+                        "PureRLTermination/height_error_fraction": (
+                            terms.height_error.to(torch.float32).mean()
+                        ),
+                        "PureRLTermination/terminated_fraction": (
+                            terms.terminated.to(torch.float32).mean()
+                        ),
+                        "PureRLTermination/time_out_fraction": timed_out.to(torch.float32).mean(),
+                        "PureRLState/mean_tilt_rad": terms.tilt_rad.mean(),
+                    }
+                )
+            return terms.terminated, timed_out
+
         fell = height <= float(self.cfg.terminate_ground_height)
 
         # tilt termination
@@ -3890,6 +4154,4 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         cross_track_m = self._straight_line_cross_track_m(pos_w)
         fell = fell | (torch.abs(cross_track_m) > float(self.cfg.terminate_abs_y))
 
-        # time out
-        timed_out = self.episode_length_buf >= self.max_episode_length - 1
         return fell, timed_out

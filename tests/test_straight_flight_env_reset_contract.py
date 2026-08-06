@@ -119,6 +119,35 @@ def test_measured_pure_rl_alone_selects_normalized_555_observation_and_reset_ran
     assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "randomize_flap_phase_at_reset").value) is True
 
 
+def test_measured_pure_rl_alone_selects_curriculum1_reward_and_three_meter_path_termination() -> None:
+    module = _load_module()
+    base_cfg = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+    pure_rl_cfg = _find_class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg")
+
+    assert ast.literal_eval(_find_ann_assign(base_cfg, "use_pure_rl_curriculum1_reward").value) is False
+    assert ast.literal_eval(_find_ann_assign(base_cfg, "pure_rl_reward_telemetry_enabled").value) is False
+    assert ast.literal_eval(_find_ann_assign(base_cfg, "terminate_abs_y").value) == 20.0
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "use_pure_rl_curriculum1_reward").value) is True
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "pure_rl_reward_telemetry_enabled").value) is True
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "terminate_abs_y").value) == 3.0
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "pure_rl_terminate_abs_height_error_m").value) == 3.0
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "terminate_ground_height").value) == 0.05
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "terminate_tilt_deg").value) == 75.0
+
+
+def test_measured_pure_rl_defaults_to_unfrozen_0_to_5_hz_curriculum1_rollouts() -> None:
+    module = _load_module()
+    base_cfg = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+    pure_rl_cfg = _find_class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg")
+
+    assert ast.literal_eval(_find_ann_assign(base_cfg, "freeze_steps_after_reset").value) == 240
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "freeze_steps_after_reset").value) == 0
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "min_flap_hz").value) == 0.0
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "max_flap_hz").value) == 5.0
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "pure_rl_preview_minimum_speed_mps").value) == 1.0
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "pure_rl_preview_maximum_speed_mps").value) == 12.0
+
+
 def test_measured_pure_rl_disables_only_its_outer_action_shapers() -> None:
     module = _load_module()
     base_cfg = _find_class(module, "FlappingBotStraightFlightEnvCfg")

@@ -21,9 +21,6 @@ Typical usage:
   ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
     --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0 \
     --run-name native_cpu_pure_rl \
-    --native-cpu \
-    --freeze-steps-after-reset 0 \
-    --num-envs 64 \
     --headless
 """
 
@@ -45,17 +42,47 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from checkpoint_selection import refresh_best_checkpoint_artifacts, select_best_checkpoint_row
 from eval_suites import get_eval_suite_choices
+from pure_rl_eval_common import (
+    MEASURED_PURE_RL_TASK_ID,
+    PURE_RL_CURRICULUM1_EVAL_CONTRACT,
+    PURE_RL_CURRICULUM1_EVAL_SUITE,
+)
 
 
 _NATIVE_HOLONOMIC_EXTENSION_ID = "omni.flapping_bot.holonomic_constraint"
+_MEASURED_PURE_RL_TASK_ID = MEASURED_PURE_RL_TASK_ID
+_DEFAULT_NUM_ENVS = 512
+_MEASURED_PURE_RL_DEFAULT_NUM_ENVS = 64
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
+    if eval_suite == "straight_standard" and str(task) == _MEASURED_PURE_RL_TASK_ID:
+        return PURE_RL_CURRICULUM1_EVAL_SUITE
     if eval_suite == "straight_standard" and "PathTracking" in str(task):
         if "Primitive" in str(task):
             return "path_tracking_estimated_primitives_nowind_v1"
         return "path_tracking_estimated_nowind_v1"
     return str(eval_suite)
+
+
+def _resolve_eval_shape(args: argparse.Namespace) -> tuple[int, int]:
+    """Resolve task-aware watcher defaults while preserving explicit overrides."""
+
+    pure_rl_grid = (
+        str(args.task) == _MEASURED_PURE_RL_TASK_ID
+        and _resolve_eval_suite(args.task, str(args.eval_suite)) == PURE_RL_CURRICULUM1_EVAL_SUITE
+    )
+    requested_num_envs = getattr(args, "eval_num_envs", None)
+    requested_episodes = getattr(args, "episodes", None)
+    num_envs = 16 if requested_num_envs is None and pure_rl_grid else (
+        1 if requested_num_envs is None else int(requested_num_envs)
+    )
+    episodes = 16 if requested_episodes is None and pure_rl_grid else (
+        5 if requested_episodes is None else int(requested_episodes)
+    )
+    if num_envs <= 0 or episodes <= 0:
+        raise ValueError("Evaluation environment and episode counts must be positive.")
+    return num_envs, episodes
 
 
 def _should_apply_estimated_teacher_defaults(task: str) -> bool:
@@ -67,7 +94,15 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train + watch/eval new checkpoints.")
     parser.add_argument("--task", type=str, required=True)
     parser.add_argument("--run-name", type=str, required=True)
-    parser.add_argument("--num-envs", type=int, default=512)
+    parser.add_argument(
+        "--num-envs",
+        type=int,
+        default=None,
+        help=(
+            "Training environment count. Defaults to 64 for the CPU-native MeasuredPureRL task "
+            "and 512 for other tasks."
+        ),
+    )
     parser.add_argument("--max-iterations", type=int, default=2000)
     parser.add_argument("--save-interval", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
@@ -84,7 +119,8 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Run the simulator and policy on CPU and load the canonical native holonomic constraint extension. "
-            "The extension is incompatible with direct-GPU PhysX."
+            "This is selected automatically for the MeasuredPureRL task. The extension is incompatible with "
+            "direct-GPU PhysX."
         ),
     )
     parser.add_argument(
@@ -103,10 +139,22 @@ def _parse_args() -> argparse.Namespace:
         "--freeze-steps-after-reset",
         type=int,
         default=None,
-        help="Optional environment reset-freeze override; use 0 for the native CPU PureRL P0 gate.",
+        help=(
+            "Optional environment reset-freeze override. MeasuredPureRL now defaults to zero in its task config."
+        ),
     )
-    parser.add_argument("--eval-num-envs", type=int, default=1)
-    parser.add_argument("--episodes", type=int, default=5)
+    parser.add_argument(
+        "--eval-num-envs",
+        type=int,
+        default=None,
+        help="Defaults to 16 for the MeasuredPureRL fixed grid and 1 for other tasks.",
+    )
+    parser.add_argument(
+        "--episodes",
+        type=int,
+        default=None,
+        help="Defaults to 16 for the MeasuredPureRL fixed grid and 5 for other tasks.",
+    )
     parser.add_argument("--poll-s", type=float, default=120.0)
     parser.add_argument("--run-dir-timeout-s", type=float, default=180.0)
     parser.add_argument(
@@ -237,7 +285,23 @@ def _portable_kit_args(args: argparse.Namespace, role: str) -> str:
 
 
 def _native_cpu_enabled(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "native_cpu", False))
+    return bool(getattr(args, "native_cpu", False)) or str(getattr(args, "task", "")) == (
+        _MEASURED_PURE_RL_TASK_ID
+    )
+
+
+def _resolved_train_num_envs(args: argparse.Namespace) -> int:
+    configured = getattr(args, "num_envs", None)
+    if configured is None:
+        configured = (
+            _MEASURED_PURE_RL_DEFAULT_NUM_ENVS
+            if str(getattr(args, "task", "")) == _MEASURED_PURE_RL_TASK_ID
+            else _DEFAULT_NUM_ENVS
+        )
+    value = int(configured)
+    if value <= 0:
+        raise ValueError("--num-envs must be positive.")
+    return value
 
 
 def _native_extension_parent(args: argparse.Namespace) -> Path:
@@ -323,7 +387,7 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
         "--device",
         _sim_device(args, "train"),
         "--num_envs",
-        str(args.num_envs),
+        str(_resolved_train_num_envs(args)),
         "--max_iterations",
         str(args.max_iterations),
         "--seed",
@@ -374,6 +438,7 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
 
 
 def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
+    eval_num_envs, episodes = _resolve_eval_shape(args)
     watch_cmd = [
         *_child_entrypoint(args, "scripts/flapping_rl/watch_and_eval.py"),
         "--task",
@@ -383,9 +448,9 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
         "--device",
         _sim_device(args, "eval"),
         "--episodes",
-        str(args.episodes),
+        str(episodes),
         "--num_envs",
-        str(args.eval_num_envs),
+        str(eval_num_envs),
         "--poll_s",
         str(args.poll_s),
         "--eval_suite",
@@ -488,9 +553,20 @@ def main():
             else:
                 print("[INFO] Latest checkpoint already has a suite row; skipping final one-shot evaluation.", flush=True)
 
-            best_row = refresh_best_checkpoint_artifacts(run_dir)
+            evaluation_contract = (
+                PURE_RL_CURRICULUM1_EVAL_CONTRACT
+                if str(args.task) == _MEASURED_PURE_RL_TASK_ID
+                else None
+            )
+            best_row = refresh_best_checkpoint_artifacts(
+                run_dir,
+                evaluation_contract=evaluation_contract,
+            )
             if best_row is None:
-                best_row = select_best_checkpoint_row(run_dir / "eval" / "summary.csv")
+                best_row = select_best_checkpoint_row(
+                    run_dir / "eval" / "summary.csv",
+                    evaluation_contract=evaluation_contract,
+                )
             if best_row is not None:
                 print(
                     "[INFO] Current best checkpoint:",

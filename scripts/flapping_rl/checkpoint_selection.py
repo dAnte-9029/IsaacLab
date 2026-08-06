@@ -14,6 +14,10 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from path_tracking_success_gate import row_meets_path_tracking_success_gate
+from pure_rl_eval_common import (
+    PURE_RL_CURRICULUM1_EVAL_CONTRACT,
+    row_meets_pure_rl_success_gate,
+)
 
 
 def _row_float(row: dict[str, Any], key: str) -> float:
@@ -35,15 +39,35 @@ def load_summary_rows(summary_csv: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def select_best_checkpoint_row(summary_csv: Path, *, case: str = "suite") -> dict[str, str] | None:
+def select_best_checkpoint_row(
+    summary_csv: Path,
+    *,
+    case: str = "suite",
+    evaluation_contract: str | None = None,
+) -> dict[str, str] | None:
     rows = [row for row in load_summary_rows(summary_csv) if row.get("case") == case and row.get("checkpoint")]
+    if evaluation_contract is not None:
+        rows = [row for row in rows if row.get("evaluation_contract") == evaluation_contract]
     if not rows:
         return None
 
     def _is_path_tracking_row(row: dict[str, str]) -> bool:
         return "completion_rate" in row and "mean_abs_lateral_error_m" in row
 
+    def _is_pure_rl_row(row: dict[str, str]) -> bool:
+        return row.get("evaluation_contract") == PURE_RL_CURRICULUM1_EVAL_CONTRACT
+
     def _sort_key(row: dict[str, str]) -> tuple[float, float, float, float, float, float, float]:
+        if _is_pure_rl_row(row):
+            return (
+                float(row_meets_pure_rl_success_gate(row)),
+                _row_float(row, "timeout_rate"),
+                _row_float(row, "mean_episode_duration_s"),
+                -_row_float(row, "termination_rate"),
+                _row_float(row, "score"),
+                _row_float(row, "mean_along_track_progress_m"),
+                -_row_float(row, "mean_abs_cross_track_error_m"),
+            )
         if _is_path_tracking_row(row):
             completion_rate = _row_float_default(row, "completion_rate", 0.0)
             progress_ratio = _row_float_default(row, "mean_final_progress_ratio", completion_rate)
@@ -72,7 +96,9 @@ def select_best_checkpoint_row(summary_csv: Path, *, case: str = "suite") -> dic
         best = min(tied, key=lambda row: int(float(row.get("ckpt_index", -1))))
 
     best_row = dict(best)
-    if _is_path_tracking_row(best_row):
+    if _is_pure_rl_row(best_row):
+        best_row["success_gate_passed"] = str(int(row_meets_pure_rl_success_gate(best_row)))
+    elif _is_path_tracking_row(best_row):
         best_row["success_gate_passed"] = str(int(row_meets_path_tracking_success_gate(best_row)))
     return best_row
 
@@ -89,10 +115,15 @@ def refresh_best_checkpoint_artifacts(
     *,
     summary_csv: Path | None = None,
     case: str = "suite",
+    evaluation_contract: str | None = None,
 ) -> dict[str, str] | None:
     run_dir = Path(run_dir).expanduser().resolve()
     summary_csv = Path(summary_csv).expanduser().resolve() if summary_csv is not None else (run_dir / "eval" / "summary.csv")
-    best = select_best_checkpoint_row(summary_csv, case=case)
+    best = select_best_checkpoint_row(
+        summary_csv,
+        case=case,
+        evaluation_contract=evaluation_contract,
+    )
     if best is None:
         return None
 

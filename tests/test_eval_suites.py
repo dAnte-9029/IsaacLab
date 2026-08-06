@@ -5,6 +5,22 @@ def test_path_tracking_truth_nowind_suite_is_registered() -> None:
     assert "path_tracking_truth_nowind_v1" in get_eval_suite_choices()
 
 
+def test_pure_rl_curriculum1_nowind_suite_has_fixed_heading_phase_grid() -> None:
+    assert "pure_rl_curriculum1_nowind_v1" in get_eval_suite_choices()
+
+    cases = build_eval_cases("pure_rl_curriculum1_nowind_v1")
+
+    assert len(cases) == 1
+    case = cases[0]
+    pairs = set(zip(case["straight_line_heading_schedule_rad"], case["flap_phase_schedule_rad"], strict=True))
+    assert len(pairs) == 16
+    assert len(set(case["straight_line_heading_schedule_rad"])) == 4
+    assert len(set(case["flap_phase_schedule_rad"])) == 4
+    assert case["wind_enabled"] is False
+    assert case["wind_ou_enabled"] is False
+    assert case["teacher_state_source"] == "estimated"
+
+
 def test_path_tracking_estimated_nowind_suite_is_registered() -> None:
     assert "path_tracking_estimated_nowind_v1" in get_eval_suite_choices()
 

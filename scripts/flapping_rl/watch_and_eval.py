@@ -44,22 +44,59 @@ from path_tracking_eval_common import (
     resolve_eval_suite as _resolve_eval_suite_common,
     summarize_path_tracking_episode,
 )
+from pure_rl_eval_common import (
+    PURE_RL_CURRICULUM1_EVAL_CONTRACT,
+    PURE_RL_CURRICULUM1_EVAL_SUITE,
+    aggregate_pure_rl_case_row,
+    aggregate_pure_rl_suite_row,
+    allocate_episode_quotas,
+    assert_pure_rl_reset_schedule,
+    compute_pure_rl_score,
+    is_measured_pure_rl_task,
+    read_pure_rl_step_metrics,
+    summarize_pure_rl_episode,
+)
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
-    return _resolve_eval_suite_common(task, eval_suite)
+    resolved = _resolve_eval_suite_common(task, eval_suite)
+    if resolved == "straight_standard" and is_measured_pure_rl_task(task):
+        return PURE_RL_CURRICULUM1_EVAL_SUITE
+    return resolved
 
 
 def _apply_eval_case_to_cfg(case: dict, cfg, *, vx_cmd: float | None, height_cmd: float | None) -> None:
     _apply_eval_case_to_cfg_common(case, cfg, vx_cmd=vx_cmd, height_cmd=height_cmd)
+    if "straight_line_heading_schedule_rad" in case:
+        cfg.randomize_straight_line_heading = False
+        cfg.randomize_flap_phase_at_reset = False
+        cfg.pure_rl_eval_heading_schedule_rad = tuple(case["straight_line_heading_schedule_rad"])
+        cfg.pure_rl_eval_flap_phase_schedule_rad = tuple(case["flap_phase_schedule_rad"])
+
+
+def _resolve_eval_shape(
+    task: str,
+    eval_suite: str,
+    *,
+    num_envs: int | None,
+    episodes: int | None,
+) -> tuple[int, int]:
+    """Resolve task-aware evaluation defaults while preserving explicit overrides."""
+
+    pure_rl_grid = is_measured_pure_rl_task(task) and eval_suite == PURE_RL_CURRICULUM1_EVAL_SUITE
+    resolved_num_envs = 16 if num_envs is None and pure_rl_grid else (1 if num_envs is None else int(num_envs))
+    resolved_episodes = 16 if episodes is None and pure_rl_grid else (5 if episodes is None else int(episodes))
+    if resolved_num_envs <= 0 or resolved_episodes <= 0:
+        raise ValueError("Evaluation environment and episode counts must be positive.")
+    return resolved_num_envs, resolved_episodes
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Watch a run directory and evaluate new checkpoints.")
     parser.add_argument("--task", type=str, required=True)
     parser.add_argument("--log_dir", type=str, required=True, help="Run directory that contains model_*.pt files.")
-    parser.add_argument("--episodes", type=int, default=5)
-    parser.add_argument("--num_envs", type=int, default=1)
+    parser.add_argument("--episodes", type=int, default=None)
+    parser.add_argument("--num_envs", type=int, default=None)
     parser.add_argument("--poll_s", type=float, default=60.0)
     parser.add_argument("--once", action="store_true", help="Evaluate current checkpoints once and exit.")
     parser.add_argument(
@@ -91,6 +128,8 @@ def _extract_ckpt_index(p: Path) -> int:
 
 
 def _score_row(row: dict) -> float:
+    if row.get("evaluation_contract") == PURE_RL_CURRICULUM1_EVAL_CONTRACT:
+        return compute_pure_rl_score(row)
     if "completion_rate" in row and "mean_abs_lateral_error_m" in row:
         return compute_path_tracking_score(
             completion_rate=float(row["completion_rate"]),
@@ -145,6 +184,18 @@ def _append_summary_row(summary_csv: Path, row: Mapping[str, object]) -> None:
 
 def main():
     args = _parse_args()
+    eval_suite = _resolve_eval_suite(args.task, args.eval_suite)
+    args.num_envs, args.episodes = _resolve_eval_shape(
+        args.task,
+        eval_suite,
+        num_envs=args.num_envs,
+        episodes=args.episodes,
+    )
+    evaluation_contract = (
+        PURE_RL_CURRICULUM1_EVAL_CONTRACT
+        if is_measured_pure_rl_task(args.task)
+        else None
+    )
 
     def _update_class_from_dict_allow_none(obj, data: dict, _ns: str = "") -> None:
         """Update class from dict, but allow `None` defaults to be overwritten."""
@@ -280,7 +331,6 @@ def main():
         agent_cfg_dict = agent_cfg.to_dict()
     agent_cfg_dict["device"] = args.device if args.device is not None else agent_cfg_dict.get("device", "cuda:0")
 
-    eval_suite = _resolve_eval_suite(args.task, args.eval_suite)
     eval_cases = build_eval_cases(eval_suite)
     _apply_eval_case_to_cfg(eval_cases[0], env_cfg, vx_cmd=args.vx_cmd, height_cmd=args.height_cmd)
 
@@ -300,7 +350,12 @@ def main():
             reader = csv.DictReader(f)
             for row in reader:
                 case_name = row.get("case")
-                if "checkpoint" in row and (case_name in (None, "suite")):
+                row_contract = row.get("evaluation_contract") or None
+                if (
+                    "checkpoint" in row
+                    and case_name in (None, "suite")
+                    and row_contract == evaluation_contract
+                ):
                     evaluated.add(row["checkpoint"])
 
     def _eval_case(ckpt: Path, case: dict) -> dict:
@@ -310,6 +365,77 @@ def main():
         _apply_eval_case_to_cfg(case, env.unwrapped.cfg, vx_cmd=args.vx_cmd, height_cmd=args.height_cmd)
         obs, _ = env.reset()
         policy_nn.reset(torch.ones(env.unwrapped.num_envs, dtype=torch.long, device=env.unwrapped.device))
+
+        if is_measured_pure_rl_task(args.task):
+            if "straight_line_heading_schedule_rad" in case:
+                assert_pure_rl_reset_schedule(
+                    actual_heading_rad=env.unwrapped._straight_line_heading_rad,
+                    actual_flap_phase_rad=env.unwrapped._phase,
+                    expected_heading_schedule_rad=case["straight_line_heading_schedule_rad"],
+                    expected_flap_phase_schedule_rad=case["flap_phase_schedule_rad"],
+                )
+            n_env = int(env.unwrapped.num_envs)
+            target_episodes = int(args.episodes)
+            quotas = allocate_episode_quotas(target_episodes, n_env)
+            completed = [0 for _ in range(n_env)]
+            metric_names = (
+                "cross_track_error_m",
+                "height_error_m",
+                "along_track_progress_m",
+                "along_track_velocity_mps",
+                "tilt_rad",
+                "angular_rate_rad_s",
+                "actual_flap_frequency_hz",
+                "frequency_limit_active",
+                "tail_limit_active",
+                "normalized_action_delta",
+            )
+            episode_metrics = [
+                {name: [] for name in metric_names}
+                for _ in range(n_env)
+            ]
+            episode_rows: list[dict[str, float | int]] = []
+
+            while sum(completed) < target_episodes:
+                with torch.inference_mode():
+                    actions = policy(obs)
+                obs, _rew, dones, _info = env.step(actions)
+                step_metrics = read_pure_rl_step_metrics(env.unwrapped)
+
+                for env_id in range(n_env):
+                    if completed[env_id] >= quotas[env_id]:
+                        continue
+                    for name in metric_names:
+                        episode_metrics[env_id][name].append(float(step_metrics[name][env_id].item()))
+
+                done_ids = torch.nonzero(dones > 0, as_tuple=False).squeeze(-1)
+                for env_id in done_ids.tolist():
+                    if completed[env_id] < quotas[env_id] and episode_metrics[env_id]["tilt_rad"]:
+                        episode_rows.append(
+                            summarize_pure_rl_episode(
+                                step_metrics=episode_metrics[env_id],
+                                step_dt_s=float(env.unwrapped.step_dt),
+                                terminated=bool(env.unwrapped.reset_terminated[env_id].item()),
+                                time_out=bool(env.unwrapped.reset_time_outs[env_id].item()),
+                                termination_causes={
+                                    "ground": bool(step_metrics["ground_termination"][env_id].item()),
+                                    "tilt": bool(step_metrics["tilt_termination"][env_id].item()),
+                                    "cross_track": bool(step_metrics["cross_track_termination"][env_id].item()),
+                                    "height": bool(step_metrics["height_termination"][env_id].item()),
+                                },
+                            )
+                        )
+                        completed[env_id] += 1
+                    for values in episode_metrics[env_id].values():
+                        values.clear()
+                policy_nn.reset(dones)
+
+            return aggregate_pure_rl_case_row(
+                checkpoint=ckpt,
+                ckpt_index=_extract_ckpt_index(ckpt),
+                case=case,
+                episode_rows=episode_rows,
+            )
 
         if is_path_tracking_task(args.task):
             target_episodes = int(args.episodes)
@@ -490,6 +616,9 @@ def main():
 
     def _eval_checkpoint(ckpt: Path) -> list[dict]:
         case_rows = [_eval_case(ckpt, case) for case in eval_cases]
+        if is_measured_pure_rl_task(args.task):
+            suite_row = aggregate_pure_rl_suite_row(case_rows)
+            return case_rows + [suite_row]
         if is_path_tracking_task(args.task):
             suite_row = aggregate_suite_row(case_rows)
             suite_row["score"] = _score_row(suite_row)
@@ -526,7 +655,11 @@ def main():
                 for row in rows:
                     _append_summary_row(summary_csv, row)
                 (eval_dir / f"{Path(ckpt).stem}.json").write_text(json.dumps(rows, indent=2))
-                best_row = refresh_best_checkpoint_artifacts(log_dir, summary_csv=summary_csv)
+                best_row = refresh_best_checkpoint_artifacts(
+                    log_dir,
+                    summary_csv=summary_csv,
+                    evaluation_contract=evaluation_contract,
+                )
                 evaluated.add(str(ckpt))
                 suite_row = next(row for row in rows if row["case"] == "suite")
                 print(

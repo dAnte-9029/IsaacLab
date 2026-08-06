@@ -46,6 +46,7 @@ def test_native_cpu_pure_rl_frequency_and_repeated_reset_runtime_gate(tmp_path: 
     cfg.terminate_ground_height = -1.0e6
     cfg.terminate_tilt_deg = 89.9
     cfg.terminate_abs_y = 1.0e6
+    cfg.pure_rl_terminate_abs_height_error_m = 1.0e6
     cfg.robot = cfg.robot.replace(
         spawn=cfg.robot.spawn.replace(
             asset_path=str(
@@ -102,7 +103,7 @@ def test_native_cpu_pure_rl_frequency_and_repeated_reset_runtime_gate(tmp_path: 
         }
 
         for policy_step in range(total_policy_steps):
-            observations, rewards, terminated, truncated, _ = env.step(actions)
+            observations, rewards, terminated, truncated, extras = env.step(actions)
             finite_tensors = {
                 "observation": observations["policy"],
                 "reward": rewards,
@@ -113,12 +114,39 @@ def test_native_cpu_pure_rl_frequency_and_repeated_reset_runtime_gate(tmp_path: 
                 "target_frequency": env._phase_target_frequency_hz,
                 "wing_force": env._debug_last_wing_force_link_n,
                 "wing_moment": env._debug_last_wing_moment_link_about_com_nm,
+                "eval_cross_track_error": env._eval_pure_rl_cross_track_error_m,
+                "eval_height_error": env._eval_pure_rl_height_error_m,
+                "eval_along_track_progress": env._eval_pure_rl_along_track_progress_m,
+                "eval_along_track_velocity": env._eval_pure_rl_along_track_velocity_mps,
+                "eval_tilt": env._eval_pure_rl_tilt_rad,
+                "eval_angular_rate": env._eval_pure_rl_angular_rate_rad_s,
+                "eval_actual_frequency": env._eval_pure_rl_actual_flap_frequency_hz,
+                "eval_action_delta": env._eval_pure_rl_normalized_action_delta,
             }
             for name, value in finite_tensors.items():
                 assert value is not None
                 _assert_finite(name, value)
             assert observations["policy"].shape == (cfg.scene.num_envs, 555)
             assert float(torch.max(torch.abs(observations["policy"])).item()) <= 5.0
+            telemetry = extras["log"]
+            required_telemetry = {
+                "PureRLReward/total",
+                "PureRLReward/path",
+                "PureRLReward/progress",
+                "PureRLPenalty/flap",
+                "PureRLPenalty/frequency_action_delta",
+                "PureRLPenalty/tail_action_delta",
+                "PureRLState/mean_abs_cross_track_error_m",
+                "PureRLState/mean_actual_flap_frequency_hz",
+                "PureRLTermination/ground_fraction",
+                "PureRLTermination/tilt_fraction",
+                "PureRLTermination/cross_track_fraction",
+                "PureRLTermination/height_error_fraction",
+            }
+            assert required_telemetry.issubset(telemetry)
+            for name in required_telemetry:
+                value = torch.as_tensor(telemetry[name])
+                _assert_finite(name, value)
             assert not bool(torch.any(terminated))
             assert not bool(torch.any(truncated))
 

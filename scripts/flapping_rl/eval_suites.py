@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import math
+
+
+_PURE_RL_HEADINGS_RAD = (0.0, 0.5 * math.pi, math.pi, -0.5 * math.pi)
+_PURE_RL_PHASES_RAD = (0.0, 0.5 * math.pi, math.pi, 1.5 * math.pi)
+_PURE_RL_HEADING_PHASE_PAIRS = tuple(
+    (heading, phase)
+    for heading in _PURE_RL_HEADINGS_RAD
+    for phase in _PURE_RL_PHASES_RAD
+)
 
 EVAL_SUITE_CHOICES = (
     "straight_standard",
     "single",
+    "pure_rl_curriculum1_nowind_v1",
     "path_tracking_standard",
     "path_tracking_truth_nowind_v1",
     "path_tracking_estimated_nowind_v1",
@@ -40,6 +51,8 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
         mission_allow_turn: bool | None = None,
         mission_allow_loiter: bool | None = None,
         mission_allow_climb_on_straight: bool | None = None,
+        straight_line_heading_schedule_rad: tuple[float, ...] | None = None,
+        flap_phase_schedule_rad: tuple[float, ...] | None = None,
     ) -> dict:
         case = {
             "name": name,
@@ -71,11 +84,30 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
             case["mission_allow_loiter"] = mission_allow_loiter
         if mission_allow_climb_on_straight is not None:
             case["mission_allow_climb_on_straight"] = mission_allow_climb_on_straight
+        if straight_line_heading_schedule_rad is not None:
+            case["straight_line_heading_schedule_rad"] = tuple(straight_line_heading_schedule_rad)
+        if flap_phase_schedule_rad is not None:
+            case["flap_phase_schedule_rad"] = tuple(flap_phase_schedule_rad)
         return case
 
     if eval_suite == "single":
         return [
             _case("single", wind_enabled=False, wind_xy_mps=(0.0, 0.0), wind_ou_enabled=False)
+        ]
+
+    if eval_suite == "pure_rl_curriculum1_nowind_v1":
+        return [
+            _case(
+                "curriculum1_nowind_fixed_heading_phase",
+                wind_enabled=False,
+                wind_xy_mps=(0.0, 0.0),
+                wind_ou_enabled=False,
+                teacher_state_source="estimated",
+                policy_state_source="estimated",
+                imu_source="synthetic",
+                straight_line_heading_schedule_rad=tuple(pair[0] for pair in _PURE_RL_HEADING_PHASE_PAIRS),
+                flap_phase_schedule_rad=tuple(pair[1] for pair in _PURE_RL_HEADING_PHASE_PAIRS),
+            )
         ]
 
     if eval_suite == "path_tracking_standard":
