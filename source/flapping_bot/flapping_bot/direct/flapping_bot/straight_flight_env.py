@@ -131,6 +131,25 @@ from ...px4_like.state_estimation import SensorStateEstimator, SensorSuiteCfg, S
 from ...px4_like.straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
 from ...px4_like import build_imu_provider, resolve_base_body_com_offset_b
 from ...scenes import FlappingRoomSceneCfg
+from .action_contract import (
+    ACTUAL_JOINT_TAIL_AERO_DEFLECTION,
+    COMMAND_TAIL_AERO_DEFLECTION,
+    DIRECT_TAIL_SURFACE_ACTION,
+    MIXED_ELEVON_ACTION,
+    frequency_hz_to_normalized_action,
+    joint_position_to_normalized_action,
+    normalized_action_to_frequency_hz,
+    normalized_action_to_joint_position,
+    validate_action_interface,
+    validate_tail_aero_deflection_source,
+)
+from .pure_rl_observation import (
+    PURE_RL_RAW_OBSERVATION_LAYOUT,
+    build_raw_sensor_frame,
+    compute_preview_query_progress_m,
+    normalize_actor_observation,
+    transform_world_preview_points_to_body,
+)
 from .state_source_contract import (
     TeacherStateInputs,
     resolve_imu_source,
@@ -169,10 +188,19 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # episode / control
     episode_length_s: float = 12.0
     decimation: int = 2
-    action_space: int = 4  # [throttle, rudder, elevon_pitch, elevon_roll]
+    action_space: int = 4
+    # Baseline: [frequency, rudder, elevon_pitch, elevon_roll]. The measured
+    # PureRL task explicitly selects [frequency, rudder, left_elevon,
+    # right_elevon] without changing controller-facing configurations.
+    action_interface: str = MIXED_ELEVON_ACTION
     observation_space: int = 68  # keep same stacking layout as FlappingBotEnv
     state_space: int = 0
     action_scale: float = 1.0
+    use_pure_rl_actor_observation: bool = False
+    randomize_straight_line_heading: bool = False
+    randomize_flap_phase_at_reset: bool = False
+    pure_rl_preview_minimum_speed_mps: float = 1.0
+    pure_rl_preview_maximum_speed_mps: float = 12.0
 
     # commands
     vx_cmd: float = 7.0
@@ -416,6 +444,10 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
 
     # tail aero (fixed horizontal + left/right elevons + fixed vertical + rudder)
     tail_aero: TailAeroCfg = TailAeroCfg()
+    # Baseline compatibility uses commanded angles. The direct-surface PureRL
+    # task selects actual PhysX joint positions so the aerodynamic calculation
+    # observes implicit-drive lag.
+    tail_aero_deflection_source: str = COMMAND_TAIL_AERO_DEFLECTION
 
     # diagnostics: selectively apply aerodynamic components
     enable_wing_aero: bool = True
@@ -784,18 +816,65 @@ class FlappingBotStraightFlightDeLaurierPureRLEnvCfg(FlappingBotStraightFlightDe
 class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraightFlightDeLaurierPureRLEnvCfg):
     """Pure-RL measured-plant smoke config with a no-wind curriculum."""
 
+    # The policy produces one command every eight 480 Hz physics steps.
+    decimation: int = 8
+    sim: SimulationCfg = SimulationCfg(
+        dt=1.0 / 480.0,
+        render_interval=decimation,
+        device="cpu",
+        gravity=(0.0, 0.0, -9.81),
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.8,
+            dynamic_friction=0.6,
+            restitution=0.0,
+        ),
+    )
+    action_interface: str = DIRECT_TAIL_SURFACE_ACTION
+    tail_aero_deflection_source: str = ACTUAL_JOINT_TAIL_AERO_DEFLECTION
+    observation_space: int = PURE_RL_RAW_OBSERVATION_LAYOUT.observation_dim
+    use_pure_rl_actor_observation: bool = True
+    randomize_straight_line_heading: bool = True
+    randomize_flap_phase_at_reset: bool = True
+
+    # Preserve the intrinsic frequency-state and PhysX tail-servo dynamics without adding a second action lag.
+    act_lpf_tau_s: float = 0.0
+    act_rate_limit_per_s: float = 0.0
+
     # Start the pure-RL smoke experiment without wind. Wind and dynamics randomization should be added only after
     # the policy can maintain basic height, speed, and attitude in the measured nominal model.
     wind_enabled: bool = False
     randomize_wind: bool = False
     wind_ou_enabled: bool = False
     wind_curriculum_enabled: bool = False
+    min_flap_hz: float = 0.0
 
 
 class FlappingBotStraightFlightEnv(DirectRLEnv):
     cfg: FlappingBotStraightFlightEnvCfg
 
     def __init__(self, cfg: FlappingBotStraightFlightEnvCfg, render_mode: str | None = None, **kwargs):
+        action_interface = validate_action_interface(cfg.action_interface)
+        validate_tail_aero_deflection_source(cfg.tail_aero_deflection_source)
+        if bool(cfg.use_pure_rl_actor_observation):
+            if action_interface != DIRECT_TAIL_SURFACE_ACTION:
+                raise ValueError("PureRL actor observations require the direct-tail-surface action interface.")
+            if int(cfg.observation_space) != PURE_RL_RAW_OBSERVATION_LAYOUT.observation_dim:
+                raise ValueError(
+                    "PureRL actor observation_space must equal "
+                    f"{PURE_RL_RAW_OBSERVATION_LAYOUT.observation_dim}."
+                )
+            preview_minimum = float(cfg.pure_rl_preview_minimum_speed_mps)
+            preview_maximum = float(cfg.pure_rl_preview_maximum_speed_mps)
+            if not math.isfinite(preview_minimum) or not math.isfinite(preview_maximum):
+                raise ValueError("PureRL preview-speed bounds must be finite.")
+            if preview_minimum < 0.0 or preview_maximum < preview_minimum:
+                raise ValueError("PureRL preview-speed bounds must satisfy 0 <= minimum <= maximum.")
+            if float(cfg.min_flap_hz) != 0.0 or float(cfg.max_flap_hz) != 5.0:
+                raise ValueError("The fixed PureRL frequency observation contract requires a 0--5 Hz action range.")
+        if action_interface == DIRECT_TAIL_SURFACE_ACTION and bool(cfg.teacher_guidance_enabled):
+            raise ValueError(
+                "teacher_guidance_enabled is incompatible with the direct-tail-surface action interface."
+            )
         wing_drive_variant = validate_wing_drive_variant(cfg.wing_drive_variant)
         wing_aero_coupling_mode = validate_wing_aero_coupling_mode(cfg.wing_aero_coupling_mode)
         validate_wing_aero_acceleration_source(cfg.wing_aero_acceleration_source)
@@ -1132,11 +1211,21 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_exec_rudder_rad: Tensor | None = None
         self._debug_last_exec_left_elevon_rad: Tensor | None = None
         self._debug_last_exec_right_elevon_rad: Tensor | None = None
+        self._debug_last_actual_rudder_rad: Tensor | None = None
+        self._debug_last_actual_left_elevon_rad: Tensor | None = None
+        self._debug_last_actual_right_elevon_rad: Tensor | None = None
         self._runtime_imu_provider = None
         self._runtime_imu_sensor = None
         self._runtime_state_estimator: SensorStateEstimator | None = None
         self._runtime_estimated_state: dict[str, Tensor] | None = None
         self._runtime_estimator_diag: dict[str, Tensor] = {}
+        self._straight_line_heading_rad: Tensor | None = None
+        self._straight_line_tangent_w: Tensor | None = None
+        self._straight_line_normal_w: Tensor | None = None
+        self._pure_rl_history_valid: Tensor | None = None
+        self._pure_rl_previous_orientation_wxyz: Tensor | None = None
+        self._pure_rl_sensor_history: Tensor | None = None
+        self._pure_rl_action_history: Tensor | None = None
 
         # indices
         self._IDX_LEFT_WING = None
@@ -1157,6 +1246,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_wing_force_b: Tensor | None = None
         self._debug_last_wing_moment_b_about_base_com_nm: Tensor | None = None
         self._debug_last_tail_force_b: Tensor | None = None
+        self._debug_last_tail_moment_b_about_base_com_nm: Tensor | None = None
         self._debug_last_force_b: Tensor | None = None
         self._debug_last_torque_b: Tensor | None = None
         self._debug_last_wing_force_link_n: Tensor | None = None
@@ -1238,6 +1328,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_exec_rudder_rad = torch.zeros(self.num_envs, device=self.device)
         self._debug_last_exec_left_elevon_rad = torch.zeros(self.num_envs, device=self.device)
         self._debug_last_exec_right_elevon_rad = torch.zeros(self.num_envs, device=self.device)
+        self._debug_last_actual_rudder_rad = torch.zeros(self.num_envs, device=self.device)
+        self._debug_last_actual_left_elevon_rad = torch.zeros(self.num_envs, device=self.device)
+        self._debug_last_actual_right_elevon_rad = torch.zeros(self.num_envs, device=self.device)
 
         # grouped frame history buffers (N, K, D)
         N = self.num_envs
@@ -1251,11 +1344,33 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._hist_vx = torch.zeros(N, self.cfg.stack_vx, 1, device=self.device)
         self._freeze_steps = torch.zeros(N, dtype=torch.int32, device=self.device)
         self._spawn_root_state = torch.zeros(N, 13, device=self.device)
+        self._straight_line_heading_rad = torch.zeros(N, device=self.device)
+        self._straight_line_tangent_w = torch.zeros(N, 3, device=self.device)
+        self._straight_line_tangent_w[:, 0] = 1.0
+        self._straight_line_normal_w = torch.zeros(N, 3, device=self.device)
+        self._straight_line_normal_w[:, 1] = 1.0
+        if bool(self.cfg.use_pure_rl_actor_observation):
+            self._pure_rl_history_valid = torch.zeros(N, dtype=torch.bool, device=self.device)
+            self._pure_rl_previous_orientation_wxyz = torch.zeros(N, 4, device=self.device)
+            self._pure_rl_previous_orientation_wxyz[:, 0] = 1.0
+            self._pure_rl_sensor_history = torch.zeros(
+                N,
+                PURE_RL_RAW_OBSERVATION_LAYOUT.sensor_history_steps,
+                PURE_RL_RAW_OBSERVATION_LAYOUT.sensor_frame_dim,
+                device=self.device,
+            )
+            self._pure_rl_action_history = torch.zeros(
+                N,
+                PURE_RL_RAW_OBSERVATION_LAYOUT.action_history_steps,
+                PURE_RL_RAW_OBSERVATION_LAYOUT.action_dim,
+                device=self.device,
+            )
 
         # debug caches
         self._debug_last_wing_force_b = torch.zeros(N, 3, device=self.device)
         self._debug_last_wing_moment_b_about_base_com_nm = torch.zeros(N, 3, device=self.device)
         self._debug_last_tail_force_b = torch.zeros(N, 3, device=self.device)
+        self._debug_last_tail_moment_b_about_base_com_nm = torch.zeros(N, 3, device=self.device)
         self._debug_last_force_b = torch.zeros(N, 3, device=self.device)
         self._debug_last_torque_b = torch.zeros(N, 3, device=self.device)
         self._debug_last_wing_force_link_n = torch.zeros(N, 2, 3, device=self.device)
@@ -2004,11 +2119,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         # frequency from action 0 in [min_flap_hz, max_flap_hz]
         a0 = self._act_cmd[:, 0]
-        f = 0.5 * (a0 + 1.0) * (self.cfg.max_flap_hz - self.cfg.min_flap_hz) + self.cfg.min_flap_hz
-        frequency_setpoint = torch.clamp(
-            f,
-            min=float(self.cfg.min_flap_hz),
-            max=float(self.cfg.max_flap_hz),
+        frequency_setpoint = normalized_action_to_frequency_hz(
+            a0,
+            minimum_frequency_hz=float(self.cfg.min_flap_hz),
+            maximum_frequency_hz=float(self.cfg.max_flap_hz),
         )
         if validate_wing_drive_variant(self.cfg.wing_drive_variant) in {
             SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
@@ -2028,19 +2142,60 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         else:
             self._freq = frequency_setpoint
 
-        # rudder (action 1) -> virtual rudder channel
-        rud_lim = torch.deg2rad(torch.tensor(float(self.cfg.rudder_max_deg), device=self.device))
-        self._rudder_cmd = (rud_lim * self._act_cmd[:, 1]).clamp(-rud_lim, rud_lim)
+        action_interface = validate_action_interface(self.cfg.action_interface)
+        if action_interface == DIRECT_TAIL_SURFACE_ACTION:
+            self._rudder_cmd = normalized_action_to_joint_position(
+                self._act_cmd[:, 1],
+                lower_limit_rad=self._joint_lower_limits[self._IDX_RUDDER],
+                upper_limit_rad=self._joint_upper_limits[self._IDX_RUDDER],
+            )
+            self._left_elevon_cmd = normalized_action_to_joint_position(
+                self._act_cmd[:, 2],
+                lower_limit_rad=self._joint_lower_limits[self._IDX_LEFT_TAIL],
+                upper_limit_rad=self._joint_upper_limits[self._IDX_LEFT_TAIL],
+            )
+            self._right_elevon_cmd = normalized_action_to_joint_position(
+                self._act_cmd[:, 3],
+                lower_limit_rad=self._joint_lower_limits[self._IDX_RIGHT_TAIL],
+                upper_limit_rad=self._joint_upper_limits[self._IDX_RIGHT_TAIL],
+            )
+            self._elevon_pitch_cmd = 0.5 * (
+                self._left_elevon_cmd + self._right_elevon_cmd
+            )
+            self._elevon_roll_cmd = 0.5 * (
+                self._left_elevon_cmd - self._right_elevon_cmd
+            )
+        else:
+            # Established controller-facing [rudder, pitch, roll] allocation.
+            rud_lim = torch.deg2rad(
+                torch.tensor(float(self.cfg.rudder_max_deg), device=self.device)
+            )
+            self._rudder_cmd = (rud_lim * self._act_cmd[:, 1]).clamp(-rud_lim, rud_lim)
 
-        elevon_lim = torch.deg2rad(torch.tensor(float(self.cfg.elevon_max_deg), device=self.device))
-        self._elevon_pitch_cmd = (elevon_lim * self._act_cmd[:, 2]).clamp(-elevon_lim, elevon_lim)
-        self._elevon_roll_cmd = (elevon_lim * self._act_cmd[:, 3]).clamp(-elevon_lim, elevon_lim)
+            elevon_lim = torch.deg2rad(
+                torch.tensor(float(self.cfg.elevon_max_deg), device=self.device)
+            )
+            self._elevon_pitch_cmd = (elevon_lim * self._act_cmd[:, 2]).clamp(
+                -elevon_lim, elevon_lim
+            )
+            self._elevon_roll_cmd = (elevon_lim * self._act_cmd[:, 3]).clamp(
+                -elevon_lim, elevon_lim
+            )
 
-        trim = torch.deg2rad(torch.tensor(float(self.cfg.elevon_trim_deg), device=self.device))
-        mixed_pitch = float(self.cfg.elevon_pitch_mix) * self._elevon_pitch_cmd
-        mixed_roll = float(self.cfg.elevon_roll_mix) * self._elevon_roll_cmd
-        left_raw = trim + mixed_pitch + mixed_roll
-        right_raw = trim + mixed_pitch - mixed_roll
+            trim = torch.deg2rad(
+                torch.tensor(float(self.cfg.elevon_trim_deg), device=self.device)
+            )
+            mixed_pitch = float(self.cfg.elevon_pitch_mix) * self._elevon_pitch_cmd
+            mixed_roll = float(self.cfg.elevon_roll_mix) * self._elevon_roll_cmd
+            left_raw = trim + mixed_pitch + mixed_roll
+            right_raw = trim + mixed_pitch - mixed_roll
+
+            l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -elevon_lim)
+            l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], elevon_lim)
+            r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], -elevon_lim)
+            r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], elevon_lim)
+            self._left_elevon_cmd = left_raw.clamp(l_lower, l_upper)
+            self._right_elevon_cmd = right_raw.clamp(r_lower, r_upper)
 
         self.extras["log"] = {
             "Teacher/delta": float(self._teacher_delta.mean().item()) if torch.is_tensor(self._teacher_delta) else float(self._teacher_delta),
@@ -2055,13 +2210,6 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             "Wind/mean_x_mps": float(self._wind_mean_w[:, 0].mean().item()),
             "Wind/mean_y_mps": float(self._wind_mean_w[:, 1].mean().item()),
         }
-
-        l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -elevon_lim)
-        l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], elevon_lim)
-        r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], -elevon_lim)
-        r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], elevon_lim)
-        self._left_elevon_cmd = left_raw.clamp(l_lower, l_upper)
-        self._right_elevon_cmd = right_raw.clamp(r_lower, r_upper)
 
         self._elevator_cmd = 0.5 * (self._left_elevon_cmd + self._right_elevon_cmd)
         self._roll_cmd = 0.5 * (self._left_elevon_cmd - self._right_elevon_cmd)
@@ -2501,16 +2649,34 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         wind_b = quat_apply_inverse(quat_w, self._wind_w)
         v_air_b = v_b - wind_b
 
+        controlled_joint_position = self._robot.data.joint_pos[:, self._joint_ids]
+        actual_rudder_rad = controlled_joint_position[:, self._IDX_RUDDER]
+        actual_left_elevon_rad = controlled_joint_position[:, self._IDX_LEFT_TAIL]
+        actual_right_elevon_rad = controlled_joint_position[:, self._IDX_RIGHT_TAIL]
+        self._debug_last_actual_rudder_rad.copy_(actual_rudder_rad)
+        self._debug_last_actual_left_elevon_rad.copy_(actual_left_elevon_rad)
+        self._debug_last_actual_right_elevon_rad.copy_(actual_right_elevon_rad)
+
         if bool(self.cfg.enable_tail_aero):
-            # tail (deflection-based)
+            tail_deflection_source = validate_tail_aero_deflection_source(
+                self.cfg.tail_aero_deflection_source
+            )
+            if tail_deflection_source == ACTUAL_JOINT_TAIL_AERO_DEFLECTION:
+                tail_rudder_rad = actual_rudder_rad
+                tail_left_elevon_rad = actual_left_elevon_rad
+                tail_right_elevon_rad = actual_right_elevon_rad
+            else:
+                tail_rudder_rad = self._rudder_cmd
+                tail_left_elevon_rad = self._left_elevon_cmd
+                tail_right_elevon_rad = self._right_elevon_cmd
             ele_bias = math.radians(float(self.cfg.tail_elevator_bias_deg))
             base_body_com_pos_b = self._robot.data.body_com_pos_b[:, int(self._base_body_ids[0]), :]
             f_tail, tau_tail = self._tail_model.compute_wrench(
                 root_lin_vel_b=v_air_b,
                 root_ang_vel_b=w_b,
-                left_elevon_rad=self._left_elevon_cmd + ele_bias,
-                right_elevon_rad=self._right_elevon_cmd + ele_bias,
-                rudder_rad=self._rudder_cmd,
+                left_elevon_rad=tail_left_elevon_rad + ele_bias,
+                right_elevon_rad=tail_right_elevon_rad + ele_bias,
+                rudder_rad=tail_rudder_rad,
                 base_com_pos_b=base_body_com_pos_b,
             )
             speed = torch.linalg.norm(v_air_b, dim=1)
@@ -2573,6 +2739,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_wing_force_b.copy_(f_w_sum)
         self._debug_last_wing_moment_b_about_base_com_nm.copy_(tau_w_sum)
         self._debug_last_tail_force_b.copy_(f_tail)
+        self._debug_last_tail_moment_b_about_base_com_nm.copy_(tau_tail)
         self._debug_last_force_b.copy_(f_w_sum + f_tail + f_drag)
         self._debug_last_torque_b.copy_(tau_w_sum + tau_tail)
 
@@ -3291,8 +3458,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._wind_mean_w[env_ids, 2] = 0.0
         self._wind_w[env_ids] = self._wind_mean_w[env_ids]
 
-        # root state: spawn at local (0,0,height_cmd) relative to env origin, with initial vx ~ vx_cmd
+        # Randomize the world-frame line direction while keeping the vehicle,
+        # initial velocity and route geometry mutually aligned.
         n = env_ids.shape[0]
+        if bool(self.cfg.randomize_straight_line_heading):
+            heading = (2.0 * torch.rand((n,), device=self.device) - 1.0) * math.pi
+        else:
+            heading = torch.zeros((n,), device=self.device)
+        self._straight_line_heading_rad[env_ids] = heading
+        self._straight_line_tangent_w[env_ids, 0] = torch.cos(heading)
+        self._straight_line_tangent_w[env_ids, 1] = torch.sin(heading)
+        self._straight_line_tangent_w[env_ids, 2] = 0.0
+        self._straight_line_normal_w[env_ids, 0] = -torch.sin(heading)
+        self._straight_line_normal_w[env_ids, 1] = torch.cos(heading)
+        self._straight_line_normal_w[env_ids, 2] = 0.0
+
+        # root state: spawn at local (0,0,height_cmd) relative to env origin, with initial vx ~ vx_cmd
         env_origins = self.scene.env_origins[env_ids]
         pos = env_origins.clone()
         pos[:, 2] += self._height_cmd[env_ids]
@@ -3302,7 +3483,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         rot = quat_from_euler_xyz(
             roll=torch.zeros_like(pitch),
             pitch=pitch,
-            yaw=torch.zeros_like(pitch),
+            yaw=heading,
         )
         lin_vel = torch.zeros(n, 3, device=self.device)
         reset_forward_speed = self._vx_cmd[env_ids]
@@ -3312,7 +3493,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 float(self.cfg.reset_forward_speed_mps),
                 device=self.device,
             )
-        lin_vel[:, 0] = reset_forward_speed
+        lin_vel[:, 0:2] = reset_forward_speed.unsqueeze(1) * self._straight_line_tangent_w[env_ids, 0:2]
         ang_vel = torch.zeros(n, 3, device=self.device)
         root_state = torch.cat([pos, rot, lin_vel, ang_vel], dim=1)
         self._robot.write_root_state_to_sim(root_state, env_ids=env_ids)
@@ -3350,19 +3531,36 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             )
         f0 = float(self.cfg.reset_flap_hz)
         f0 = max(float(self.cfg.min_flap_hz), min(float(self.cfg.max_flap_hz), f0))
+        if bool(self.cfg.randomize_flap_phase_at_reset):
+            phase0 = 2.0 * math.pi * torch.rand((n,), device=self.device)
+        else:
+            phase0 = torch.zeros((n,), device=self.device)
         jpos = self._default_joint_pos.expand(n, -1).clone()
         # initialize tail joints from mixed reset elevon commands
-        elevon_lim = torch.deg2rad(torch.tensor(float(self.cfg.elevon_max_deg), device=self.device))
-        rudder_lim = torch.deg2rad(torch.tensor(float(self.cfg.rudder_max_deg), device=self.device))
-        rudder_lower = torch.maximum(self._joint_lower_limits[self._IDX_RUDDER], -rudder_lim)
-        rudder_upper = torch.minimum(self._joint_upper_limits[self._IDX_RUDDER], rudder_lim)
+        action_interface = validate_action_interface(self.cfg.action_interface)
+        if action_interface == DIRECT_TAIL_SURFACE_ACTION:
+            rudder_lower = self._joint_lower_limits[self._IDX_RUDDER]
+            rudder_upper = self._joint_upper_limits[self._IDX_RUDDER]
+            l_lower = self._joint_lower_limits[self._IDX_LEFT_TAIL]
+            l_upper = self._joint_upper_limits[self._IDX_LEFT_TAIL]
+            r_lower = self._joint_lower_limits[self._IDX_RIGHT_TAIL]
+            r_upper = self._joint_upper_limits[self._IDX_RIGHT_TAIL]
+        else:
+            elevon_lim = torch.deg2rad(
+                torch.tensor(float(self.cfg.elevon_max_deg), device=self.device)
+            )
+            rudder_lim = torch.deg2rad(
+                torch.tensor(float(self.cfg.rudder_max_deg), device=self.device)
+            )
+            rudder_lower = torch.maximum(self._joint_lower_limits[self._IDX_RUDDER], -rudder_lim)
+            rudder_upper = torch.minimum(self._joint_upper_limits[self._IDX_RUDDER], rudder_lim)
+            l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -elevon_lim)
+            l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], elevon_lim)
+            r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], -elevon_lim)
+            r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], elevon_lim)
         rudder0 = torch.full((n,), math.radians(float(self.cfg.reset_rudder_deg)), device=self.device).clamp(
             rudder_lower, rudder_upper
         )
-        l_lower = torch.maximum(self._joint_lower_limits[self._IDX_LEFT_TAIL], -elevon_lim)
-        l_upper = torch.minimum(self._joint_upper_limits[self._IDX_LEFT_TAIL], elevon_lim)
-        r_lower = torch.maximum(self._joint_lower_limits[self._IDX_RIGHT_TAIL], -elevon_lim)
-        r_upper = torch.minimum(self._joint_upper_limits[self._IDX_RIGHT_TAIL], elevon_lim)
         trim0 = math.radians(float(self.cfg.elevon_trim_deg))
         pit0 = math.radians(float(self.cfg.reset_elevon_pitch_deg))
         rol0 = math.radians(float(self.cfg.reset_elevon_roll_deg))
@@ -3379,7 +3577,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
             NATIVE_HOLONOMIC_WING_DRIVE,
         }:
-            initial_common_velocity = self._wing_amp * 2.0 * math.pi * f0
+            initial_common_position = self._wing_amp * torch.sin(phase0)
+            jpos[:, self._IDX_LEFT_WING] = self._wing_mid_L + initial_common_position
+            jpos[:, self._IDX_RIGHT_WING] = self._wing_mid_R - initial_common_position
+            initial_common_velocity = self._wing_amp * 2.0 * math.pi * f0 * torch.cos(phase0)
             jvel[:, self._IDX_LEFT_WING] = initial_common_velocity
             jvel[:, self._IDX_RIGHT_WING] = -initial_common_velocity
         self._robot.write_joint_state_to_sim(jpos, jvel, joint_ids=self._joint_ids, env_ids=env_ids)
@@ -3388,7 +3589,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._actions[env_ids] = 0.0
         self._act_lpf[env_ids] = 0.0
         self._act_cmd[env_ids] = 0.0
-        self._phase[env_ids] = 0.0
+        self._phase[env_ids] = phase0
         self._ideal_torque_elapsed_s[env_ids] = 0.0
         # start near trim frequency to avoid immediate drop before the policy stabilizes
         self._freq[env_ids] = f0
@@ -3399,13 +3600,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if self._phase_acceleration_rad_s2 is not None:
             self._phase_acceleration_rad_s2[env_ids] = 0.0
         if self._sinusoidal_phase_drive_state is not None:
-            self._sinusoidal_phase_drive_state.phase_rad[env_ids] = 0.0
+            self._sinusoidal_phase_drive_state.phase_rad[env_ids] = phase0
             self._sinusoidal_phase_drive_state.phase_rate_rad_s[env_ids] = (
                 2.0 * math.pi * f0
             )
             self._sinusoidal_phase_drive_state.speed_error_integral_rad[env_ids] = 0.0
         if self._ideal_inverse_phase_state is not None:
-            self._ideal_inverse_phase_state.phase_rad[env_ids] = 0.0
+            self._ideal_inverse_phase_state.phase_rad[env_ids] = phase0
             self._ideal_inverse_phase_state.frequency_hz[env_ids] = f0
         if validate_wing_drive_variant(self.cfg.wing_drive_variant) == NATIVE_HOLONOMIC_WING_DRIVE:
             assert self._native_holonomic is not None
@@ -3422,23 +3623,52 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 target_velocity.detach().to(device="cpu", dtype=torch.float64).tolist(),
             )
         # initialize action history to match the reset frequency so action filtering doesn't create a large transient
-        a0 = 2.0 * (f0 - float(self.cfg.min_flap_hz)) / (float(self.cfg.max_flap_hz) - float(self.cfg.min_flap_hz)) - 1.0
+        a0 = frequency_hz_to_normalized_action(
+            torch.full((n,), f0, device=self.device),
+            minimum_frequency_hz=float(self.cfg.min_flap_hz),
+            maximum_frequency_hz=float(self.cfg.max_flap_hz),
+        )
         self._actions[env_ids, 0] = a0
         self._act_lpf[env_ids, 0] = a0
         self._act_cmd[env_ids, 0] = a0
         # initialize action history for tail channels to avoid large transients
-        rud_norm = float(self.cfg.reset_rudder_deg) / max(float(self.cfg.rudder_max_deg), 1.0e-6)
-        ele_norm = float(self.cfg.reset_elevon_pitch_deg) / max(float(self.cfg.elevon_max_deg), 1.0e-6)
-        rol_norm = float(self.cfg.reset_elevon_roll_deg) / max(float(self.cfg.elevon_max_deg), 1.0e-6)
-        self._actions[env_ids, 1] = max(-1.0, min(1.0, rud_norm))
-        self._act_lpf[env_ids, 1] = self._actions[env_ids, 1]
-        self._act_cmd[env_ids, 1] = self._actions[env_ids, 1]
-        self._actions[env_ids, 2] = max(-1.0, min(1.0, ele_norm))
-        self._act_lpf[env_ids, 2] = self._actions[env_ids, 2]
-        self._act_cmd[env_ids, 2] = self._actions[env_ids, 2]
-        self._actions[env_ids, 3] = max(-1.0, min(1.0, rol_norm))
-        self._act_lpf[env_ids, 3] = self._actions[env_ids, 3]
-        self._act_cmd[env_ids, 3] = self._actions[env_ids, 3]
+        if action_interface == DIRECT_TAIL_SURFACE_ACTION:
+            tail_reset_action = torch.stack(
+                (
+                    joint_position_to_normalized_action(
+                        rudder0,
+                        lower_limit_rad=rudder_lower,
+                        upper_limit_rad=rudder_upper,
+                    ),
+                    joint_position_to_normalized_action(
+                        left0,
+                        lower_limit_rad=l_lower,
+                        upper_limit_rad=l_upper,
+                    ),
+                    joint_position_to_normalized_action(
+                        right0,
+                        lower_limit_rad=r_lower,
+                        upper_limit_rad=r_upper,
+                    ),
+                ),
+                dim=1,
+            )
+            self._actions[env_ids, 1:4] = tail_reset_action
+            self._act_lpf[env_ids, 1:4] = tail_reset_action
+            self._act_cmd[env_ids, 1:4] = tail_reset_action
+        else:
+            rud_norm = float(self.cfg.reset_rudder_deg) / max(float(self.cfg.rudder_max_deg), 1.0e-6)
+            ele_norm = float(self.cfg.reset_elevon_pitch_deg) / max(float(self.cfg.elevon_max_deg), 1.0e-6)
+            rol_norm = float(self.cfg.reset_elevon_roll_deg) / max(float(self.cfg.elevon_max_deg), 1.0e-6)
+            self._actions[env_ids, 1] = max(-1.0, min(1.0, rud_norm))
+            self._act_lpf[env_ids, 1] = self._actions[env_ids, 1]
+            self._act_cmd[env_ids, 1] = self._actions[env_ids, 1]
+            self._actions[env_ids, 2] = max(-1.0, min(1.0, ele_norm))
+            self._act_lpf[env_ids, 2] = self._actions[env_ids, 2]
+            self._act_cmd[env_ids, 2] = self._actions[env_ids, 2]
+            self._actions[env_ids, 3] = max(-1.0, min(1.0, rol_norm))
+            self._act_lpf[env_ids, 3] = self._actions[env_ids, 3]
+            self._act_cmd[env_ids, 3] = self._actions[env_ids, 3]
 
         # initialize tail commands
         self._left_elevon_cmd[env_ids] = left0
@@ -3446,15 +3676,96 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._elevon_pitch_cmd[env_ids] = torch.full((n,), pit0, device=self.device)
         self._elevon_roll_cmd[env_ids] = torch.full((n,), rol0, device=self.device)
         self._elevator_cmd[env_ids] = 0.5 * (left0 + right0)
-        self._rudder_cmd[env_ids] = math.radians(float(self.cfg.reset_rudder_deg))
+        self._rudder_cmd[env_ids] = rudder0
         self._roll_cmd[env_ids] = 0.5 * (left0 - right0)
         if self._teacher_controller is not None:
             self._teacher_controller.reset(env_ids)
         self._reset_runtime_state_estimation(env_ids)
         self._hist_valid[env_ids] = False
+        if self._pure_rl_history_valid is not None:
+            self._pure_rl_history_valid[env_ids] = False
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
+    def _get_pure_rl_observations(self) -> dict[str, Tensor]:
+        """Build the normalized 555-value actor observation at policy rate."""
+
+        assert self._pure_rl_history_valid is not None
+        assert self._pure_rl_previous_orientation_wxyz is not None
+        assert self._pure_rl_sensor_history is not None
+        assert self._pure_rl_action_history is not None
+        orientation_wxyz = self._robot.data.root_quat_w
+        ground_velocity_b = self._robot.data.root_lin_vel_b
+        angular_velocity_b = self._robot.data.root_ang_vel_b
+        wind_b = quat_apply_inverse(orientation_wxyz, self._wind_w)
+        forward_air_velocity_b = ground_velocity_b[:, 0] - wind_b[:, 0]
+
+        previous_orientation = torch.where(
+            self._pure_rl_history_valid.unsqueeze(1),
+            self._pure_rl_previous_orientation_wxyz,
+            orientation_wxyz,
+        )
+        sensor_frame = build_raw_sensor_frame(
+            orientation_world_wxyz=orientation_wxyz,
+            ground_velocity_body_mps=ground_velocity_b,
+            angular_velocity_body_rad_s=angular_velocity_b,
+            forward_air_velocity_body_mps=forward_air_velocity_b,
+            actual_flap_frequency_hz=self._freq,
+            flap_phase_rad=self._phase,
+            previous_orientation_world_wxyz=previous_orientation,
+        )
+
+        local_position_w = self._robot.data.root_pos_w - self.scene.env_origins
+        route_origin_w = torch.zeros_like(local_position_w)
+        route_origin_w[:, 2] = self._height_cmd
+        route_delta_w = local_position_w - route_origin_w
+        closest_progress_m = torch.sum(route_delta_w * self._straight_line_tangent_w, dim=1)
+        preview_progress_m, _preview_speed_mps = compute_preview_query_progress_m(
+            closest_path_progress_m=closest_progress_m,
+            ground_velocity_world_mps=self._robot.data.root_lin_vel_w,
+            path_tangent_world=self._straight_line_tangent_w,
+            minimum_preview_speed_mps=float(self.cfg.pure_rl_preview_minimum_speed_mps),
+            maximum_preview_speed_mps=float(self.cfg.pure_rl_preview_maximum_speed_mps),
+        )
+        preview_points_w = (
+            route_origin_w.unsqueeze(1)
+            + preview_progress_m.unsqueeze(2) * self._straight_line_tangent_w.unsqueeze(1)
+        )
+        preview_points_b = transform_world_preview_points_to_body(
+            preview_points_world_m=preview_points_w,
+            vehicle_position_world_m=local_position_w,
+            orientation_world_wxyz=orientation_wxyz,
+        )
+
+        invalid_ids = (~self._pure_rl_history_valid).nonzero(as_tuple=False).squeeze(-1)
+        if invalid_ids.numel() > 0:
+            self._pure_rl_sensor_history[invalid_ids] = sensor_frame[invalid_ids].unsqueeze(1).expand(
+                -1,
+                PURE_RL_RAW_OBSERVATION_LAYOUT.sensor_history_steps,
+                -1,
+            )
+            self._pure_rl_action_history[invalid_ids] = self._act_cmd[invalid_ids].unsqueeze(1).expand(
+                -1,
+                PURE_RL_RAW_OBSERVATION_LAYOUT.action_history_steps,
+                -1,
+            )
+        self._pure_rl_sensor_history.copy_(torch.roll(self._pure_rl_sensor_history, shifts=-1, dims=1))
+        self._pure_rl_action_history.copy_(torch.roll(self._pure_rl_action_history, shifts=-1, dims=1))
+        self._pure_rl_sensor_history[:, -1, :] = sensor_frame
+        self._pure_rl_action_history[:, -1, :] = self._act_cmd
+        self._pure_rl_previous_orientation_wxyz.copy_(sensor_frame[:, 0:4])
+        self._pure_rl_history_valid[:] = True
+
+        observation = normalize_actor_observation(
+            sensor_history=self._pure_rl_sensor_history,
+            action_history=self._pure_rl_action_history,
+            preview_points_body_m=preview_points_b,
+        )
+        return {"policy": observation}
+
     def _get_observations(self) -> dict[str, Tensor]:
+        if bool(self.cfg.use_pure_rl_actor_observation):
+            return self._get_pure_rl_observations()
+
         self._refresh_runtime_estimated_state()
         pos_w, lin_vel_b, ang_vel_b, g_b = self._get_policy_observation_state()
         jpos = self._robot.data.joint_pos[:, self._joint_ids]
@@ -3512,6 +3823,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         )
         return {"policy": obs}
 
+    def _straight_line_cross_track_m(self, local_position_w: Tensor) -> Tensor:
+        """Return signed distance from each environment's randomized line."""
+
+        return torch.sum(local_position_w * self._straight_line_normal_w, dim=1)
+
     def _get_rewards(self) -> Tensor:
         pos_w = self._robot.data.root_pos_w - self.scene.env_origins
         # Height tracking
@@ -3527,8 +3843,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # Lateral drift penalty
         vy = self._robot.data.root_lin_vel_b[:, 1]
         p_vy = torch.tanh(torch.abs(vy) / 1.0)
-        y = pos_w[:, 1]
-        p_y = torch.tanh(torch.abs(y) / float(self.cfg.terminate_abs_y))
+        cross_track_m = self._straight_line_cross_track_m(pos_w)
+        p_y = torch.tanh(torch.abs(cross_track_m) / float(self.cfg.terminate_abs_y))
 
         # Attitude tracking (roll ~ 0, pitch ~ commanded trim).
         roll, pitch, _yaw = euler_xyz_from_quat(self._robot.data.root_quat_w)
@@ -3571,8 +3887,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         fell = fell | (tilt > tilt_thr)
 
         # lateral bound
-        y = pos_w[:, 1]
-        fell = fell | (torch.abs(y) > float(self.cfg.terminate_abs_y))
+        cross_track_m = self._straight_line_cross_track_m(pos_w)
+        fell = fell | (torch.abs(cross_track_m) > float(self.cfg.terminate_abs_y))
 
         # time out
         timed_out = self.episode_length_buf >= self.max_episode_length - 1

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import sys
 import threading
 import time
 from pathlib import Path
@@ -353,6 +354,7 @@ def test_build_train_cmd_uses_portable_root_kit_args() -> None:
 
     cmd = train_and_watch._build_train_cmd(args)
 
+    assert cmd[:3] == ["./isaaclab.sh", "-p", "scripts/reinforcement_learning/rsl_rl/train.py"]
     assert "--kit_args" in cmd
     assert cmd[cmd.index("--kit_args") + 1] == "--portable-root logs/portable/train_and_watch/portable_smoke_seed5_pid123/train"
 
@@ -384,3 +386,105 @@ def test_build_watch_cmd_uses_distinct_portable_root_kit_args(tmp_path: Path) ->
 
     assert "--kit_args" in cmd
     assert cmd[cmd.index("--kit_args") + 1] == "--portable-root logs/portable/train_and_watch/portable_smoke_seed5_pid123/watch"
+
+
+def test_build_train_cmd_native_cpu_adds_extension_and_p0_overrides(tmp_path: Path) -> None:
+    extension_parent = tmp_path / "native_extensions"
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+        run_name="native_cpu_p0",
+        num_envs=64,
+        max_iterations=2,
+        save_interval=1,
+        seed=0,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=1,
+        poll_s=10.0,
+        eval_suite="straight_standard",
+        headless=True,
+        resume=False,
+        load_weights_only=False,
+        load_run=None,
+        checkpoint=None,
+        portable_root_base=tmp_path / "portable",
+        native_cpu=True,
+        native_extension_parent=extension_parent,
+        agent_device=None,
+        freeze_steps_after_reset=0,
+    )
+
+    cmd = train_and_watch._build_train_cmd(args)
+    kit_args = cmd[cmd.index("--kit_args") + 1]
+
+    assert cmd[:2] == [sys.executable, "scripts/reinforcement_learning/rsl_rl/train.py"]
+    assert cmd[cmd.index("--device") + 1] == "cpu"
+    assert f"--ext-folder {extension_parent.resolve()}" in kit_args
+    assert "--enable omni.flapping_bot.holonomic_constraint" in kit_args
+    assert "agent.device=cpu" in cmd
+    assert "env.freeze_steps_after_reset=0" in cmd
+    expected_asset = (
+        Path(train_and_watch.__file__).resolve().parents[2]
+        / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf"
+    )
+    expected_usd_dir = (tmp_path / "portable/train/generated_assets/flap_robot_552").resolve()
+    assert f"env.robot.spawn.asset_path={expected_asset}" in cmd
+    assert f"env.robot.spawn.usd_dir={expected_usd_dir}" in cmd
+
+
+def test_build_watch_cmd_native_cpu_adds_extension_and_uses_cpu(tmp_path: Path) -> None:
+    extension_parent = tmp_path / "native_extensions"
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+        run_name="native_cpu_p0",
+        eval_num_envs=1,
+        seed=0,
+        eval_device="cuda:1",
+        episodes=1,
+        poll_s=10.0,
+        eval_suite="straight_standard",
+        headless=True,
+        portable_root_base=tmp_path / "portable",
+        native_cpu=True,
+        native_extension_parent=extension_parent,
+    )
+
+    cmd = train_and_watch._build_watch_cmd(args, tmp_path / "run")
+    kit_args = cmd[cmd.index("--kit_args") + 1]
+
+    assert cmd[:2] == [sys.executable, "scripts/flapping_rl/watch_and_eval.py"]
+    assert cmd[cmd.index("--device") + 1] == "cpu"
+    assert f"--ext-folder {extension_parent.resolve()}" in kit_args
+    assert "--enable omni.flapping_bot.holonomic_constraint" in kit_args
+
+
+def test_validate_native_extension_requires_built_binary(tmp_path: Path) -> None:
+    args = train_and_watch.argparse.Namespace(native_cpu=True, native_extension_parent=tmp_path)
+
+    with pytest.raises(FileNotFoundError, match="build_holonomic_constraint_extension.sh"):
+        train_and_watch._validate_native_extension(args)
+
+    binary = (
+        tmp_path
+        / "omni.flapping_bot.holonomic_constraint"
+        / "omni/flapping_bot/holonomic_constraint/_native.so"
+    )
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"")
+
+    train_and_watch._validate_native_extension(args)
+
+
+def test_native_child_environment_prioritizes_current_worktree_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/external/pythonpath")
+    args = train_and_watch.argparse.Namespace(native_cpu=True)
+
+    child_env = train_and_watch._child_process_env(args)
+    entries = child_env["PYTHONPATH"].split(train_and_watch.os.pathsep)
+    repo_root = Path(train_and_watch.__file__).resolve().parents[2]
+
+    assert entries[:2] == [
+        str((repo_root / "source/flapping_bot").resolve()),
+        str((repo_root / "source/isaaclab_assets").resolve()),
+    ]
+    assert entries[2] == "/external/pythonpath"

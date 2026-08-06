@@ -16,6 +16,15 @@ Typical usage:
     --save-interval 100 \
     --episodes 5 --poll-s 120 \
     --headless
+
+  # Canonical CPU-native measured-wing plant
+  ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
+    --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0 \
+    --run-name native_cpu_pure_rl \
+    --native-cpu \
+    --freeze-steps-after-reset 0 \
+    --num-envs 64 \
+    --headless
 """
 
 from __future__ import annotations
@@ -36,6 +45,9 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from checkpoint_selection import refresh_best_checkpoint_artifacts, select_best_checkpoint_row
 from eval_suites import get_eval_suite_choices
+
+
+_NATIVE_HOLONOMIC_EXTENSION_ID = "omni.flapping_bot.holonomic_constraint"
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
@@ -67,6 +79,32 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--train-device", type=str, default="cuda:0")
     parser.add_argument("--eval-device", type=str, default="cuda:1")
+    parser.add_argument(
+        "--native-cpu",
+        action="store_true",
+        help=(
+            "Run the simulator and policy on CPU and load the canonical native holonomic constraint extension. "
+            "The extension is incompatible with direct-GPU PhysX."
+        ),
+    )
+    parser.add_argument(
+        "--native-extension-parent",
+        type=Path,
+        default=None,
+        help="Parent directory containing the omni.flapping_bot.holonomic_constraint extension.",
+    )
+    parser.add_argument(
+        "--agent-device",
+        type=str,
+        default=None,
+        help="Optional RSL-RL policy/optimizer device override; --native-cpu defaults this to cpu.",
+    )
+    parser.add_argument(
+        "--freeze-steps-after-reset",
+        type=int,
+        default=None,
+        help="Optional environment reset-freeze override; use 0 for the native CPU PureRL P0 gate.",
+    )
     parser.add_argument("--eval-num-envs", type=int, default=1)
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument("--poll-s", type=float, default=120.0)
@@ -174,13 +212,13 @@ def _safe_terminate(p: subprocess.Popen, timeout_s: float = 10.0):
         p.kill()
 
 
-def _run_final_eval_once(watch_cmd: list[str]) -> int:
+def _run_final_eval_once(watch_cmd: list[str], *, child_env: dict[str, str] | None = None) -> int:
     final_cmd = list(watch_cmd)
     if "--once" not in final_cmd:
         final_cmd.append("--once")
     print("[INFO] Running final one-shot evaluation:", flush=True)
     print(" ", " ".join(final_cmd), flush=True)
-    return subprocess.call(final_cmd)
+    return subprocess.call(final_cmd, env=child_env)
 
 
 def _resolve_portable_root_base(args: argparse.Namespace) -> Path:
@@ -198,18 +236,92 @@ def _portable_kit_args(args: argparse.Namespace, role: str) -> str:
     return f"--portable-root {_portable_root_for_role(args, role)}"
 
 
+def _native_cpu_enabled(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "native_cpu", False))
+
+
+def _native_extension_parent(args: argparse.Namespace) -> Path:
+    configured = getattr(args, "native_extension_parent", None)
+    if configured is not None:
+        return Path(configured).expanduser().resolve()
+    return (Path(__file__).resolve().parents[2] / "source/flapping_bot/native_extensions").resolve()
+
+
+def _validate_native_extension(args: argparse.Namespace) -> None:
+    if not _native_cpu_enabled(args):
+        return
+    extension_parent = _native_extension_parent(args)
+    extension_binary = (
+        extension_parent
+        / _NATIVE_HOLONOMIC_EXTENSION_ID
+        / "omni/flapping_bot/holonomic_constraint/_native.so"
+    )
+    if not extension_binary.is_file():
+        raise FileNotFoundError(
+            f"Native extension binary does not exist: {extension_binary}. "
+            "Build it with scripts/flapping_px4/build_holonomic_constraint_extension.sh."
+        )
+
+
+def _child_entrypoint(args: argparse.Namespace, script: str) -> list[str]:
+    if _native_cpu_enabled(args):
+        return [sys.executable, script]
+    return ["./isaaclab.sh", "-p", script]
+
+
+def _native_asset_source() -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf"
+    ).resolve()
+
+
+def _native_asset_cache(args: argparse.Namespace) -> Path:
+    return (_portable_root_for_role(args, "train") / "generated_assets/flap_robot_552").resolve()
+
+
+def _child_process_env(args: argparse.Namespace) -> dict[str, str]:
+    child_env = os.environ.copy()
+    if not _native_cpu_enabled(args):
+        return child_env
+    repo_root = Path(__file__).resolve().parents[2]
+    local_sources = [
+        str((repo_root / "source/flapping_bot").resolve()),
+        str((repo_root / "source/isaaclab_assets").resolve()),
+    ]
+    existing_pythonpath = child_env.get("PYTHONPATH", "")
+    if existing_pythonpath:
+        local_sources.append(existing_pythonpath)
+    child_env["PYTHONPATH"] = os.pathsep.join(local_sources)
+    return child_env
+
+
+def _kit_args(args: argparse.Namespace, role: str) -> str:
+    kit_args = _portable_kit_args(args, role)
+    if _native_cpu_enabled(args):
+        kit_args += (
+            f" --ext-folder {_native_extension_parent(args)}"
+            f" --enable {_NATIVE_HOLONOMIC_EXTENSION_ID}"
+        )
+    return kit_args
+
+
+def _sim_device(args: argparse.Namespace, role: str) -> str:
+    if _native_cpu_enabled(args):
+        return "cpu"
+    return str(getattr(args, f"{role}_device"))
+
+
 def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     if bool(args.resume) and bool(getattr(args, "load_weights_only", False)):
         raise ValueError("--resume and --load_weights_only cannot both be enabled.")
 
     train_cmd = [
-        "./isaaclab.sh",
-        "-p",
-        "scripts/reinforcement_learning/rsl_rl/train.py",
+        *_child_entrypoint(args, "scripts/reinforcement_learning/rsl_rl/train.py"),
         "--task",
         args.task,
         "--device",
-        args.train_device,
+        _sim_device(args, "train"),
         "--num_envs",
         str(args.num_envs),
         "--max_iterations",
@@ -227,7 +339,24 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
         train_cmd.extend(["--load_run", str(args.load_run)])
     if args.checkpoint is not None:
         train_cmd.extend(["--checkpoint", str(args.checkpoint)])
-    train_cmd.extend(["--kit_args", _portable_kit_args(args, "train")])
+    train_cmd.extend(["--kit_args", _kit_args(args, "train")])
+    agent_device = getattr(args, "agent_device", None)
+    if _native_cpu_enabled(args):
+        agent_device = agent_device or "cpu"
+    if agent_device is not None:
+        train_cmd.append(f"agent.device={agent_device}")
+    freeze_steps_after_reset = getattr(args, "freeze_steps_after_reset", None)
+    if freeze_steps_after_reset is not None:
+        if int(freeze_steps_after_reset) < 0:
+            raise ValueError("--freeze-steps-after-reset must be non-negative.")
+        train_cmd.append(f"env.freeze_steps_after_reset={int(freeze_steps_after_reset)}")
+    if _native_cpu_enabled(args):
+        train_cmd.extend(
+            [
+                f"env.robot.spawn.asset_path={_native_asset_source()}",
+                f"env.robot.spawn.usd_dir={_native_asset_cache(args)}",
+            ]
+        )
     if _should_apply_estimated_teacher_defaults(args.task):
         train_cmd.extend(
             [
@@ -246,15 +375,13 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
 
 def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
     watch_cmd = [
-        "./isaaclab.sh",
-        "-p",
-        "scripts/flapping_rl/watch_and_eval.py",
+        *_child_entrypoint(args, "scripts/flapping_rl/watch_and_eval.py"),
         "--task",
         args.task,
         "--log_dir",
         str(run_dir),
         "--device",
-        args.eval_device,
+        _sim_device(args, "eval"),
         "--episodes",
         str(args.episodes),
         "--num_envs",
@@ -264,7 +391,7 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
         "--eval_suite",
         _resolve_eval_suite(args.task, str(args.eval_suite)),
     ]
-    watch_cmd.extend(["--kit_args", _portable_kit_args(args, "watch")])
+    watch_cmd.extend(["--kit_args", _kit_args(args, "watch")])
     if args.headless:
         watch_cmd.append("--headless")
     return watch_cmd
@@ -275,10 +402,16 @@ def main():
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)
     args.portable_root_base = _resolve_portable_root_base(args)
+    _validate_native_extension(args)
     _portable_root_for_role(args, "train").mkdir(parents=True, exist_ok=True)
     _portable_root_for_role(args, "watch").mkdir(parents=True, exist_ok=True)
+    if _native_cpu_enabled(args):
+        if not _native_asset_source().is_file():
+            raise FileNotFoundError(f"Native PureRL URDF does not exist: {_native_asset_source()}")
+        _native_asset_cache(args).mkdir(parents=True, exist_ok=True)
 
     train_cmd = _build_train_cmd(args)
+    child_env = _child_process_env(args)
 
     print("[INFO] Launching training:")
     print(" ", " ".join(train_cmd), flush=True)
@@ -290,6 +423,7 @@ def main():
         text=True,
         bufsize=1,
         start_new_session=True,
+        env=child_env,
     )
 
     log_root: Path | None = None
@@ -325,7 +459,7 @@ def main():
 
         print("[INFO] Launching watcher:")
         print(" ", " ".join(watch_cmd), flush=True)
-        watcher = subprocess.Popen(watch_cmd, start_new_session=True)
+        watcher = subprocess.Popen(watch_cmd, start_new_session=True, env=child_env)
 
         assert train.stdout is not None
         for line in train.stdout:
@@ -347,7 +481,7 @@ def main():
 
         if final_eval_needed and watch_cmd is not None and run_dir is not None:
             if _needs_final_eval(run_dir):
-                final_eval_rc = _run_final_eval_once(watch_cmd)
+                final_eval_rc = _run_final_eval_once(watch_cmd, child_env=child_env)
                 if final_eval_rc != 0:
                     print(f"[WARN] Final one-shot evaluation exited with code: {final_eval_rc}", flush=True)
                     rc = final_eval_rc if rc == 0 else rc

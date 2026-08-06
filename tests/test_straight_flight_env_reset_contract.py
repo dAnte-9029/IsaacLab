@@ -67,6 +67,74 @@ def test_straight_flight_env_exposes_near_physical_elevon_authority() -> None:
     assert float(assign.value.value) >= 40.5
 
 
+def test_measured_pure_rl_uses_zero_to_five_hz_without_changing_canonical_controller_range() -> None:
+    module = _load_module()
+    canonical_cfg = _find_class(module, "FlappingBotStraightFlightDeLaurierEnvCfg")
+    pure_rl_cfg = _find_class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg")
+
+    canonical_minimum = _find_ann_assign(canonical_cfg, "min_flap_hz")
+    pure_rl_minimum = _find_ann_assign(pure_rl_cfg, "min_flap_hz")
+
+    assert ast.literal_eval(canonical_minimum.value) == 2.0
+    assert ast.literal_eval(pure_rl_minimum.value) == 0.0
+
+
+def test_measured_pure_rl_selects_direct_surfaces_actual_tail_state_and_sixty_hz_policy() -> None:
+    module = _load_module()
+    base_cfg = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+    pure_rl_cfg = _find_class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg")
+
+    base_interface = _find_ann_assign(base_cfg, "action_interface")
+    base_tail_source = _find_ann_assign(base_cfg, "tail_aero_deflection_source")
+    pure_interface = _find_ann_assign(pure_rl_cfg, "action_interface")
+    pure_tail_source = _find_ann_assign(pure_rl_cfg, "tail_aero_deflection_source")
+    pure_decimation = _find_ann_assign(pure_rl_cfg, "decimation")
+
+    assert isinstance(base_interface.value, ast.Name)
+    assert base_interface.value.id == "MIXED_ELEVON_ACTION"
+    assert isinstance(base_tail_source.value, ast.Name)
+    assert base_tail_source.value.id == "COMMAND_TAIL_AERO_DEFLECTION"
+    assert isinstance(pure_interface.value, ast.Name)
+    assert pure_interface.value.id == "DIRECT_TAIL_SURFACE_ACTION"
+    assert isinstance(pure_tail_source.value, ast.Name)
+    assert pure_tail_source.value.id == "ACTUAL_JOINT_TAIL_AERO_DEFLECTION"
+    assert ast.literal_eval(pure_decimation.value) == 8
+
+
+def test_measured_pure_rl_alone_selects_normalized_555_observation_and_reset_randomization() -> None:
+    module = _load_module()
+    base_cfg = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+    pure_rl_cfg = _find_class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg")
+
+    assert ast.literal_eval(_find_ann_assign(base_cfg, "observation_space").value) == 68
+    assert ast.literal_eval(_find_ann_assign(base_cfg, "use_pure_rl_actor_observation").value) is False
+    assert ast.literal_eval(_find_ann_assign(base_cfg, "randomize_straight_line_heading").value) is False
+    assert ast.literal_eval(_find_ann_assign(base_cfg, "randomize_flap_phase_at_reset").value) is False
+
+    pure_observation_space = _find_ann_assign(pure_rl_cfg, "observation_space").value
+    assert isinstance(pure_observation_space, ast.Attribute)
+    assert pure_observation_space.attr == "observation_dim"
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "use_pure_rl_actor_observation").value) is True
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "randomize_straight_line_heading").value) is True
+    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "randomize_flap_phase_at_reset").value) is True
+
+
+def test_measured_pure_rl_disables_only_its_outer_action_shapers() -> None:
+    module = _load_module()
+    base_cfg = _find_class(module, "FlappingBotStraightFlightEnvCfg")
+    pure_rl_cfg = _find_class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg")
+
+    base_lpf = _find_ann_assign(base_cfg, "act_lpf_tau_s")
+    base_rate_limit = _find_ann_assign(base_cfg, "act_rate_limit_per_s")
+    pure_lpf = _find_ann_assign(pure_rl_cfg, "act_lpf_tau_s")
+    pure_rate_limit = _find_ann_assign(pure_rl_cfg, "act_rate_limit_per_s")
+
+    assert ast.literal_eval(base_lpf.value) == 0.1
+    assert ast.literal_eval(base_rate_limit.value) == 2.0
+    assert ast.literal_eval(pure_lpf.value) == 0.0
+    assert ast.literal_eval(pure_rate_limit.value) == 0.0
+
+
 def test_straight_flight_env_exposes_tail_aero_compatibility_fields() -> None:
     module = _load_module()
     class_node = _find_class(module, "FlappingBotStraightFlightEnvCfg")
