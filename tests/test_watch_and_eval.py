@@ -125,7 +125,7 @@ def test_watch_and_eval_resolves_measured_pure_rl_to_fixed_grid_suite() -> None:
         episodes=None,
     )
 
-    assert resolved == "pure_rl_curriculum1_nowind_v1"
+    assert resolved == "pure_rl_curriculum1_nowind_v2"
     assert shape == (16, 16)
 
 
@@ -255,7 +255,7 @@ def test_watch_and_eval_scores_path_tracking_rows_with_completion_priority() -> 
 def test_watch_and_eval_scores_pure_rl_without_legacy_vx_error() -> None:
     watch_and_eval = _load_watch_and_eval_module()
     row = {
-        "evaluation_contract": "pure_rl_curriculum1_v1",
+        "evaluation_contract": "pure_rl_curriculum1_v2",
         "timeout_rate": 1.0,
         "mean_along_track_progress_m": 12.0,
         "mean_abs_cross_track_error_m": 0.1,

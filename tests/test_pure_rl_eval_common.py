@@ -28,6 +28,8 @@ def _nominal_step_metrics(count: int = 4) -> dict[str, list[float]]:
         "frequency_limit_active": [0.0] * count,
         "tail_limit_active": [0.0] * count,
         "normalized_action_delta": [0.05] * count,
+        "frequency_slew_hz_per_s": [-2.0, -1.0, 0.0, 1.0][:count],
+        "frequency_governor_limited": [1.0, 0.0, 0.0, 1.0][:count],
     }
 
 
@@ -70,6 +72,8 @@ def test_episode_summary_uses_route_progress_without_target_speed_error() -> Non
     assert row["mean_along_track_velocity_mps"] == pytest.approx(1.0)
     assert row["mean_abs_cross_track_error_m"] == pytest.approx(0.1)
     assert row["mean_abs_height_error_m"] == pytest.approx(0.2)
+    assert row["mean_abs_frequency_slew_hz_per_s"] == pytest.approx(1.0)
+    assert row["frequency_governor_limited_fraction"] == pytest.approx(0.5)
     assert row["time_out"] == 1
     assert "mean_abs_vx_err" not in row
 
@@ -144,7 +148,7 @@ def test_case_aggregation_marks_contract_gate_and_termination_causes(tmp_path: P
         episode_rows=[episode] * 16,
     )
 
-    assert row["evaluation_contract"] == "pure_rl_curriculum1_v1"
+    assert row["evaluation_contract"] == "pure_rl_curriculum1_v2"
     assert row["episodes"] == 16
     assert row["heading_phase_pairs"] == 16
     assert row["ground_termination_rate"] == pytest.approx(0.0)

@@ -148,7 +148,7 @@ def test_measured_pure_rl_defaults_to_unfrozen_0_to_5_hz_curriculum1_rollouts() 
     assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "pure_rl_preview_maximum_speed_mps").value) == 12.0
 
 
-def test_measured_pure_rl_disables_only_its_outer_action_shapers() -> None:
+def test_measured_pure_rl_disables_global_shapers_and_enables_frequency_only_governor() -> None:
     module = _load_module()
     base_cfg = _find_class(module, "FlappingBotStraightFlightEnvCfg")
     pure_rl_cfg = _find_class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg")
@@ -157,11 +157,19 @@ def test_measured_pure_rl_disables_only_its_outer_action_shapers() -> None:
     base_rate_limit = _find_ann_assign(base_cfg, "act_rate_limit_per_s")
     pure_lpf = _find_ann_assign(pure_rl_cfg, "act_lpf_tau_s")
     pure_rate_limit = _find_ann_assign(pure_rl_cfg, "act_rate_limit_per_s")
+    base_governor = _find_ann_assign(base_cfg, "frequency_governor_enabled")
+    pure_governor = _find_ann_assign(pure_rl_cfg, "frequency_governor_enabled")
+    pure_rise_rate = _find_ann_assign(pure_rl_cfg, "frequency_governor_maximum_rise_rate_hz_per_s")
+    pure_fall_rate = _find_ann_assign(pure_rl_cfg, "frequency_governor_maximum_fall_rate_hz_per_s")
 
     assert ast.literal_eval(base_lpf.value) == 0.1
     assert ast.literal_eval(base_rate_limit.value) == 2.0
     assert ast.literal_eval(pure_lpf.value) == 0.0
     assert ast.literal_eval(pure_rate_limit.value) == 0.0
+    assert ast.literal_eval(base_governor.value) is False
+    assert ast.literal_eval(pure_governor.value) is True
+    assert ast.literal_eval(pure_rise_rate.value) == 2.0
+    assert ast.literal_eval(pure_fall_rate.value) == 2.0
 
 
 def test_straight_flight_env_exposes_tail_aero_compatibility_fields() -> None:

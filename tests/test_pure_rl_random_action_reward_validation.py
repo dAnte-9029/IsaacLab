@@ -71,7 +71,7 @@ def _accepted_synthetic_trace() -> dict[str, np.ndarray]:
     }
     for name in REWARD_TERM_NAMES:
         traces[name] = total.copy() if name == "total" else np.zeros_like(total)
-    traces["frequency_action_delta_penalty"] = np.full_like(total, 0.2)
+    traces["frequency_slew_penalty"] = np.full_like(total, 0.2)
     traces["tail_action_delta_penalty"] = np.full_like(total, 0.1)
     return traces
 
@@ -89,7 +89,7 @@ def test_random_trace_summary_accepts_finite_reset_and_coverage_contract() -> No
 @pytest.mark.parametrize(
     ("mutation", "failed_gate"),
     (
-        ("action_transfer", "applied_actions_match_requested_actions"),
+        ("action_transfer", "applied_tail_actions_match_requested_actions"),
         ("reward", "reward_reconstruction_matches_environment"),
         ("telemetry", "reward_total_telemetry_matches_environment_mean"),
         ("observation", "observation_safety_clip_contract_holds"),
@@ -102,7 +102,7 @@ def test_random_trace_summary_rejects_runtime_regressions(
 ) -> None:
     traces = _accepted_synthetic_trace()
     if mutation == "action_transfer":
-        traces["step_applied_action"][0, 0, 0] += 0.1
+        traces["step_applied_action"][0, 0, 1] += 0.1
     elif mutation == "reward":
         traces["returned_reward"][0] += 0.1
     elif mutation == "telemetry":

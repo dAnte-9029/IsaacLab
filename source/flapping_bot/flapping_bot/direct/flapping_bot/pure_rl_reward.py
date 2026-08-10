@@ -33,7 +33,8 @@ class PureRLRewardConfig:
     angular_rate_reward_weight: float = 0.10
     pitch_envelope_penalty_weight: float = 0.03
     flap_penalty_weight: float = 0.04
-    frequency_action_delta_penalty_weight: float = 0.01
+    frequency_slew_scale_hz_per_s: float = 2.0
+    frequency_slew_penalty_weight: float = 0.01
     tail_action_delta_penalty_weight: float = 0.01
     tail_action_limit_penalty_weight: float = 0.02
 
@@ -49,7 +50,7 @@ class PureRLRewardTerms:
     angular_rate_reward: Tensor
     pitch_envelope_penalty: Tensor
     flap_penalty: Tensor
-    frequency_action_delta_penalty: Tensor
+    frequency_slew_penalty: Tensor
     tail_action_delta_penalty: Tensor
     tail_action_limit_penalty: Tensor
     total_reward: Tensor
@@ -65,7 +66,7 @@ class PureRLRewardTerms:
             "angular_rate": self.angular_rate_reward,
             "pitch_envelope_penalty": self.pitch_envelope_penalty,
             "flap_penalty": self.flap_penalty,
-            "frequency_action_delta_penalty": self.frequency_action_delta_penalty,
+            "frequency_slew_penalty": self.frequency_slew_penalty,
             "tail_action_delta_penalty": self.tail_action_delta_penalty,
             "tail_action_limit_penalty": self.tail_action_limit_penalty,
             "total": self.total_reward,
@@ -120,6 +121,7 @@ def compute_pure_rl_reward_terms(
     pitch_rad: Tensor,
     angular_velocity_body_rad_s: Tensor,
     actual_flap_frequency_hz: Tensor,
+    frequency_slew_hz_per_s: Tensor,
     applied_action: Tensor,
     previous_applied_action: Tensor,
     config: PureRLRewardConfig = PURE_RL_CURRICULUM1_REWARD_CONFIG,
@@ -135,6 +137,7 @@ def compute_pure_rl_reward_terms(
         "roll_rad": roll_rad,
         "pitch_rad": pitch_rad,
         "actual_flap_frequency_hz": actual_flap_frequency_hz,
+        "frequency_slew_hz_per_s": frequency_slew_hz_per_s,
     }
     reference = cross_track_error_m
     for name, value in vectors.items():
@@ -172,7 +175,9 @@ def compute_pure_rl_reward_terms(
     pitch_envelope_penalty = torch.tanh(torch.square(pitch_excess_rad / config.pitch_excess_scale_rad))
     flap_penalty = torch.pow(actual_flap_frequency_hz / config.maximum_flap_frequency_hz, 3.0)
     normalized_action_delta = 0.5 * (applied_action - previous_applied_action)
-    frequency_action_delta_penalty = torch.square(normalized_action_delta[:, 0])
+    frequency_slew_penalty = torch.square(
+        frequency_slew_hz_per_s / config.frequency_slew_scale_hz_per_s
+    )
     tail_action_delta_penalty = torch.mean(torch.square(normalized_action_delta[:, 1:4]), dim=1)
     tail_limit_margin = 1.0 - config.tail_action_limit_threshold
     tail_limit_excess = torch.relu(torch.abs(applied_action[:, 1:4]) - config.tail_action_limit_threshold)
@@ -186,7 +191,7 @@ def compute_pure_rl_reward_terms(
         + config.angular_rate_reward_weight * angular_rate_reward
         - config.pitch_envelope_penalty_weight * pitch_envelope_penalty
         - config.flap_penalty_weight * flap_penalty
-        - config.frequency_action_delta_penalty_weight * frequency_action_delta_penalty
+        - config.frequency_slew_penalty_weight * frequency_slew_penalty
         - config.tail_action_delta_penalty_weight * tail_action_delta_penalty
         - config.tail_action_limit_penalty_weight * tail_action_limit_penalty
     )
@@ -198,7 +203,7 @@ def compute_pure_rl_reward_terms(
         angular_rate_reward=angular_rate_reward,
         pitch_envelope_penalty=pitch_envelope_penalty,
         flap_penalty=flap_penalty,
-        frequency_action_delta_penalty=frequency_action_delta_penalty,
+        frequency_slew_penalty=frequency_slew_penalty,
         tail_action_delta_penalty=tail_action_delta_penalty,
         tail_action_limit_penalty=tail_action_limit_penalty,
         total_reward=total_reward,
@@ -258,6 +263,7 @@ def _validate_reward_config(config: PureRLRewardConfig) -> None:
         config.angular_rate_scale_rad_s,
         config.pitch_excess_scale_rad,
         config.maximum_flap_frequency_hz,
+        config.frequency_slew_scale_hz_per_s,
     )
     if any((not math.isfinite(float(value))) or float(value) <= 0.0 for value in positive):
         raise ValueError("Reward scales and maximum flap frequency must be finite and positive.")
@@ -273,7 +279,7 @@ def _validate_reward_config(config: PureRLRewardConfig) -> None:
         config.angular_rate_reward_weight,
         config.pitch_envelope_penalty_weight,
         config.flap_penalty_weight,
-        config.frequency_action_delta_penalty_weight,
+        config.frequency_slew_penalty_weight,
         config.tail_action_delta_penalty_weight,
         config.tail_action_limit_penalty_weight,
     )

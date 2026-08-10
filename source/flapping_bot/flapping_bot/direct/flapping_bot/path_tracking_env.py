@@ -369,6 +369,7 @@ else:
         mission_curriculum_enabled: bool = False
         mission_curriculum_stage_steps: tuple[int, ...] = ()
         mission_curriculum_stage_modes: tuple[str, ...] = ()
+        mission_curriculum_stage_straight_rehearsal_probs: tuple[float, ...] = ()
 
         path_manager_max_roll_deg: float = 35.0
         path_manager_max_flight_path_angle_deg: float = 10.0
@@ -517,6 +518,12 @@ else:
         mission_allow_climb_on_straight: bool = False
         mission_curriculum_enabled: bool = True
         mission_curriculum_stage_steps: tuple[int, ...] = (0, 50_000, 100_000, 150_000)
+        mission_curriculum_stage_straight_rehearsal_probs: tuple[float, ...] = (
+            0.50,
+            0.35,
+            0.25,
+            0.20,
+        )
         mission_curriculum_stage_modes: tuple[str, ...] = (
             "turn_only",
             "turn_loiter_quarter",
@@ -804,9 +811,19 @@ else:
                 stage_steps=tuple(int(v) for v in self.cfg.loiter_curriculum_stage_steps),
                 stage_modes=tuple(str(v) for v in self.cfg.loiter_curriculum_stage_modes),
                 stage_turns=tuple(float(v) for v in self.cfg.loiter_curriculum_stage_turns),
+                stage_straight_rehearsal_probs=tuple(
+                    float(v)
+                    for v in self.cfg.mission_curriculum_stage_straight_rehearsal_probs
+                ),
                 default_loiter_turns=float(self.cfg.loiter_turns),
                 straight_rehearsal_prob=float(self.cfg.loiter_curriculum_straight_rehearsal_prob),
             )
+            if (
+                not explicit_single_primitive
+                and loiter_stage.straight_rehearsal_prob > 0.0
+                and bool(self.cfg.mission_allow_straight)
+            ):
+                allow_straight = True
             assert self._path_loiter_turns is not None
             self._path_loiter_turns[env_id] = float(loiter_stage.loiter_turns)
             straight_weight = 1.0
@@ -1894,6 +1911,7 @@ def _resolve_loiter_curriculum_stage(
     default_loiter_turns: float,
     straight_rehearsal_prob: float,
     stage_turns: tuple[float, ...] = (),
+    stage_straight_rehearsal_probs: tuple[float, ...] = (),
 ) -> _LoiterCurriculumStage:
     """Resolve loiter turn fraction and rehearsal probability for the current stage."""
     active_mode = _resolve_curriculum_active_mode(
@@ -1905,14 +1923,28 @@ def _resolve_loiter_curriculum_stage(
     )
     if len(stage_turns) > 0 and len(stage_turns) != len(stage_modes):
         raise ValueError("loiter_curriculum_stage_turns and loiter_curriculum_stage_modes must have the same length.")
+    if len(stage_straight_rehearsal_probs) > 0:
+        if len(stage_straight_rehearsal_probs) != len(stage_modes):
+            raise ValueError(
+                "mission_curriculum_stage_straight_rehearsal_probs and "
+                "loiter_curriculum_stage_modes must have the same length."
+            )
+        if any(
+            not math.isfinite(float(value)) or not 0.0 <= float(value) <= 1.0
+            for value in stage_straight_rehearsal_probs
+        ):
+            raise ValueError(
+                "mission_curriculum_stage_straight_rehearsal_probs must lie in [0, 1]."
+            )
 
     loiter_turns = max(float(default_loiter_turns), 0.0)
-    if len(stage_turns) > 0 and enabled and len(stage_modes) > 0:
-        active_idx = 0
+    active_idx = 0
+    if enabled and len(stage_modes) > 0:
         for stage_idx, stage_step in enumerate(stage_steps):
             if int(step) < int(stage_step):
                 break
             active_idx = stage_idx
+    if len(stage_turns) > 0 and enabled and len(stage_modes) > 0:
         loiter_turns = min(loiter_turns, max(float(stage_turns[active_idx]), 0.0))
     elif active_mode in {"loiter_quarter", "turn_loiter_quarter"}:
         loiter_turns = min(loiter_turns, 0.25)
@@ -1920,7 +1952,9 @@ def _resolve_loiter_curriculum_stage(
         loiter_turns = min(loiter_turns, 0.5)
 
     rehearsal_prob = 0.0
-    if active_mode in {"loiter_full_with_straight_rehearsal", "turn_loiter_full_with_straight_rehearsal"}:
+    if enabled and len(stage_straight_rehearsal_probs) > 0:
+        rehearsal_prob = float(stage_straight_rehearsal_probs[active_idx])
+    elif active_mode in {"loiter_full_with_straight_rehearsal", "turn_loiter_full_with_straight_rehearsal"}:
         rehearsal_prob = min(max(float(straight_rehearsal_prob), 0.0), 1.0)
 
     return _LoiterCurriculumStage(

@@ -389,6 +389,8 @@ def main():
                 "frequency_limit_active",
                 "tail_limit_active",
                 "normalized_action_delta",
+                "frequency_slew_hz_per_s",
+                "frequency_governor_limited",
             )
             episode_metrics = [
                 {name: [] for name in metric_names}

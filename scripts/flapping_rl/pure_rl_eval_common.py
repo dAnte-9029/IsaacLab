@@ -11,8 +11,8 @@ import torch
 
 
 MEASURED_PURE_RL_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0"
-PURE_RL_CURRICULUM1_EVAL_SUITE = "pure_rl_curriculum1_nowind_v1"
-PURE_RL_CURRICULUM1_EVAL_CONTRACT = "pure_rl_curriculum1_v1"
+PURE_RL_CURRICULUM1_EVAL_SUITE = "pure_rl_curriculum1_nowind_v2"
+PURE_RL_CURRICULUM1_EVAL_CONTRACT = "pure_rl_curriculum1_v2"
 
 
 @dataclass(frozen=True)
@@ -105,6 +105,8 @@ def read_pure_rl_step_metrics(env) -> dict[str, torch.Tensor]:
         "frequency_limit_active": "_eval_pure_rl_frequency_limit_active",
         "tail_limit_active": "_eval_pure_rl_tail_limit_active",
         "normalized_action_delta": "_eval_pure_rl_normalized_action_delta",
+        "frequency_slew_hz_per_s": "_eval_pure_rl_frequency_slew_hz_per_s",
+        "frequency_governor_limited": "_eval_pure_rl_frequency_governor_limited",
         "ground_termination": "_eval_pure_rl_ground_termination",
         "tilt_termination": "_eval_pure_rl_tilt_termination",
         "cross_track_termination": "_eval_pure_rl_cross_track_termination",
@@ -152,6 +154,10 @@ def summarize_pure_rl_episode(
     height = [abs(float(value)) for value in step_metrics["height_error_m"]]
     tilt_deg = [math.degrees(float(value)) for value in step_metrics["tilt_rad"]]
     along_velocity = [float(value) for value in step_metrics["along_track_velocity_mps"]]
+    frequency_slew = step_metrics.get("frequency_slew_hz_per_s", [0.0] * count)
+    governor_limited = step_metrics.get("frequency_governor_limited", [0.0] * count)
+    if len(frequency_slew) != count or len(governor_limited) != count:
+        raise ValueError("PureRL frequency-governor metrics must align with the episode trace.")
     return {
         "episode_duration_s": float(count) * float(step_dt_s),
         "along_track_progress_m": float(step_metrics["along_track_progress_m"][-1]),
@@ -168,6 +174,10 @@ def summarize_pure_rl_episode(
         "frequency_limit_fraction": _mean(step_metrics["frequency_limit_active"]),
         "tail_limit_fraction": _mean(step_metrics["tail_limit_active"]),
         "mean_normalized_action_delta": _mean(step_metrics["normalized_action_delta"]),
+        "mean_abs_frequency_slew_hz_per_s": _mean(
+            [abs(float(value)) for value in frequency_slew]
+        ),
+        "frequency_governor_limited_fraction": _mean(governor_limited),
         "terminated": int(bool(terminated)),
         "time_out": int(bool(time_out)),
         "ground_termination": int(bool(termination_causes["ground"])),
@@ -211,6 +221,8 @@ def aggregate_pure_rl_case_row(
         "frequency_limit_fraction",
         "tail_limit_fraction",
         "mean_normalized_action_delta",
+        "mean_abs_frequency_slew_hz_per_s",
+        "frequency_governor_limited_fraction",
     )
     output_names = {
         "episode_duration_s": "mean_episode_duration_s",

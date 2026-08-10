@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from flapping_bot.direct.flapping_bot.path_tracking_env import (
     FlappingBotPathTrackingEnv,
     FlappingBotPathTrackingEnvCfg,
@@ -1025,6 +1027,28 @@ def test_path_tracking_primitive_pure_rl_cfg_preserves_turn_during_loiter_stages
     }
 
 
+def test_path_tracking_primitive_pure_rl_cfg_rehearses_straight_flight_in_every_stage() -> None:
+    module = ast.parse(
+        (
+            Path(__file__).resolve().parents[1]
+            / "source/flapping_bot/flapping_bot/direct/flapping_bot/path_tracking_env.py"
+        ).read_text()
+    )
+
+    assignment = next(
+        item
+        for node in ast.walk(module)
+        if isinstance(node, ast.ClassDef)
+        and node.name == "FlappingBotPathTrackingPrimitivePureRLEnvCfg"
+        for item in node.body
+        if isinstance(item, ast.AnnAssign)
+        and isinstance(item.target, ast.Name)
+        and item.target.id == "mission_curriculum_stage_straight_rehearsal_probs"
+    )
+
+    assert ast.literal_eval(assignment.value) == (0.50, 0.35, 0.25, 0.20)
+
+
 def test_path_tracking_env_uses_fixed_five_point_preview_contract() -> None:
     module = ast.parse(
         (
@@ -1148,6 +1172,34 @@ def test_resolve_loiter_curriculum_stage_supports_turn_loiter_modes() -> None:
     assert quarter_stage.straight_rehearsal_prob == 0.0
     assert full_stage.loiter_turns == 1.0
     assert full_stage.straight_rehearsal_prob == 0.2
+
+
+def test_resolve_loiter_curriculum_stage_uses_stage_specific_rehearsal_schedule() -> None:
+    common = {
+        "enabled": True,
+        "stage_steps": (0, 50_000, 100_000, 150_000),
+        "stage_modes": (
+            "turn_only",
+            "turn_loiter_quarter",
+            "turn_loiter_half",
+            "turn_loiter_full_with_straight_rehearsal",
+        ),
+        "stage_turns": (1.0, 0.25, 0.5, 1.0),
+        "stage_straight_rehearsal_probs": (0.50, 0.35, 0.25, 0.20),
+        "default_loiter_turns": 1.0,
+        "straight_rehearsal_prob": 0.0,
+    }
+
+    assert _resolve_loiter_curriculum_stage(step=0, **common).straight_rehearsal_prob == 0.50
+    assert _resolve_loiter_curriculum_stage(step=75_000, **common).straight_rehearsal_prob == 0.35
+    assert _resolve_loiter_curriculum_stage(step=125_000, **common).straight_rehearsal_prob == 0.25
+    assert _resolve_loiter_curriculum_stage(step=175_000, **common).straight_rehearsal_prob == 0.20
+
+    with pytest.raises(ValueError, match="stage_straight_rehearsal_probs"):
+        _resolve_loiter_curriculum_stage(
+            step=0,
+            **{**common, "stage_straight_rehearsal_probs": (0.5,)},
+        )
 
 
 def test_resolve_path_tracking_curriculum_supports_loiter_progressive_modes() -> None:

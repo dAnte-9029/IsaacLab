@@ -145,7 +145,7 @@ def summarize_random_action_trace(
     if action_comparison_valid.shape != requested.shape[:2]:
         raise ValueError("step_action_comparison_valid must have shape (steps, num_envs).")
     action_max_abs = float(np.max(np.abs(requested)))
-    action_transfer_error = np.abs(requested - applied)
+    action_transfer_error = np.abs(requested[:, :, 1:4] - applied[:, :, 1:4])
     action_transfer_max_error = (
         float(np.max(action_transfer_error[action_comparison_valid]))
         if np.any(action_comparison_valid)
@@ -177,7 +177,7 @@ def summarize_random_action_trace(
     )
 
     observation_max_abs = float(np.max(np.asarray(traces["step_observation_max_abs"])))
-    frequency_delta = np.asarray(traces["frequency_action_delta_penalty"], dtype=np.float64)
+    frequency_delta = np.asarray(traces["frequency_slew_penalty"], dtype=np.float64)
     tail_delta = np.asarray(traces["tail_action_delta_penalty"], dtype=np.float64)
     delta_in_contract = bool(
         np.all((frequency_delta >= 0.0) & (frequency_delta <= 1.0 + action_tolerance))
@@ -201,7 +201,7 @@ def summarize_random_action_trace(
     gates = {
         "all_numeric_traces_finite": all_finite,
         "requested_actions_stay_in_normalized_bounds": action_max_abs <= 1.0 + action_tolerance,
-        "applied_actions_match_requested_actions": action_transfer_max_error <= action_tolerance,
+        "applied_tail_actions_match_requested_actions": action_transfer_max_error <= action_tolerance,
         "iid_family_covers_both_action_extremes": full_range_coverage,
         "correlated_tail_family_stays_inside_0_8": (
             correlated_tail_max_abs <= 0.8 + action_tolerance
@@ -215,7 +215,7 @@ def summarize_random_action_trace(
         "termination_telemetry_matches_returned_done": (
             termination_telemetry_max_error <= reconstruction_tolerance
         ),
-        "normalized_action_delta_penalties_stay_in_contract": delta_in_contract,
+        "physical_frequency_slew_and_tail_delta_penalties_stay_in_contract": delta_in_contract,
         "observation_safety_clip_contract_holds": observation_max_abs <= 5.0 + action_tolerance,
         "automatic_reset_exercised": reset_event_count > 0 and environments_reset > 0,
         "repeated_reset_exercised": environments_reset_repeatedly > 0,
@@ -357,6 +357,7 @@ def run_random_action_reward_job(
                     pitch_rad=pitch_rad,
                     angular_velocity_body_rad_s=env._robot.data.root_ang_vel_b,
                     actual_flap_frequency_hz=env._freq,
+                    frequency_slew_hz_per_s=env._frequency_slew_hz_per_s,
                     applied_action=env._act_cmd,
                     previous_applied_action=previous_action,
                     config=env.cfg.pure_rl_reward_cfg,

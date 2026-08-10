@@ -474,7 +474,7 @@ def test_measured_pure_rl_defaults_to_native_cpu_and_64_envs(tmp_path: Path) -> 
     watch_kit_args = watch_cmd[watch_cmd.index("--kit_args") + 1]
     assert watch_cmd[:2] == [sys.executable, "scripts/flapping_rl/watch_and_eval.py"]
     assert watch_cmd[watch_cmd.index("--device") + 1] == "cpu"
-    assert watch_cmd[watch_cmd.index("--eval_suite") + 1] == "pure_rl_curriculum1_nowind_v1"
+    assert watch_cmd[watch_cmd.index("--eval_suite") + 1] == "pure_rl_curriculum1_nowind_v2"
     assert watch_cmd[watch_cmd.index("--num_envs") + 1] == "16"
     assert watch_cmd[watch_cmd.index("--episodes") + 1] == "16"
     assert f"--ext-folder {extension_parent.resolve()}" in watch_kit_args

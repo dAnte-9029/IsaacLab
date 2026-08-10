@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 import torch
 
@@ -12,6 +13,15 @@ MIXED_ELEVON_ACTION = "mixed_elevon"
 DIRECT_TAIL_SURFACE_ACTION = "direct_tail_surface"
 COMMAND_TAIL_AERO_DEFLECTION = "command"
 ACTUAL_JOINT_TAIL_AERO_DEFLECTION = "actual_joint_position"
+
+
+class FrequencyGovernorStep(NamedTuple):
+    """Result of one physical-frequency slew-governor step."""
+
+    requested_frequency_hz: Tensor
+    applied_frequency_hz: Tensor
+    slew_hz_per_s: Tensor
+    limited: Tensor
 
 
 def validate_action_interface(value: str) -> str:
@@ -96,6 +106,53 @@ def frequency_hz_to_normalized_action(
     return torch.clamp(action, min=-1.0, max=1.0)
 
 
+def apply_frequency_slew_governor(
+    requested_frequency_hz: Tensor,
+    *,
+    previous_frequency_hz: Tensor,
+    policy_step_dt_s: float,
+    maximum_rise_rate_hz_per_s: float,
+    maximum_fall_rate_hz_per_s: float,
+) -> FrequencyGovernorStep:
+    """Limit a requested frequency change in physical ``Hz/s`` units.
+
+    The operation is elementwise and never overshoots a request inside the
+    configured rise or fall envelope. Tensor shape, device, and dtype are
+    preserved.
+    """
+
+    _validate_frequency_tensor("requested_frequency_hz", requested_frequency_hz)
+    _validate_frequency_tensor("previous_frequency_hz", previous_frequency_hz)
+    if requested_frequency_hz.shape != previous_frequency_hz.shape:
+        raise ValueError("Frequency tensors must have the same shape.")
+    if requested_frequency_hz.device != previous_frequency_hz.device:
+        raise ValueError("Frequency tensors must use the same device.")
+    if requested_frequency_hz.dtype != previous_frequency_hz.dtype:
+        raise ValueError("Frequency tensors must use the same dtype.")
+
+    policy_dt = float(policy_step_dt_s)
+    if not math.isfinite(policy_dt) or policy_dt <= 0.0:
+        raise ValueError("policy_step_dt_s must be finite and positive.")
+    rise_rate = float(maximum_rise_rate_hz_per_s)
+    fall_rate = float(maximum_fall_rate_hz_per_s)
+    if any(not math.isfinite(value) or value <= 0.0 for value in (rise_rate, fall_rate)):
+        raise ValueError("Frequency governor rate limits must be finite and positive.")
+
+    requested_delta_hz = requested_frequency_hz - previous_frequency_hz
+    applied_delta_hz = torch.clamp(
+        requested_delta_hz,
+        min=-fall_rate * policy_dt,
+        max=rise_rate * policy_dt,
+    )
+    applied_frequency_hz = previous_frequency_hz + applied_delta_hz
+    return FrequencyGovernorStep(
+        requested_frequency_hz=requested_frequency_hz,
+        applied_frequency_hz=applied_frequency_hz,
+        slew_hz_per_s=applied_delta_hz / policy_dt,
+        limited=applied_delta_hz != requested_delta_hz,
+    )
+
+
 def normalized_action_to_joint_position(
     action: Tensor,
     *,
@@ -160,11 +217,24 @@ def _joint_limit_tensors(
     return lower, upper
 
 
+def _validate_frequency_tensor(name: str, value: Tensor) -> None:
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"{name} must be a torch tensor.")
+    if not torch.is_floating_point(value):
+        raise TypeError(f"{name} must use a floating dtype.")
+    if not bool(torch.all(torch.isfinite(value))):
+        raise ValueError(f"{name} must be finite.")
+    if bool(torch.any(value < 0.0)):
+        raise ValueError(f"{name} must be non-negative.")
+
+
 __all__ = [
     "ACTUAL_JOINT_TAIL_AERO_DEFLECTION",
     "COMMAND_TAIL_AERO_DEFLECTION",
     "DIRECT_TAIL_SURFACE_ACTION",
+    "FrequencyGovernorStep",
     "MIXED_ELEVON_ACTION",
+    "apply_frequency_slew_governor",
     "frequency_hz_to_normalized_action",
     "joint_position_to_normalized_action",
     "normalized_action_to_frequency_hz",

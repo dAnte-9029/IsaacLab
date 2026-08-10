@@ -34,6 +34,7 @@ def _reward_inputs(count: int, *, dtype: torch.dtype = torch.float64) -> dict[st
         "pitch_rad": torch.zeros(count, dtype=dtype),
         "angular_velocity_body_rad_s": torch.zeros((count, 3), dtype=dtype),
         "actual_flap_frequency_hz": torch.zeros(count, dtype=dtype),
+        "frequency_slew_hz_per_s": torch.zeros(count, dtype=dtype),
         "applied_action": torch.zeros((count, 4), dtype=dtype),
         "previous_applied_action": torch.zeros((count, 4), dtype=dtype),
     }
@@ -83,7 +84,7 @@ def test_nominal_terms_have_expected_unit_values_and_weighted_total() -> None:
         "angular_rate",
         "pitch_envelope_penalty",
         "flap_penalty",
-        "frequency_action_delta_penalty",
+        "frequency_slew_penalty",
         "tail_action_delta_penalty",
         "tail_action_limit_penalty",
         "total",
@@ -127,8 +128,7 @@ def test_pitch_is_free_inside_envelope_and_penalized_smoothly_outside() -> None:
 def test_frequency_penalty_uses_actual_frequency_and_cubic_proxy() -> None:
     inputs = _reward_inputs(3)
     inputs["actual_flap_frequency_hz"][:] = torch.tensor([0.0, 2.5, 5.0])
-    inputs["applied_action"][:, 0] = torch.tensor([1.0, -1.0, 0.5])
-    inputs["previous_applied_action"].copy_(inputs["applied_action"])
+    inputs["frequency_slew_hz_per_s"][:] = torch.tensor([0.0, 1.0, -2.0])
 
     terms = pure_rl_reward.compute_pure_rl_reward_terms(**inputs)
 
@@ -136,7 +136,10 @@ def test_frequency_penalty_uses_actual_frequency_and_cubic_proxy() -> None:
         terms.flap_penalty,
         torch.tensor([0.0, 0.125, 1.0], dtype=torch.float64),
     )
-    torch.testing.assert_close(terms.frequency_action_delta_penalty, torch.zeros(3, dtype=torch.float64))
+    torch.testing.assert_close(
+        terms.frequency_slew_penalty,
+        torch.tensor([0.0, 0.25, 1.0], dtype=torch.float64),
+    )
 
 
 def test_constant_nonzero_trim_has_no_delta_penalty_and_limit_penalty_is_soft() -> None:
@@ -150,21 +153,22 @@ def test_constant_nonzero_trim_has_no_delta_penalty_and_limit_penalty_is_soft() 
 
     terms = pure_rl_reward.compute_pure_rl_reward_terms(**inputs)
 
-    torch.testing.assert_close(terms.frequency_action_delta_penalty, torch.zeros(3, dtype=torch.float64))
+    torch.testing.assert_close(terms.frequency_slew_penalty, torch.zeros(3, dtype=torch.float64))
     torch.testing.assert_close(terms.tail_action_delta_penalty, torch.zeros(3, dtype=torch.float64))
     assert terms.tail_action_limit_penalty[0].item() == pytest.approx(0.0)
     assert terms.tail_action_limit_penalty[1].item() == pytest.approx(0.0)
     assert terms.tail_action_limit_penalty[2].item() == pytest.approx(1.0 / 6.0)
 
 
-def test_full_range_action_jump_normalizes_delta_penalties_to_one() -> None:
+def test_physical_frequency_slew_and_full_range_tail_jump_normalize_penalties_to_one() -> None:
     inputs = _reward_inputs(1)
     inputs["previous_applied_action"][:] = -1.0
     inputs["applied_action"][:] = 1.0
+    inputs["frequency_slew_hz_per_s"][:] = -2.0
 
     terms = pure_rl_reward.compute_pure_rl_reward_terms(**inputs)
 
-    assert terms.frequency_action_delta_penalty.item() == pytest.approx(1.0)
+    assert terms.frequency_slew_penalty.item() == pytest.approx(1.0)
     assert terms.tail_action_delta_penalty.item() == pytest.approx(1.0)
     assert terms.tail_action_limit_penalty.item() == pytest.approx(1.0)
 

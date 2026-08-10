@@ -7,8 +7,9 @@ def test_path_tracking_truth_nowind_suite_is_registered() -> None:
 
 def test_pure_rl_curriculum1_nowind_suite_has_fixed_heading_phase_grid() -> None:
     assert "pure_rl_curriculum1_nowind_v1" in get_eval_suite_choices()
+    assert "pure_rl_curriculum1_nowind_v2" in get_eval_suite_choices()
 
-    cases = build_eval_cases("pure_rl_curriculum1_nowind_v1")
+    cases = build_eval_cases("pure_rl_curriculum1_nowind_v2")
 
     assert len(cases) == 1
     case = cases[0]

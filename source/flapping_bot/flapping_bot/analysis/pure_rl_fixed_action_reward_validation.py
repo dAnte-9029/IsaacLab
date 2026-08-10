@@ -34,7 +34,7 @@ REWARD_TERM_NAMES: tuple[str, ...] = (
     "angular_rate",
     "pitch_envelope_penalty",
     "flap_penalty",
-    "frequency_action_delta_penalty",
+    "frequency_slew_penalty",
     "tail_action_delta_penalty",
     "tail_action_limit_penalty",
     "total",
@@ -49,7 +49,7 @@ TELEMETRY_KEYS: tuple[str, ...] = (
     "PureRLReward/angular_rate",
     "PureRLPenalty/pitch_envelope",
     "PureRLPenalty/flap",
-    "PureRLPenalty/frequency_action_delta",
+    "PureRLPenalty/frequency_slew",
     "PureRLPenalty/tail_action_delta",
     "PureRLPenalty/tail_action_limit",
     "PureRLTermination/ground_fraction",
@@ -153,8 +153,10 @@ def summarize_fixed_action_trace(
     if environment_id.size and (environment_id.min() < 0 or environment_id.max() >= expected_action.shape[0]):
         raise ValueError("environment_id falls outside expected_action_by_environment.")
 
-    action_error = np.abs(action - expected_action[environment_id])
-    action_max_error = float(np.max(action_error)) if action_error.size else math.inf
+    tail_action_error = np.abs(action[:, 1:4] - expected_action[environment_id, 1:4])
+    tail_action_max_error = (
+        float(np.max(tail_action_error)) if tail_action_error.size else math.inf
+    )
     returned_reward = np.asarray(traces["returned_reward"], dtype=np.float64)
     rebuilt_reward = np.asarray(traces["total"], dtype=np.float64)
     reconstruction_error = np.abs(returned_reward - rebuilt_reward)
@@ -173,16 +175,17 @@ def summarize_fixed_action_trace(
         float(np.max(step_termination_error)) if step_termination_error.size else math.inf
     )
 
-    frequency_delta = np.asarray(traces["frequency_action_delta_penalty"], dtype=np.float64)
+    frequency_slew = np.asarray(traces["frequency_slew_penalty"], dtype=np.float64)
     tail_delta = np.asarray(traces["tail_action_delta_penalty"], dtype=np.float64)
     first_mask = sample_step == 0
     later_mask = sample_step > 0
-    first_delta_max = float(np.max(frequency_delta[first_mask] + tail_delta[first_mask])) if np.any(first_mask) else 0.0
+    first_delta_max = float(np.max(frequency_slew[first_mask] + tail_delta[first_mask])) if np.any(first_mask) else 0.0
     later_delta_max = (
-        float(np.max(frequency_delta[later_mask] + tail_delta[later_mask]))
+        float(np.max(tail_delta[later_mask]))
         if np.any(later_mask)
         else math.inf
     )
+    frequency_slew_max = float(np.max(frequency_slew)) if frequency_slew.size else math.inf
 
     settled_start_step = max(1, int(total_policy_steps) - max(3, int(math.ceil(0.2 * total_policy_steps))))
     settled = sample_step >= settled_start_step
@@ -200,6 +203,11 @@ def summarize_fixed_action_trace(
                 "settled_sample_count": int(np.count_nonzero(settled_mask)),
                 "settled_actual_frequency_hz_mean": (
                     float(np.mean(np.asarray(traces["actual_frequency_hz"])[settled_mask]))
+                    if np.any(settled_mask)
+                    else None
+                ),
+                "settled_applied_frequency_hz_mean": (
+                    float(np.mean(2.5 * (action[settled_mask, 0] + 1.0)))
                     if np.any(settled_mask)
                     else None
                 ),
@@ -224,11 +232,14 @@ def summarize_fixed_action_trace(
         [family_summaries[index]["settled_flap_penalty_mean"] for index in (1, 2, 3)],
         dtype=np.float64,
     )
-    target_frequencies = np.array([0.0, 2.5, 5.0], dtype=np.float64)
-    expected_penalties = np.power(target_frequencies / 5.0, 3.0)
+    tracked_applied_frequencies = np.array(
+        [family_summaries[index]["settled_applied_frequency_hz_mean"] for index in (1, 2, 3)],
+        dtype=np.float64,
+    )
+    expected_penalties = np.power(tracked_applied_frequencies / 5.0, 3.0)
     frequency_tracking_max_error = (
-        float(np.max(np.abs(tracked_frequencies - target_frequencies)))
-        if np.all(np.isfinite(tracked_frequencies))
+        float(np.max(np.abs(tracked_frequencies - tracked_applied_frequencies)))
+        if np.all(np.isfinite(tracked_frequencies)) and np.all(np.isfinite(tracked_applied_frequencies))
         else math.inf
     )
     flap_penalty_max_error = (
@@ -245,15 +256,19 @@ def summarize_fixed_action_trace(
     gates = {
         "all_numeric_traces_finite": all_finite,
         "every_action_family_sampled": bool(all(count > 0 for count in family_counts)),
-        "fixed_actions_preserved": action_max_error <= action_tolerance,
+        "fixed_tail_actions_preserved": tail_action_max_error <= action_tolerance,
         "reward_reconstruction_matches_environment": reconstruction_max_error <= reconstruction_tolerance,
         "reward_total_telemetry_matches_environment_mean": telemetry_reward_max_error <= reconstruction_tolerance,
         "termination_telemetry_matches_returned_done": telemetry_termination_max_error <= reconstruction_tolerance,
         "first_transition_has_delta_penalty": first_delta_max > 1.0e-6,
-        "constant_actions_have_zero_later_delta_penalty": later_delta_max <= action_tolerance,
-        "settled_frequency_tracks_0_2_5_5_hz": frequency_tracking_max_error <= settled_frequency_tolerance_hz,
+        "constant_tail_actions_have_zero_later_delta_penalty": later_delta_max <= action_tolerance,
+        "frequency_slew_penalty_stays_inside_governor_contract": (
+            0.0 <= frequency_slew_max <= 1.0 + action_tolerance
+        ),
+        "actual_frequency_tracks_governed_applied_frequency": (
+            frequency_tracking_max_error <= settled_frequency_tolerance_hz
+        ),
         "settled_cubic_flap_penalty_matches_contract": flap_penalty_max_error <= 0.05,
-        "settled_flap_penalty_is_strictly_ordered": bool(np.all(np.diff(tracked_penalties) > 0.0)),
         "ordinary_actions_avoid_tail_soft_limit": bool(np.all(ordinary_tail_limit <= action_tolerance)),
         "soft_limit_family_triggers_penalty": soft_limit_penalty >= 0.20,
         "no_target_speed_reward_term": not any(
@@ -264,7 +279,7 @@ def summarize_fixed_action_trace(
         "all_cases_accepted": bool(all(gates.values())),
         "gates": gates,
         "metrics": {
-            "action_max_abs_error": action_max_error,
+            "tail_action_max_abs_error": tail_action_max_error,
             "reward_reconstruction_max_abs_error": reconstruction_max_error,
             "reward_total_telemetry_max_abs_error": telemetry_reward_max_error,
             "termination_telemetry_max_abs_error": telemetry_termination_max_error,
@@ -444,6 +459,7 @@ def run_fixed_action_reward_job(
                     pitch_rad=pitch_rad,
                     angular_velocity_body_rad_s=env._robot.data.root_ang_vel_b,
                     actual_flap_frequency_hz=env._freq,
+                    frequency_slew_hz_per_s=env._frequency_slew_hz_per_s,
                     applied_action=env._act_cmd,
                     previous_applied_action=previous_action,
                     config=env.cfg.pure_rl_reward_cfg,

@@ -243,7 +243,7 @@ def test_select_best_suite_row_filters_and_prioritizes_pure_rl_contract(tmp_path
     summary_csv = tmp_path / "summary.csv"
     common = {
         "case": "suite",
-        "evaluation_contract": "pure_rl_curriculum1_v1",
+        "evaluation_contract": "pure_rl_curriculum1_v2",
         "episodes": 16,
         "mean_abs_cross_track_error_m": 0.2,
         "mean_abs_height_error_m": 0.2,
@@ -277,7 +277,7 @@ def test_select_best_suite_row_filters_and_prioritizes_pure_rl_contract(tmp_path
 
     best = checkpoint_selection.select_best_checkpoint_row(
         summary_csv,
-        evaluation_contract="pure_rl_curriculum1_v1",
+        evaluation_contract="pure_rl_curriculum1_v2",
     )
 
     assert best is not None
@@ -308,7 +308,7 @@ def test_select_best_suite_row_does_not_mix_legacy_and_pure_rl_scores(tmp_path: 
             {
                 "checkpoint": str(tmp_path / "pure.pt"),
                 "case": "suite",
-                "evaluation_contract": "pure_rl_curriculum1_v1",
+                "evaluation_contract": "pure_rl_curriculum1_v2",
                 "ckpt_index": 1,
                 "score": 1.0,
                 "termination_rate": 0.0,
@@ -325,7 +325,7 @@ def test_select_best_suite_row_does_not_mix_legacy_and_pure_rl_scores(tmp_path: 
 
     best = checkpoint_selection.select_best_checkpoint_row(
         summary_csv,
-        evaluation_contract="pure_rl_curriculum1_v1",
+        evaluation_contract="pure_rl_curriculum1_v2",
     )
 
     assert best is not None

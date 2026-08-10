@@ -17,6 +17,7 @@ EVAL_SUITE_CHOICES = (
     "straight_standard",
     "single",
     "pure_rl_curriculum1_nowind_v1",
+    "pure_rl_curriculum1_nowind_v2",
     "path_tracking_standard",
     "path_tracking_truth_nowind_v1",
     "path_tracking_estimated_nowind_v1",
@@ -95,7 +96,7 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
             _case("single", wind_enabled=False, wind_xy_mps=(0.0, 0.0), wind_ou_enabled=False)
         ]
 
-    if eval_suite == "pure_rl_curriculum1_nowind_v1":
+    if eval_suite in {"pure_rl_curriculum1_nowind_v1", "pure_rl_curriculum1_nowind_v2"}:
         return [
             _case(
                 "curriculum1_nowind_fixed_heading_phase",

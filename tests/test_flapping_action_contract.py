@@ -61,6 +61,75 @@ def test_frequency_action_mapping_clamps_inputs_and_rejects_invalid_bounds() -> 
         )
 
 
+def test_frequency_governor_applies_asymmetric_physical_slew_without_overshoot() -> None:
+    requested = torch.tensor([4.0, 0.0, 2.51, 2.49], dtype=torch.float64)
+    previous = torch.full((4,), 2.5, dtype=torch.float64)
+
+    step = action_contract.apply_frequency_slew_governor(
+        requested,
+        previous_frequency_hz=previous,
+        policy_step_dt_s=0.02,
+        maximum_rise_rate_hz_per_s=3.0,
+        maximum_fall_rate_hz_per_s=1.0,
+    )
+
+    torch.testing.assert_close(
+        step.applied_frequency_hz,
+        torch.tensor([2.56, 2.48, 2.51, 2.49], dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        step.slew_hz_per_s,
+        torch.tensor([3.0, -1.0, 0.5, -0.5], dtype=torch.float64),
+    )
+    assert step.limited.tolist() == [True, True, False, False]
+    assert step.requested_frequency_hz.data_ptr() == requested.data_ptr()
+    assert step.applied_frequency_hz.dtype == requested.dtype
+    assert step.applied_frequency_hz.device == requested.device
+
+
+def test_frequency_governor_preserves_batches_and_fails_closed_on_invalid_inputs() -> None:
+    requested = torch.tensor([[1.0, 4.0], [2.0, 3.0]], dtype=torch.float32)
+    previous = torch.tensor([[1.0, 3.0], [2.5, 3.0]], dtype=torch.float32)
+
+    step = action_contract.apply_frequency_slew_governor(
+        requested,
+        previous_frequency_hz=previous,
+        policy_step_dt_s=0.1,
+        maximum_rise_rate_hz_per_s=2.0,
+        maximum_fall_rate_hz_per_s=4.0,
+    )
+
+    assert step.applied_frequency_hz.shape == requested.shape
+    torch.testing.assert_close(
+        step.applied_frequency_hz,
+        torch.tensor([[1.0, 3.2], [2.1, 3.0]], dtype=torch.float32),
+    )
+    with pytest.raises(ValueError, match="same shape"):
+        action_contract.apply_frequency_slew_governor(
+            requested,
+            previous_frequency_hz=torch.zeros(4),
+            policy_step_dt_s=0.1,
+            maximum_rise_rate_hz_per_s=2.0,
+            maximum_fall_rate_hz_per_s=2.0,
+        )
+    with pytest.raises(ValueError, match="policy_step_dt_s"):
+        action_contract.apply_frequency_slew_governor(
+            requested,
+            previous_frequency_hz=previous,
+            policy_step_dt_s=0.0,
+            maximum_rise_rate_hz_per_s=2.0,
+            maximum_fall_rate_hz_per_s=2.0,
+        )
+    with pytest.raises(ValueError, match="rate"):
+        action_contract.apply_frequency_slew_governor(
+            requested,
+            previous_frequency_hz=previous,
+            policy_step_dt_s=0.1,
+            maximum_rise_rate_hz_per_s=-1.0,
+            maximum_fall_rate_hz_per_s=2.0,
+        )
+
+
 def test_direct_joint_action_uses_zero_center_and_asymmetric_limits() -> None:
     actions = torch.tensor([-1.0, -0.5, 0.0, 0.25, 1.0], dtype=torch.float64)
 

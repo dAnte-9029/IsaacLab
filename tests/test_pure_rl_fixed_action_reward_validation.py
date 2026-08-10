@@ -70,7 +70,7 @@ def _accepted_synthetic_trace() -> tuple[dict[str, np.ndarray], np.ndarray]:
         "angular_rate": np.ones_like(total),
         "pitch_envelope_penalty": np.zeros_like(total),
         "flap_penalty": flap_penalty,
-        "frequency_action_delta_penalty": frequency_delta,
+        "frequency_slew_penalty": frequency_delta,
         "tail_action_delta_penalty": tail_delta,
         "tail_action_limit_penalty": tail_limit,
         "total": total,
@@ -101,8 +101,8 @@ def test_trace_summary_accepts_consistent_fixed_action_contract() -> None:
     ("mutation", "failed_gate"),
     (
         ("reward", "reward_reconstruction_matches_environment"),
-        ("later_delta", "constant_actions_have_zero_later_delta_penalty"),
-        ("action", "fixed_actions_preserved"),
+        ("later_delta", "constant_tail_actions_have_zero_later_delta_penalty"),
+        ("action", "fixed_tail_actions_preserved"),
         ("termination", "termination_telemetry_matches_returned_done"),
     ),
 )

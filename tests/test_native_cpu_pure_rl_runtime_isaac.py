@@ -122,6 +122,7 @@ def test_native_cpu_pure_rl_frequency_and_repeated_reset_runtime_gate(tmp_path: 
                 "eval_angular_rate": env._eval_pure_rl_angular_rate_rad_s,
                 "eval_actual_frequency": env._eval_pure_rl_actual_flap_frequency_hz,
                 "eval_action_delta": env._eval_pure_rl_normalized_action_delta,
+                "eval_frequency_slew": env._eval_pure_rl_frequency_slew_hz_per_s,
             }
             for name, value in finite_tensors.items():
                 assert value is not None
@@ -134,10 +135,12 @@ def test_native_cpu_pure_rl_frequency_and_repeated_reset_runtime_gate(tmp_path: 
                 "PureRLReward/path",
                 "PureRLReward/progress",
                 "PureRLPenalty/flap",
-                "PureRLPenalty/frequency_action_delta",
+                "PureRLPenalty/frequency_slew",
                 "PureRLPenalty/tail_action_delta",
                 "PureRLState/mean_abs_cross_track_error_m",
                 "PureRLState/mean_actual_flap_frequency_hz",
+                "PureRLState/mean_abs_frequency_slew_hz_per_s",
+                "PureRLState/frequency_governor_limited_fraction",
                 "PureRLTermination/ground_fraction",
                 "PureRLTermination/tilt_fraction",
                 "PureRLTermination/cross_track_fraction",
@@ -181,16 +184,30 @@ def test_native_cpu_pure_rl_frequency_and_repeated_reset_runtime_gate(tmp_path: 
                 forced_reset_count += int(reset_ids.numel())
 
         protected_ids = torch.arange(3, device=env.device)
+        maximum_change_hz = cfg.frequency_governor_maximum_fall_rate_hz_per_s * duration_s
+        expected_governed_frequency_hz = torch.maximum(
+            requested_frequency_hz[protected_ids],
+            torch.full((3,), cfg.reset_flap_hz - maximum_change_hz, device=env.device),
+        )
         assert torch.allclose(
             env._phase_target_frequency_hz[protected_ids],
-            requested_frequency_hz[protected_ids],
+            expected_governed_frequency_hz,
             atol=1.0e-3,
             rtol=0.0,
         )
+        maximum_governed_rate_hz_per_s = max(
+            cfg.frequency_governor_maximum_rise_rate_hz_per_s,
+            cfg.frequency_governor_maximum_fall_rate_hz_per_s,
+        )
+        maximum_expected_drive_lag_hz = (
+            maximum_governed_rate_hz_per_s
+            * env._ideal_inverse_phase_cfg.frequency_time_constant_s
+            + 1.0e-2
+        )
         assert torch.allclose(
             env._freq[protected_ids],
-            requested_frequency_hz[protected_ids],
-            atol=2.0e-2,
+            expected_governed_frequency_hz,
+            atol=maximum_expected_drive_lag_hz,
             rtol=0.0,
         )
         print(

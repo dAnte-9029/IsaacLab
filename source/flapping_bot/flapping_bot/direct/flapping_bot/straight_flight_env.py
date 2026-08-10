@@ -136,6 +136,7 @@ from .action_contract import (
     COMMAND_TAIL_AERO_DEFLECTION,
     DIRECT_TAIL_SURFACE_ACTION,
     MIXED_ELEVON_ACTION,
+    apply_frequency_slew_governor,
     frequency_hz_to_normalized_action,
     joint_position_to_normalized_action,
     normalized_action_to_frequency_hz,
@@ -256,6 +257,9 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     # action filtering (normalized action space [-1, 1])
     act_lpf_tau_s: float = 0.1  # 0: off; first-order low-pass time constant (s)
     act_rate_limit_per_s: float = 2.0  # 0: off; max |delta a| per second in normalized units
+    frequency_governor_enabled: bool = False
+    frequency_governor_maximum_rise_rate_hz_per_s: float = 2.0
+    frequency_governor_maximum_fall_rate_hz_per_s: float = 2.0
 
     # grouped frame stacking (per-signal)
     stack_gb: int = 6
@@ -860,9 +864,12 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraight
     pure_rl_terminate_abs_height_error_m: float = 3.0
     freeze_steps_after_reset: int = 0
 
-    # Preserve the intrinsic frequency-state and PhysX tail-servo dynamics without adding a second action lag.
+    # Tail commands remain direct. Frequency alone receives a physical slew governor.
     act_lpf_tau_s: float = 0.0
     act_rate_limit_per_s: float = 0.0
+    frequency_governor_enabled: bool = True
+    frequency_governor_maximum_rise_rate_hz_per_s: float = 2.0
+    frequency_governor_maximum_fall_rate_hz_per_s: float = 2.0
 
     # Start the pure-RL smoke experiment without wind. Wind and dynamics randomization should be added only after
     # the policy can maintain basic height, speed, and attitude in the measured nominal model.
@@ -1220,6 +1227,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._ideal_torque_elapsed_s: Tensor | None = None  # (N,)
         self._phase_throttle: Tensor | None = None  # (N,), normalized 0--1
         self._phase_target_frequency_hz: Tensor | None = None  # (N,)
+        self._requested_frequency_hz: Tensor | None = None  # (N,)
+        self._applied_frequency_hz: Tensor | None = None  # (N,)
+        self._frequency_slew_hz_per_s: Tensor | None = None  # (N,)
+        self._frequency_governor_limited: Tensor | None = None  # (N,)
         self._phase_acceleration_rad_s2: Tensor | None = None  # (N,)
         self._sinusoidal_phase_drive_state: SinusoidalPhaseDriveState | None = None
         self._sinusoidal_phase_drive_cfg: SinusoidalPhaseSpeedDriveConfig | None = None
@@ -1280,6 +1291,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._eval_pure_rl_frequency_limit_active: Tensor | None = None
         self._eval_pure_rl_tail_limit_active: Tensor | None = None
         self._eval_pure_rl_normalized_action_delta: Tensor | None = None
+        self._eval_pure_rl_frequency_slew_hz_per_s: Tensor | None = None
+        self._eval_pure_rl_frequency_governor_limited: Tensor | None = None
         self._eval_pure_rl_ground_termination: Tensor | None = None
         self._eval_pure_rl_tilt_termination: Tensor | None = None
         self._eval_pure_rl_cross_track_termination: Tensor | None = None
@@ -1442,6 +1455,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._eval_pure_rl_frequency_limit_active = torch.zeros(N, dtype=torch.bool, device=self.device)
             self._eval_pure_rl_tail_limit_active = torch.zeros(N, dtype=torch.bool, device=self.device)
             self._eval_pure_rl_normalized_action_delta = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_frequency_slew_hz_per_s = torch.zeros(N, device=self.device)
+            self._eval_pure_rl_frequency_governor_limited = torch.zeros(
+                N, dtype=torch.bool, device=self.device
+            )
             self._eval_pure_rl_ground_termination = torch.zeros(N, dtype=torch.bool, device=self.device)
             self._eval_pure_rl_tilt_termination = torch.zeros(N, dtype=torch.bool, device=self.device)
             self._eval_pure_rl_cross_track_termination = torch.zeros(N, dtype=torch.bool, device=self.device)
@@ -1501,6 +1518,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._freq = torch.full((self.num_envs,), float(self.cfg.min_flap_hz), device=self.device)
         self._phase_throttle = torch.zeros(self.num_envs, device=self.device)
         self._phase_target_frequency_hz = torch.zeros(self.num_envs, device=self.device)
+        self._requested_frequency_hz = torch.zeros(self.num_envs, device=self.device)
+        self._applied_frequency_hz = torch.zeros(self.num_envs, device=self.device)
+        self._frequency_slew_hz_per_s = torch.zeros(self.num_envs, device=self.device)
+        self._frequency_governor_limited = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
         self._phase_acceleration_rad_s2 = torch.zeros(self.num_envs, device=self.device)
 
         # initialize commands
@@ -2187,23 +2210,57 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # low-pass filter
         if self.cfg.act_lpf_tau_s > 0.0:
             alpha = float(self.step_dt) / (self.cfg.act_lpf_tau_s + float(self.step_dt))
-            self._act_lpf = self._act_lpf + alpha * (act_exec - self._act_lpf)
+            self._act_lpf.add_(alpha * (act_exec - self._act_lpf))
         else:
-            self._act_lpf = act_exec
+            self._act_lpf.copy_(act_exec)
         # slew-rate limit
         if self.cfg.act_rate_limit_per_s > 0.0:
             max_delta = self.cfg.act_rate_limit_per_s * float(self.step_dt)
             delta = torch.clamp(self._act_lpf - self._act_cmd, min=-max_delta, max=max_delta)
-            self._act_cmd = self._act_cmd + delta
+            self._act_cmd.add_(delta)
         else:
-            self._act_cmd = self._act_lpf
+            self._act_cmd.copy_(self._act_lpf)
 
         # frequency from action 0 in [min_flap_hz, max_flap_hz]
         a0 = self._act_cmd[:, 0]
-        frequency_setpoint = normalized_action_to_frequency_hz(
+        requested_frequency_hz = normalized_action_to_frequency_hz(
             a0,
             minimum_frequency_hz=float(self.cfg.min_flap_hz),
             maximum_frequency_hz=float(self.cfg.max_flap_hz),
+        )
+        assert self._requested_frequency_hz is not None
+        assert self._applied_frequency_hz is not None
+        assert self._frequency_slew_hz_per_s is not None
+        assert self._frequency_governor_limited is not None
+        self._requested_frequency_hz.copy_(requested_frequency_hz)
+        if bool(self.cfg.frequency_governor_enabled):
+            governor_step = apply_frequency_slew_governor(
+                requested_frequency_hz,
+                previous_frequency_hz=self._applied_frequency_hz,
+                policy_step_dt_s=float(self.step_dt),
+                maximum_rise_rate_hz_per_s=float(
+                    self.cfg.frequency_governor_maximum_rise_rate_hz_per_s
+                ),
+                maximum_fall_rate_hz_per_s=float(
+                    self.cfg.frequency_governor_maximum_fall_rate_hz_per_s
+                ),
+            )
+            frequency_setpoint = governor_step.applied_frequency_hz
+            self._frequency_slew_hz_per_s.copy_(governor_step.slew_hz_per_s)
+            self._frequency_governor_limited.copy_(governor_step.limited)
+        else:
+            frequency_setpoint = requested_frequency_hz
+            self._frequency_slew_hz_per_s.copy_(
+                (frequency_setpoint - self._applied_frequency_hz) / float(self.step_dt)
+            )
+            self._frequency_governor_limited.zero_()
+        self._applied_frequency_hz.copy_(frequency_setpoint)
+        self._act_cmd[:, 0].copy_(
+            frequency_hz_to_normalized_action(
+                frequency_setpoint,
+                minimum_frequency_hz=float(self.cfg.min_flap_hz),
+                maximum_frequency_hz=float(self.cfg.max_flap_hz),
+            )
         )
         if validate_wing_drive_variant(self.cfg.wing_drive_variant) in {
             SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
@@ -3695,6 +3752,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._phase_throttle[env_ids] = f0 / float(self.cfg.max_flap_hz)
         if self._phase_target_frequency_hz is not None:
             self._phase_target_frequency_hz[env_ids] = f0
+        if self._requested_frequency_hz is not None:
+            self._requested_frequency_hz[env_ids] = f0
+        if self._applied_frequency_hz is not None:
+            self._applied_frequency_hz[env_ids] = f0
+        if self._frequency_slew_hz_per_s is not None:
+            self._frequency_slew_hz_per_s[env_ids] = 0.0
+        if self._frequency_governor_limited is not None:
+            self._frequency_governor_limited[env_ids] = False
+        if bool(self.cfg.frequency_governor_enabled):
+            reset_frequency_action = frequency_hz_to_normalized_action(
+                torch.full((n,), f0, device=self.device),
+                minimum_frequency_hz=float(self.cfg.min_flap_hz),
+                maximum_frequency_hz=float(self.cfg.max_flap_hz),
+            )
+            self._act_lpf[env_ids, 0] = reset_frequency_action
+            self._act_cmd[env_ids, 0] = reset_frequency_action
         if self._phase_acceleration_rad_s2 is not None:
             self._phase_acceleration_rad_s2[env_ids] = 0.0
         if self._sinusoidal_phase_drive_state is not None:
@@ -3951,6 +4024,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             pitch_rad=pitch_rad,
             angular_velocity_body_rad_s=self._robot.data.root_ang_vel_b,
             actual_flap_frequency_hz=self._freq,
+            frequency_slew_hz_per_s=self._frequency_slew_hz_per_s,
             applied_action=self._act_cmd,
             previous_applied_action=self._pure_rl_previous_reward_action,
             config=reward_cfg,
@@ -3964,6 +4038,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         assert self._eval_pure_rl_frequency_limit_active is not None
         assert self._eval_pure_rl_tail_limit_active is not None
         assert self._eval_pure_rl_normalized_action_delta is not None
+        assert self._eval_pure_rl_frequency_slew_hz_per_s is not None
+        assert self._eval_pure_rl_frequency_governor_limited is not None
         self._eval_pure_rl_cross_track_error_m.copy_(cross_track_error_m)
         self._eval_pure_rl_height_error_m.copy_(height_error_m)
         self._eval_pure_rl_along_track_progress_m.copy_(
@@ -3986,6 +4062,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._eval_pure_rl_normalized_action_delta.copy_(
             torch.mean(0.5 * torch.abs(self._act_cmd - self._pure_rl_previous_reward_action), dim=1)
         )
+        self._eval_pure_rl_frequency_slew_hz_per_s.copy_(self._frequency_slew_hz_per_s)
+        self._eval_pure_rl_frequency_governor_limited.copy_(self._frequency_governor_limited)
         self._pure_rl_previous_reward_action.copy_(self._act_cmd)
 
         if bool(self.cfg.pure_rl_reward_telemetry_enabled):
@@ -4000,9 +4078,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     "PureRLReward/angular_rate": terms.angular_rate_reward.mean(),
                     "PureRLPenalty/pitch_envelope": terms.pitch_envelope_penalty.mean(),
                     "PureRLPenalty/flap": terms.flap_penalty.mean(),
-                    "PureRLPenalty/frequency_action_delta": (
-                        terms.frequency_action_delta_penalty.mean()
-                    ),
+                    "PureRLPenalty/frequency_slew": terms.frequency_slew_penalty.mean(),
                     "PureRLPenalty/tail_action_delta": terms.tail_action_delta_penalty.mean(),
                     "PureRLPenalty/tail_action_limit": terms.tail_action_limit_penalty.mean(),
                     "PureRLContribution/path": reward_cfg.path_reward_weight * terms.path_reward.mean(),
@@ -4021,9 +4097,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                         * terms.pitch_envelope_penalty.mean()
                     ),
                     "PureRLContribution/flap": -reward_cfg.flap_penalty_weight * terms.flap_penalty.mean(),
-                    "PureRLContribution/frequency_action_delta": (
-                        -reward_cfg.frequency_action_delta_penalty_weight
-                        * terms.frequency_action_delta_penalty.mean()
+                    "PureRLContribution/frequency_slew": (
+                        -reward_cfg.frequency_slew_penalty_weight
+                        * terms.frequency_slew_penalty.mean()
                     ),
                     "PureRLContribution/tail_action_delta": (
                         -reward_cfg.tail_action_delta_penalty_weight
@@ -4043,6 +4119,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     "PureRLState/mean_abs_roll_rad": roll_rad.abs().mean(),
                     "PureRLState/mean_abs_pitch_rad": pitch_rad.abs().mean(),
                     "PureRLState/mean_actual_flap_frequency_hz": self._freq.mean(),
+                    "PureRLState/mean_requested_frequency_hz": self._requested_frequency_hz.mean(),
+                    "PureRLState/mean_applied_frequency_hz": self._applied_frequency_hz.mean(),
+                    "PureRLState/mean_abs_frequency_slew_hz_per_s": (
+                        self._frequency_slew_hz_per_s.abs().mean()
+                    ),
+                    "PureRLState/frequency_governor_limited_fraction": (
+                        self._frequency_governor_limited.float().mean()
+                    ),
                 }
             )
         return terms.total_reward
