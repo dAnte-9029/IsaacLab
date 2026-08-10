@@ -151,6 +151,7 @@ from .pure_rl_observation import (
     normalize_actor_observation,
     transform_world_preview_points_to_body,
 )
+from .pure_rl_curriculum_contract import PURE_RL_SHARED_CONTRACT
 from .pure_rl_reward import (
     PURE_RL_CURRICULUM1_TERMINATION_CONFIG,
     PureRLRewardConfig,
@@ -833,9 +834,9 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraight
     """Canonical curriculum-1 PureRL defaults for the measured native plant."""
 
     # The policy produces one command every eight 480 Hz physics steps.
-    decimation: int = 8
+    decimation: int = PURE_RL_SHARED_CONTRACT.policy_decimation
     sim: SimulationCfg = SimulationCfg(
-        dt=1.0 / 480.0,
+        dt=PURE_RL_SHARED_CONTRACT.physics_dt_s,
         render_interval=decimation,
         device="cpu",
         gravity=(0.0, 0.0, -9.81),
@@ -847,7 +848,7 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraight
     )
     action_interface: str = DIRECT_TAIL_SURFACE_ACTION
     tail_aero_deflection_source: str = ACTUAL_JOINT_TAIL_AERO_DEFLECTION
-    observation_space: int = PURE_RL_RAW_OBSERVATION_LAYOUT.observation_dim
+    observation_space: int = PURE_RL_SHARED_CONTRACT.observation_dim
     use_pure_rl_actor_observation: bool = True
     pure_rl_preview_minimum_speed_mps: float = 1.0
     pure_rl_preview_maximum_speed_mps: float = 12.0
@@ -868,8 +869,12 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraight
     act_lpf_tau_s: float = 0.0
     act_rate_limit_per_s: float = 0.0
     frequency_governor_enabled: bool = True
-    frequency_governor_maximum_rise_rate_hz_per_s: float = 2.0
-    frequency_governor_maximum_fall_rate_hz_per_s: float = 2.0
+    frequency_governor_maximum_rise_rate_hz_per_s: float = (
+        PURE_RL_SHARED_CONTRACT.frequency_governor_rise_hz_per_s
+    )
+    frequency_governor_maximum_fall_rate_hz_per_s: float = (
+        PURE_RL_SHARED_CONTRACT.frequency_governor_fall_hz_per_s
+    )
 
     # Start the pure-RL smoke experiment without wind. Wind and dynamics randomization should be added only after
     # the policy can maintain basic height, speed, and attitude in the measured nominal model.
@@ -877,8 +882,8 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraight
     randomize_wind: bool = False
     wind_ou_enabled: bool = False
     wind_curriculum_enabled: bool = False
-    min_flap_hz: float = 0.0
-    max_flap_hz: float = 5.0
+    min_flap_hz: float = PURE_RL_SHARED_CONTRACT.minimum_flap_frequency_hz
+    max_flap_hz: float = PURE_RL_SHARED_CONTRACT.maximum_flap_frequency_hz
 
 
 class FlappingBotStraightFlightEnv(DirectRLEnv):

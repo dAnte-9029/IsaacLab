@@ -1,0 +1,146 @@
+{
+  "parameter_source_partition": "train",
+  "provenance": {
+    "canonical_artifact_sha256": {
+      "train_samples.parquet": "fe50d4a6c609be7c27cabc604a2587d78e8be21c34af61592af5c6e33f2de70e",
+      "val_samples.parquet": "839e02a3600f3aa1d12d5d933f10872022f424481fff754614bc798ca5d6b93e"
+    },
+    "canonical_log_counts": {
+      "train": 20,
+      "validation": 5
+    },
+    "canonical_manifest_sha256": "aa12aa66f762390ab1a356b94916694f5ed9689af670f313544aeb57a250cc07",
+    "canonical_registry_sha256": "71301a116d3fc4fa39f2a29afb583a6c4e183617aee3d3d0f2772738c508d7d9",
+    "canonical_row_counts": {
+      "train": 308702,
+      "validation": 79587
+    },
+    "dataset_id": "canonical_v0.4_training_ready_split_measured_massprops_ratio8_phasefix_v3",
+    "external_reference_role": "B raw cadence and C trajectory geometry only; not candidate range source or D alignment data",
+    "frequency_contract_version": "flap_frequency_ratio8_v1",
+    "phase_contract_version": "hall_indexed_mechanical_phase_ratio8_v1",
+    "ratio_contract_version": "ratio8_v1",
+    "test_loaded": false,
+    "wing_transmission_ratio": 8.0
+  },
+  "raw_pitot_update_interval_s": {
+    "external_reference": {
+      "count": 29632,
+      "max": 0.29999899999999996,
+      "mean": 0.10803861247975162,
+      "min": 0.099867,
+      "p01": 0.099947,
+      "p05": 0.099981,
+      "p50": 0.09999999999999999,
+      "p95": 0.19999999999999998,
+      "p99": 0.20000199999999999,
+      "std": 0.027201405390725655
+    },
+    "train": {
+      "count": 42539,
+      "max": 0.29999899999999996,
+      "mean": 0.10004231096170575,
+      "min": 0.09987399999999999,
+      "p01": 0.09994499999999999,
+      "p05": 0.099976,
+      "p50": 0.09999999999999999,
+      "p95": 0.100024,
+      "p99": 0.10005499999999999,
+      "std": 0.002167921069768826
+    },
+    "validation": {
+      "count": 10917,
+      "max": 0.29999899999999996,
+      "mean": 0.10006411422551982,
+      "min": 0.099883,
+      "p01": 0.099941,
+      "p05": 0.099964,
+      "p50": 0.09999999999999999,
+      "p95": 0.100036,
+      "p99": 0.10006,
+      "std": 0.002870638618001851
+    }
+  },
+  "schema_version": "pure_rl_real_flight_domain_candidate_v1",
+  "sensor_wind_candidate_ranges": {
+    "true_airspeed_m_s": {
+      "maximum": 10.229379653930664,
+      "minimum": 5.117898464202881,
+      "source_quantiles": [
+        0.05,
+        0.95
+      ]
+    },
+    "wind_east_m_s": {
+      "maximum": 1.7983603477478027,
+      "minimum": -1.5272819995880127,
+      "source_quantiles": [
+        0.05,
+        0.95
+      ]
+    },
+    "wind_north_m_s": {
+      "maximum": 1.6747938394546509,
+      "minimum": -1.9569506108760828,
+      "source_quantiles": [
+        0.05,
+        0.95
+      ]
+    }
+  },
+  "sim_real_reference": {
+    "acceptance_thresholds_set": false,
+    "partitions": {
+      "train": {
+        "log_count": 20,
+        "row_count": 308702
+      },
+      "validation": {
+        "log_count": 5,
+        "row_count": 79587
+      }
+    },
+    "purpose": "descriptive support and later simulation comparison; not a pass/fail gate",
+    "schema_version": "rl_sim_real_reference_v1",
+    "state_increment_grouping": [
+      "log_id",
+      "segment_id"
+    ],
+    "state_increment_horizons_s": [
+      0.1,
+      0.25,
+      0.5
+    ],
+    "test_loaded": false
+  },
+  "sim_real_reference_thresholds_set": false,
+  "status": "candidate_not_promoted",
+  "test_loaded": false,
+  "trajectory": {
+    "limitations": {
+      "ordinary_turn_radius_identified": false,
+      "reason": "PX4 waypoint triplets identify course changes, while loiter commands explicitly identify radius."
+    },
+    "partition_counts": {
+      "external_reference": 81,
+      "train": 43,
+      "validation": 14
+    },
+    "row_count": 138,
+    "schema_version": "rl_trajectory_profile_v1",
+    "task_counts": {
+      "loiter": 49,
+      "straight_level": 68,
+      "turn": 21
+    },
+    "test_loaded": false
+  },
+  "units": {
+    "raw_pitot_update_interval": "s",
+    "trajectory_length_and_radius": "m",
+    "true_airspeed": "m/s",
+    "waypoint_course_change": "deg",
+    "wind_components": "m/s"
+  },
+  "validation_role": "coverage_report_only"
+}

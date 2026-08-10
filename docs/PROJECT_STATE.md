@@ -18,6 +18,8 @@ As accepted in `docs/decisions/ADR-2026-08-04-promote-native-multibody-default.m
 
 Opt-in native diagnostics now expose a common-coordinate multibody inverse-dynamics estimate of ideal mechanism torque/power and a non-applied actual-joint-acceleration DeLaurier shadow wrench. The 2--5 Hz continuous-frequency fixed/free-root matrix confirms the 0.1 degree mechanism gate at 1/480 and 1/1000 s but not 1/240 s. At 1/480 s, inverse-dynamics RMS metrics differed by at most 2.45 percent from 1/1000 s. The shadow-wrench difference decreased approximately linearly with time step, so prescribed analytical acceleration remains the applied aerodynamic input. See `docs/decisions/ADR-2026-08-05-native-holonomic-load-and-transient-diagnostics.md` and `docs/audits/2026-08-05-native-holonomic-transient-diagnostics.md`.
 
+The measured PureRL C1 engineering loop is now closed on the CPU-native plant: direct flap-frequency/rudder/left-elevon/right-elevon actions, 60 Hz policy rate over 480 Hz physics, actual tail-joint deflection for tail aerodynamics, normalized 555-dimensional observations, term-level reward telemetry, 0--5 Hz frequency command with a 2 Hz/s governor and physical Hz/s penalty, randomized reset heading, rehearsal sampling, and retention evaluation. The shared C1/C2/C3 and CPU/GPU boundary is frozen by `docs/decisions/ADR-2026-08-10-pure-rl-curriculum-domain-contract.md`. C2/C3 are contracts only and are not yet implemented. The compact real-flight profile is evidence-only with `candidate_not_promoted`; it does not change environment defaults.
+
 ## Required reading
 
 - `docs/handoffs/2026-08-05-native-multibody-plant.md`
@@ -38,6 +40,7 @@ Opt-in native diagnostics now expose a common-coordinate multibody inverse-dynam
 - `docs/decisions/ADR-2026-08-03-native-holonomic-wing-mechanism.md`
 - `docs/decisions/ADR-2026-08-04-promote-native-multibody-default.md`
 - `docs/decisions/ADR-2026-08-05-native-holonomic-load-and-transient-diagnostics.md`
+- `docs/decisions/ADR-2026-08-10-pure-rl-curriculum-domain-contract.md`
 - `docs/audits/2026-07-29-ideal-coupling-feasibility.md`
 - `docs/audits/2026-07-29-physx-sfwm-inertial-validation.md`
 - `docs/audits/2026-07-29-multibody-wing-aero-coupling.md`
@@ -69,8 +72,9 @@ Opt-in native diagnostics now expose a common-coordinate multibody inverse-dynam
 - The free-body aerodynamic gate closes linear momentum to below 4e-6 relative error and angular momentum to below 2.9 percent at 2/5 Hz. This is numerical integration evidence, not aerodynamic-model or real-flight validation.
 - The repository `isaaclab.sh -p` wrapper discards the child Python exit status. Automated validation must inspect `all_cases_accepted` in the JSON output or invoke the worker with the activated Conda Python directly.
 - The direct-GPU implicit-drive probe is only a fixed-root, one-second capability and throughput result. It has not passed the native plant's full frequency, momentum, free-flight, reset or controller gates and must not be treated as the latest authoritative multibody plant.
+- The real-flight profile provides candidate support and descriptive statistics only. Pitot truth-noise and end-to-end delay, generic waypoint-turn radius, climb/descent waypoint distributions, wind randomization bounds and sim-real acceptance thresholds remain unidentified or unapproved.
 - Native mechanism torque and power are available only as explicitly labeled multibody inverse-dynamics estimates. The exact PhysX constraint multiplier and motor-shaft quantities are not exposed or claimed.
 
 ## Exact next task
 
-Run a fresh-process canonical-task smoke through the normal training launcher, then rebuild the straight-flight controller baseline against the promoted plant. Separately implement a reproducible 1024-environment CPU-native end-to-end RL throughput smoke with the free root, complete wing/tail plant, observations, rewards, terminations, repeated batched resets, policy inference and separated physics/transfer/optimizer timings. Do not retune the wing mechanism or substitute the GPU implicit-drive approximation during these gates.
+Implement C2 longitudinal path generation and task sampling on the frozen shared contract, using C1 rehearsal and the retention matrix as promotion gates. Propose climb/descent task bounds separately because the current real-flight mission-setpoint artifact does not identify them. After C2 CPU-native qualification, implement C3 lateral/composite geometry with C1/C2 rehearsal. Keep direct-GPU implicit drive in a separate screening lane until a matched CPU-promotion experiment is approved.

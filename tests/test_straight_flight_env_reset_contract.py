@@ -40,6 +40,13 @@ def _find_ann_assign(class_node: ast.ClassDef, field_name: str) -> ast.AnnAssign
     raise AssertionError(f"field {field_name} not found in {class_node.name}")
 
 
+def _assert_shared_contract_attribute(node: ast.AST, attribute_name: str) -> None:
+    assert isinstance(node, ast.Attribute)
+    assert isinstance(node.value, ast.Name)
+    assert node.value.id == "PURE_RL_SHARED_CONTRACT"
+    assert node.attr == attribute_name
+
+
 def test_straight_flight_reset_calls_base_reset_idx() -> None:
     module = _load_module()
     class_node = _find_class(module, "FlappingBotStraightFlightEnv")
@@ -76,7 +83,7 @@ def test_measured_pure_rl_uses_zero_to_five_hz_without_changing_canonical_contro
     pure_rl_minimum = _find_ann_assign(pure_rl_cfg, "min_flap_hz")
 
     assert ast.literal_eval(canonical_minimum.value) == 2.0
-    assert ast.literal_eval(pure_rl_minimum.value) == 0.0
+    _assert_shared_contract_attribute(pure_rl_minimum.value, "minimum_flap_frequency_hz")
 
 
 def test_measured_pure_rl_selects_direct_surfaces_actual_tail_state_and_sixty_hz_policy() -> None:
@@ -98,7 +105,7 @@ def test_measured_pure_rl_selects_direct_surfaces_actual_tail_state_and_sixty_hz
     assert pure_interface.value.id == "DIRECT_TAIL_SURFACE_ACTION"
     assert isinstance(pure_tail_source.value, ast.Name)
     assert pure_tail_source.value.id == "ACTUAL_JOINT_TAIL_AERO_DEFLECTION"
-    assert ast.literal_eval(pure_decimation.value) == 8
+    _assert_shared_contract_attribute(pure_decimation.value, "policy_decimation")
 
 
 def test_measured_pure_rl_alone_selects_normalized_555_observation_and_reset_randomization() -> None:
@@ -142,8 +149,14 @@ def test_measured_pure_rl_defaults_to_unfrozen_0_to_5_hz_curriculum1_rollouts() 
 
     assert ast.literal_eval(_find_ann_assign(base_cfg, "freeze_steps_after_reset").value) == 240
     assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "freeze_steps_after_reset").value) == 0
-    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "min_flap_hz").value) == 0.0
-    assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "max_flap_hz").value) == 5.0
+    _assert_shared_contract_attribute(
+        _find_ann_assign(pure_rl_cfg, "min_flap_hz").value,
+        "minimum_flap_frequency_hz",
+    )
+    _assert_shared_contract_attribute(
+        _find_ann_assign(pure_rl_cfg, "max_flap_hz").value,
+        "maximum_flap_frequency_hz",
+    )
     assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "pure_rl_preview_minimum_speed_mps").value) == 1.0
     assert ast.literal_eval(_find_ann_assign(pure_rl_cfg, "pure_rl_preview_maximum_speed_mps").value) == 12.0
 
@@ -168,8 +181,8 @@ def test_measured_pure_rl_disables_global_shapers_and_enables_frequency_only_gov
     assert ast.literal_eval(pure_rate_limit.value) == 0.0
     assert ast.literal_eval(base_governor.value) is False
     assert ast.literal_eval(pure_governor.value) is True
-    assert ast.literal_eval(pure_rise_rate.value) == 2.0
-    assert ast.literal_eval(pure_fall_rate.value) == 2.0
+    _assert_shared_contract_attribute(pure_rise_rate.value, "frequency_governor_rise_hz_per_s")
+    _assert_shared_contract_attribute(pure_fall_rate.value, "frequency_governor_fall_hz_per_s")
 
 
 def test_straight_flight_env_exposes_tail_aero_compatibility_fields() -> None:
