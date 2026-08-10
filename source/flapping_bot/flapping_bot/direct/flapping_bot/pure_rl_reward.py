@@ -126,14 +126,49 @@ def compute_pure_rl_reward_terms(
     previous_applied_action: Tensor,
     config: PureRLRewardConfig = PURE_RL_CURRICULUM1_REWARD_CONFIG,
 ) -> PureRLRewardTerms:
-    """Compute dense curriculum-1 terms without an along-track speed target."""
+    """Compute C1 terms through the three-dimensional path reward API."""
+
+    return compute_pure_rl_path_reward_terms(
+        cross_track_error_m=cross_track_error_m,
+        height_error_m=height_error_m,
+        tangent_velocity_mps=along_track_velocity_mps,
+        lateral_normal_velocity_mps=cross_track_velocity_mps,
+        vertical_normal_velocity_mps=vertical_velocity_mps,
+        roll_rad=roll_rad,
+        pitch_rad=pitch_rad,
+        angular_velocity_body_rad_s=angular_velocity_body_rad_s,
+        actual_flap_frequency_hz=actual_flap_frequency_hz,
+        frequency_slew_hz_per_s=frequency_slew_hz_per_s,
+        applied_action=applied_action,
+        previous_applied_action=previous_applied_action,
+        config=config,
+    )
+
+
+def compute_pure_rl_path_reward_terms(
+    *,
+    cross_track_error_m: Tensor,
+    height_error_m: Tensor,
+    tangent_velocity_mps: Tensor,
+    lateral_normal_velocity_mps: Tensor,
+    vertical_normal_velocity_mps: Tensor,
+    roll_rad: Tensor,
+    pitch_rad: Tensor,
+    angular_velocity_body_rad_s: Tensor,
+    actual_flap_frequency_hz: Tensor,
+    frequency_slew_hz_per_s: Tensor,
+    applied_action: Tensor,
+    previous_applied_action: Tensor,
+    config: PureRLRewardConfig = PURE_RL_CURRICULUM1_REWARD_CONFIG,
+) -> PureRLRewardTerms:
+    """Compute dense reward terms in an orthonormal three-dimensional path basis."""
 
     vectors = {
         "cross_track_error_m": cross_track_error_m,
         "height_error_m": height_error_m,
-        "along_track_velocity_mps": along_track_velocity_mps,
-        "cross_track_velocity_mps": cross_track_velocity_mps,
-        "vertical_velocity_mps": vertical_velocity_mps,
+        "tangent_velocity_mps": tangent_velocity_mps,
+        "lateral_normal_velocity_mps": lateral_normal_velocity_mps,
+        "vertical_normal_velocity_mps": vertical_normal_velocity_mps,
         "roll_rad": roll_rad,
         "pitch_rad": pitch_rad,
         "actual_flap_frequency_hz": actual_flap_frequency_hz,
@@ -159,14 +194,14 @@ def compute_pure_rl_reward_terms(
     cross_track_reward = torch.exp(-torch.square(cross_track_error_m / config.cross_track_scale_m))
     height_reward = torch.exp(-torch.square(height_error_m / config.height_scale_m))
     path_reward = 0.5 * (cross_track_reward + height_reward)
-    progress_reward = torch.tanh(along_track_velocity_mps / config.progress_speed_scale_mps)
-    cross_track_velocity_reward = torch.exp(
-        -torch.square(cross_track_velocity_mps / config.cross_track_speed_scale_mps)
+    progress_reward = torch.tanh(tangent_velocity_mps / config.progress_speed_scale_mps)
+    lateral_normal_velocity_reward = torch.exp(
+        -torch.square(lateral_normal_velocity_mps / config.cross_track_speed_scale_mps)
     )
-    vertical_velocity_reward = torch.exp(
-        -torch.square(vertical_velocity_mps / config.vertical_speed_scale_mps)
+    vertical_normal_velocity_reward = torch.exp(
+        -torch.square(vertical_normal_velocity_mps / config.vertical_speed_scale_mps)
     )
-    velocity_reward = 0.5 * (cross_track_velocity_reward + vertical_velocity_reward)
+    velocity_reward = 0.5 * (lateral_normal_velocity_reward + vertical_normal_velocity_reward)
     roll_reward = torch.exp(-torch.square(roll_rad / config.roll_scale_rad))
     normalized_angular_rate = angular_velocity_body_rad_s / config.angular_rate_scale_rad_s
     angular_rate_reward = torch.exp(-torch.sum(torch.square(normalized_angular_rate), dim=1))

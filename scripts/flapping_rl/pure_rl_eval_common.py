@@ -11,6 +11,11 @@ import torch
 
 
 MEASURED_PURE_RL_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0"
+MEASURED_PURE_RL_LONGITUDINAL_TASK_STAGES: dict[str, str] = {
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-Direct-v0": "c2a",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0": "c2b",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0": "c2c",
+}
 PURE_RL_CURRICULUM1_EVAL_SUITE = "pure_rl_curriculum1_nowind_v2"
 PURE_RL_CURRICULUM1_EVAL_CONTRACT = "pure_rl_curriculum1_v2"
 
@@ -32,9 +37,16 @@ PURE_RL_CURRICULUM1_EVALUATION_GATE = PureRLEvaluationGate()
 
 
 def is_measured_pure_rl_task(task: str) -> bool:
-    """Return whether ``task`` is the canonical measured PureRL task."""
+    """Return whether ``task`` belongs to the measured PureRL family."""
 
-    return str(task) == MEASURED_PURE_RL_TASK_ID
+    task_id = str(task)
+    return task_id == MEASURED_PURE_RL_TASK_ID or task_id in MEASURED_PURE_RL_LONGITUDINAL_TASK_STAGES
+
+
+def longitudinal_stage_for_task(task: str) -> str | None:
+    """Return the C2 stage selected by a measured task, or ``None`` for C1."""
+
+    return MEASURED_PURE_RL_LONGITUDINAL_TASK_STAGES.get(str(task))
 
 
 def allocate_episode_quotas(total_episodes: int, num_envs: int) -> tuple[int, ...]:
@@ -91,6 +103,49 @@ def assert_pure_rl_reset_schedule(
         )
 
 
+def assert_pure_rl_longitudinal_reset_schedule(
+    *,
+    actual_heading_rad: torch.Tensor,
+    actual_flap_phase_rad: torch.Tensor,
+    actual_task_id: torch.Tensor,
+    actual_signed_slope_rad: torch.Tensor,
+    expected_heading_schedule_rad: Sequence[float],
+    expected_flap_phase_schedule_rad: Sequence[float],
+    expected_task_schedule: Sequence[int],
+    expected_signed_slope_deg_schedule: Sequence[float],
+    atol: float = 1.0e-5,
+) -> None:
+    """Fail closed unless a C2 reset reproduces the full registered schedule."""
+
+    assert_pure_rl_reset_schedule(
+        actual_heading_rad=actual_heading_rad,
+        actual_flap_phase_rad=actual_flap_phase_rad,
+        expected_heading_schedule_rad=expected_heading_schedule_rad,
+        expected_flap_phase_schedule_rad=expected_flap_phase_schedule_rad,
+        atol=atol,
+    )
+    expected_length = len(expected_heading_schedule_rad)
+    if len(expected_task_schedule) != expected_length or len(expected_signed_slope_deg_schedule) != expected_length:
+        raise ValueError("PureRL longitudinal reset schedules must be aligned.")
+    if actual_task_id.shape != actual_heading_rad.shape or actual_signed_slope_rad.shape != actual_heading_rad.shape:
+        raise ValueError("PureRL longitudinal reset tensors must be aligned one-dimensional tensors.")
+    env_ids = torch.arange(actual_heading_rad.numel(), device=actual_heading_rad.device)
+    task_schedule = torch.as_tensor(expected_task_schedule, device=actual_task_id.device, dtype=actual_task_id.dtype)
+    slope_schedule = torch.deg2rad(
+        torch.as_tensor(
+            expected_signed_slope_deg_schedule,
+            device=actual_signed_slope_rad.device,
+            dtype=actual_signed_slope_rad.dtype,
+        )
+    )
+    expected_task = task_schedule[env_ids % expected_length]
+    expected_slope = slope_schedule[env_ids % expected_length]
+    if bool(torch.any(actual_task_id != expected_task)) or bool(
+        torch.any(torch.abs(actual_signed_slope_rad - expected_slope) > atol)
+    ):
+        raise RuntimeError("PureRL reset did not reproduce the registered longitudinal task/slope schedule.")
+
+
 def read_pure_rl_step_metrics(env) -> dict[str, torch.Tensor]:
     """Read the latest pre-reset route-relative evaluation buffers."""
 
@@ -115,10 +170,41 @@ def read_pure_rl_step_metrics(env) -> dict[str, torch.Tensor]:
     missing = [attribute for attribute in required.values() if not hasattr(env, attribute)]
     if missing:
         raise AttributeError(f"PureRL evaluation buffers are missing: {missing}")
-    return {
+    result = {
         name: getattr(env, attribute).detach().cpu().clone()
         for name, attribute in required.items()
     }
+    if longitudinal_stage_for_task(getattr(getattr(env, "spec", None), "id", "")) is not None or getattr(
+        env,
+        "_pure_rl_longitudinal_path",
+        None,
+    ) is not None:
+        longitudinal_required = {
+            "lateral_normal_velocity_mps": "_eval_pure_rl_lateral_normal_velocity_mps",
+            "vertical_normal_velocity_mps": "_eval_pure_rl_vertical_normal_velocity_mps",
+            "active_slope_rad": "_eval_pure_rl_active_slope_rad",
+            "reached_recovery": "_eval_pure_rl_reached_recovery",
+        }
+        missing_longitudinal = [
+            attribute
+            for attribute in longitudinal_required.values()
+            if getattr(env, attribute, None) is None
+        ]
+        path = getattr(env, "_pure_rl_longitudinal_path", None)
+        if missing_longitudinal or path is None:
+            raise AttributeError(
+                "PureRL longitudinal evaluation buffers are missing: "
+                f"{missing_longitudinal}"
+            )
+        result.update(
+            {
+                name: getattr(env, attribute).detach().cpu().clone()
+                for name, attribute in longitudinal_required.items()
+            }
+        )
+        result["sampled_task_id"] = path.task_id.detach().cpu().clone()
+        result["sampled_signed_slope_rad"] = path.signed_slope_rad.detach().cpu().clone()
+    return result
 
 
 def summarize_pure_rl_episode(

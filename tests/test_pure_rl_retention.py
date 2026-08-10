@@ -80,6 +80,26 @@ def test_retention_matrix_exposes_old_task_failure_at_new_stage() -> None:
     assert result["checkpoint_rows"][1]["failed_evaluation_stages"] == ["straight"]
 
 
+def test_retention_matrix_preserves_optional_detailed_metrics() -> None:
+    records = [_record("straight", "straight", score=10.0)]
+    records[0].update(
+        success_rate=0.97,
+        termination_rate=0.03,
+        mean_abs_cross_track_error_m=0.2,
+        mean_abs_height_error_m=0.1,
+        finite_metrics=True,
+    )
+
+    result = pure_rl_retention.build_retention_matrix(records, stage_order=("straight",))
+    cell = result["cells"][0]
+
+    assert cell["success_rate"] == pytest.approx(0.97)
+    assert cell["termination_rate"] == pytest.approx(0.03)
+    assert cell["mean_abs_cross_track_error_m"] == pytest.approx(0.2)
+    assert cell["mean_abs_height_error_m"] == pytest.approx(0.1)
+    assert cell["finite_metrics"] is True
+
+
 @pytest.mark.parametrize("fault", ("missing", "duplicate", "unknown", "multiple_checkpoints"))
 def test_retention_matrix_fails_closed_on_incomplete_or_ambiguous_input(fault: str) -> None:
     records = [

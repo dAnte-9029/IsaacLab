@@ -330,3 +330,44 @@ def test_select_best_suite_row_does_not_mix_legacy_and_pure_rl_scores(tmp_path: 
 
     assert best is not None
     assert best["checkpoint"].endswith("pure.pt")
+
+
+def test_longitudinal_checkpoint_requires_matching_contract_and_c1_retention(tmp_path: Path) -> None:
+    summary_csv = tmp_path / "summary.csv"
+    contract = "pure_rl_longitudinal_c2a_v1"
+    common = {
+        "case": "suite",
+        "evaluation_contract": contract,
+        "stage_id": "c2a",
+        "grid_complete": True,
+        "climb_case_count": 32,
+        "descent_case_count": 32,
+        "overall_survival_rate": 0.98,
+        "climb_success_rate": 0.95,
+        "descent_success_rate": 0.95,
+        "recovery_reached_rate": 0.98,
+        "mean_abs_cross_track_error_m": 0.2,
+        "mean_abs_height_error_m": 0.2,
+        "p95_abs_height_error_m": 0.8,
+        "reverse_motion_fraction": 0.0,
+        "finite_metrics": True,
+        "score": 90.0,
+        "termination_rate": 0.02,
+        "timeout_rate": 0.98,
+    }
+    _write_summary(
+        summary_csv,
+        [
+            {**common, "checkpoint": str(tmp_path / "model_200.pt"), "ckpt_index": 200, "c1_retention_passed": 0},
+            {**common, "checkpoint": str(tmp_path / "model_300.pt"), "ckpt_index": 300, "c1_retention_passed": 1},
+        ],
+    )
+
+    best = checkpoint_selection.select_best_checkpoint_row(
+        summary_csv,
+        evaluation_contract=contract,
+    )
+
+    assert best is not None
+    assert best["checkpoint"].endswith("model_300.pt")
+    assert int(best["success_gate_passed"]) == 1

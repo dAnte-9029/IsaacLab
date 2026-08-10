@@ -39,6 +39,18 @@ def test_allocate_episode_quotas_is_exact_and_not_fast_failure_biased() -> None:
     assert sum(pure_rl_eval_common.allocate_episode_quotas(5, 16)) == 5
 
 
+def test_longitudinal_task_mapping_keeps_c1_contract_distinct() -> None:
+    assert pure_rl_eval_common.longitudinal_stage_for_task(
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-Direct-v0"
+    ) == "c2a"
+    assert pure_rl_eval_common.longitudinal_stage_for_task(
+        pure_rl_eval_common.MEASURED_PURE_RL_TASK_ID
+    ) is None
+    assert pure_rl_eval_common.is_measured_pure_rl_task(
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0"
+    )
+
+
 def test_reset_schedule_contract_accepts_repeated_grid_and_rejects_drift() -> None:
     headings = torch.tensor([0.0, 1.0, 0.0, 1.0])
     phases = torch.tensor([0.5, 1.5, 0.5, 1.5])

@@ -129,6 +129,56 @@ def test_watch_and_eval_resolves_measured_pure_rl_to_fixed_grid_suite() -> None:
     assert shape == (16, 16)
 
 
+def test_watch_and_eval_resolves_longitudinal_task_to_stage_grid_and_shape() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-Direct-v0"
+    suite = watch_and_eval._resolve_eval_suite(task, "straight_standard")
+
+    assert suite == "pure_rl_longitudinal_c2a_v1"
+    assert watch_and_eval._resolve_eval_shape(task, suite, num_envs=None, episodes=None) == (80, 80)
+
+
+def test_watch_and_eval_applies_longitudinal_fixed_schedules() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    cfg = types.SimpleNamespace(
+        wind_enabled=True,
+        wind_xy_mps=(1.0, 1.0),
+        wind_ou_enabled=True,
+        wind_ou_tau_s=1.0,
+        wind_ou_sigma_xy_mps=(1.0, 1.0),
+        randomize_wind=True,
+        randomize_straight_line_heading=True,
+        randomize_flap_phase_at_reset=True,
+        pure_rl_eval_heading_schedule_rad=None,
+        pure_rl_eval_flap_phase_schedule_rad=None,
+        pure_rl_eval_longitudinal_task_schedule=None,
+        pure_rl_eval_longitudinal_slope_deg_schedule=None,
+        pure_rl_eval_entry_length_m_schedule=None,
+        pure_rl_eval_slope_length_m_schedule=None,
+    )
+    case = {
+        "name": "c2a_promotion_grid",
+        "wind_enabled": False,
+        "wind_xy_mps": (0.0, 0.0),
+        "wind_ou_enabled": False,
+        "wind_ou_tau_s": 2.0,
+        "wind_ou_sigma_xy_mps": (0.0, 0.0),
+        "straight_line_heading_schedule_rad": (0.0, 1.0),
+        "flap_phase_schedule_rad": (0.5, 1.5),
+        "longitudinal_task_schedule": (1, 2),
+        "longitudinal_slope_deg_schedule": (4.0, -4.0),
+        "longitudinal_entry_length_m_schedule": (17.5, 17.5),
+        "longitudinal_slope_length_m_schedule": (25.0, 25.0),
+    }
+
+    watch_and_eval._apply_eval_case_to_cfg(case, cfg, vx_cmd=None, height_cmd=None)
+
+    assert cfg.pure_rl_eval_longitudinal_task_schedule == (1, 2)
+    assert cfg.pure_rl_eval_longitudinal_slope_deg_schedule == (4.0, -4.0)
+    assert cfg.pure_rl_eval_entry_length_m_schedule == (17.5, 17.5)
+    assert cfg.pure_rl_eval_slope_length_m_schedule == (25.0, 25.0)
+
+
 def test_watch_and_eval_applies_pure_rl_fixed_heading_phase_schedule() -> None:
     watch_and_eval = _load_watch_and_eval_module()
     cfg = types.SimpleNamespace(

@@ -47,7 +47,30 @@ def test_path_tracking_truth_nowind_suite_covers_required_cases() -> None:
         assert case["wind_ou_sigma_xy_mps"] == (0.0, 0.0)
         assert case["teacher_state_source"] == "truth"
         assert case["policy_state_source"] == "truth"
-        assert case["imu_source"] == "synthetic"
+    assert case["imu_source"] == "synthetic"
+
+
+def test_pure_rl_longitudinal_suites_expose_promotion_and_diagnostic_schedules() -> None:
+    expected_counts = {"c2a": 80, "c2b": 112, "c2c": 144}
+    for stage_id, count in expected_counts.items():
+        suite = f"pure_rl_longitudinal_{stage_id}_v1"
+        assert suite in get_eval_suite_choices()
+        promotion, diagnostic = build_eval_cases(suite)
+
+        assert promotion["name"] == f"{stage_id}_promotion_grid"
+        assert len(promotion["longitudinal_case_ids"]) == count
+        assert len(promotion["straight_line_heading_schedule_rad"]) == count
+        assert len(promotion["flap_phase_schedule_rad"]) == count
+        assert len(promotion["longitudinal_task_schedule"]) == count
+        assert len(promotion["longitudinal_slope_deg_schedule"]) == count
+        assert set(promotion["longitudinal_entry_length_m_schedule"]) == {17.5}
+        assert set(promotion["longitudinal_slope_length_m_schedule"]) == {25.0}
+        assert promotion["promotion_eligible"] is True
+
+        assert diagnostic["name"] == f"{stage_id}_signed_10deg_diagnostic"
+        assert len(diagnostic["longitudinal_case_ids"]) == 32
+        assert set(diagnostic["longitudinal_slope_deg_schedule"]) == {-10.0, 10.0}
+        assert diagnostic["promotion_eligible"] is False
 
 
 def test_path_tracking_estimated_nowind_suite_uses_estimated_teacher_contract() -> None:

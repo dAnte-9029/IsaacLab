@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, fields
 import importlib.util
 import math
 from pathlib import Path
@@ -113,6 +113,70 @@ def test_progress_rewards_forward_motion_without_a_target_speed() -> None:
     assert progress[0].item() < 0.0
     assert progress[2].item() == pytest.approx(0.0)
     assert 0.99 < progress[-1].item() < 1.0
+
+
+def test_path_reward_uses_tangent_progress_and_both_normal_velocity_components() -> None:
+    dtype = torch.float64
+    slope_rad = math.radians(6.0)
+    climb_tangent = torch.tensor([math.cos(slope_rad), 0.0, math.sin(slope_rad)], dtype=dtype)
+    world_velocity = 7.0 * climb_tangent
+    climb_inputs = _reward_inputs(1, dtype=dtype)
+    climb_inputs.pop("along_track_velocity_mps")
+    climb_inputs.pop("cross_track_velocity_mps")
+    climb_inputs.pop("vertical_velocity_mps")
+    climb_terms = pure_rl_reward.compute_pure_rl_path_reward_terms(
+        **climb_inputs,
+        tangent_velocity_mps=torch.tensor([7.0], dtype=dtype),
+        lateral_normal_velocity_mps=torch.tensor([0.0], dtype=dtype),
+        vertical_normal_velocity_mps=torch.tensor([0.0], dtype=dtype),
+    )
+
+    assert climb_terms.progress_reward.item() > 0.0
+    assert climb_terms.velocity_reward.item() == pytest.approx(1.0)
+
+    level_inputs = _reward_inputs(1, dtype=dtype)
+    level_inputs.pop("along_track_velocity_mps")
+    level_inputs.pop("cross_track_velocity_mps")
+    level_inputs.pop("vertical_velocity_mps")
+    level_terms = pure_rl_reward.compute_pure_rl_path_reward_terms(
+        **level_inputs,
+        tangent_velocity_mps=world_velocity[0:1],
+        lateral_normal_velocity_mps=world_velocity[1:2],
+        vertical_normal_velocity_mps=world_velocity[2:3],
+    )
+
+    assert level_terms.velocity_reward.item() < climb_terms.velocity_reward.item()
+
+
+def test_c1_reward_wrapper_is_exactly_equal_to_path_reward_api() -> None:
+    old_inputs = _reward_inputs(4)
+    old_inputs["cross_track_error_m"][:] = torch.tensor([-1.2, -0.3, 0.4, 1.7])
+    old_inputs["height_error_m"][:] = torch.tensor([0.8, -0.2, 0.0, 1.1])
+    old_inputs["along_track_velocity_mps"][:] = torch.tensor([-1.0, 0.0, 4.0, 8.0])
+    old_inputs["cross_track_velocity_mps"][:] = torch.tensor([0.5, -1.5, 0.0, 2.0])
+    old_inputs["vertical_velocity_mps"][:] = torch.tensor([-0.8, 0.2, 1.2, 0.0])
+    old_inputs["roll_rad"][:] = torch.tensor([0.0, 0.1, -0.4, 0.7])
+    old_inputs["pitch_rad"][:] = torch.tensor([0.0, 0.3, -0.6, 0.9])
+    old_inputs["angular_velocity_body_rad_s"][:] = torch.arange(12, dtype=torch.float64).reshape(4, 3) / 10.0
+    old_inputs["actual_flap_frequency_hz"][:] = torch.tensor([0.0, 2.0, 3.5, 5.0])
+    old_inputs["frequency_slew_hz_per_s"][:] = torch.tensor([0.0, -0.5, 1.0, 2.0])
+    old_inputs["applied_action"][:] = torch.linspace(-0.9, 0.9, 16, dtype=torch.float64).reshape(4, 4)
+    old_inputs["previous_applied_action"][:] = old_inputs["applied_action"] - 0.1
+
+    old_terms = pure_rl_reward.compute_pure_rl_reward_terms(**old_inputs)
+    path_inputs = dict(old_inputs)
+    path_inputs["tangent_velocity_mps"] = path_inputs.pop("along_track_velocity_mps")
+    path_inputs["lateral_normal_velocity_mps"] = path_inputs.pop("cross_track_velocity_mps")
+    path_inputs["vertical_normal_velocity_mps"] = path_inputs.pop("vertical_velocity_mps")
+    path_terms = pure_rl_reward.compute_pure_rl_path_reward_terms(**path_inputs)
+
+    for field in fields(pure_rl_reward.PureRLRewardTerms):
+        torch.testing.assert_close(
+            getattr(old_terms, field.name),
+            getattr(path_terms, field.name),
+            rtol=0.0,
+            atol=0.0,
+        )
 
 
 def test_pitch_is_free_inside_envelope_and_penalized_smoothly_outside() -> None:

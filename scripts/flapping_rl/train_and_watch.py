@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
 import os
 import re
 import signal
@@ -46,7 +48,10 @@ from pure_rl_eval_common import (
     MEASURED_PURE_RL_TASK_ID,
     PURE_RL_CURRICULUM1_EVAL_CONTRACT,
     PURE_RL_CURRICULUM1_EVAL_SUITE,
+    is_measured_pure_rl_task,
+    longitudinal_stage_for_task,
 )
+from pure_rl_longitudinal_eval import LONGITUDINAL_EVAL_CONTRACTS
 
 
 _NATIVE_HOLONOMIC_EXTENSION_ID = "omni.flapping_bot.holonomic_constraint"
@@ -56,8 +61,9 @@ _MEASURED_PURE_RL_DEFAULT_NUM_ENVS = 64
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
-    if eval_suite == "straight_standard" and str(task) == _MEASURED_PURE_RL_TASK_ID:
-        return PURE_RL_CURRICULUM1_EVAL_SUITE
+    if eval_suite == "straight_standard" and is_measured_pure_rl_task(task):
+        stage_id = longitudinal_stage_for_task(task)
+        return PURE_RL_CURRICULUM1_EVAL_SUITE if stage_id is None else f"pure_rl_longitudinal_{stage_id}_v1"
     if eval_suite == "straight_standard" and "PathTracking" in str(task):
         if "Primitive" in str(task):
             return "path_tracking_estimated_primitives_nowind_v1"
@@ -68,16 +74,20 @@ def _resolve_eval_suite(task: str, eval_suite: str) -> str:
 def _resolve_eval_shape(args: argparse.Namespace) -> tuple[int, int]:
     """Resolve task-aware watcher defaults while preserving explicit overrides."""
 
-    pure_rl_grid = (
-        str(args.task) == _MEASURED_PURE_RL_TASK_ID
-        and _resolve_eval_suite(args.task, str(args.eval_suite)) == PURE_RL_CURRICULUM1_EVAL_SUITE
-    )
+    stage_id = longitudinal_stage_for_task(args.task)
+    resolved_suite = _resolve_eval_suite(args.task, str(args.eval_suite))
+    if stage_id is not None and resolved_suite == f"pure_rl_longitudinal_{stage_id}_v1":
+        default_count = {"c2a": 80, "c2b": 112, "c2c": 144}[stage_id]
+    elif is_measured_pure_rl_task(args.task) and resolved_suite == PURE_RL_CURRICULUM1_EVAL_SUITE:
+        default_count = 16
+    else:
+        default_count = None
     requested_num_envs = getattr(args, "eval_num_envs", None)
     requested_episodes = getattr(args, "episodes", None)
-    num_envs = 16 if requested_num_envs is None and pure_rl_grid else (
+    num_envs = default_count if requested_num_envs is None and default_count is not None else (
         1 if requested_num_envs is None else int(requested_num_envs)
     )
-    episodes = 16 if requested_episodes is None and pure_rl_grid else (
+    episodes = default_count if requested_episodes is None and default_count is not None else (
         5 if requested_episodes is None else int(requested_episodes)
     )
     if num_envs <= 0 or episodes <= 0:
@@ -171,6 +181,18 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--load_run", type=str, default=None, help="Existing run directory name used for resume.")
     parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint filename or regex used for resume.")
+    parser.add_argument(
+        "--source-stage",
+        type=str,
+        default=None,
+        help="Required C1/C2 source stage recorded for a longitudinal warm start.",
+    )
+    parser.add_argument(
+        "--source-checkpoint-path",
+        type=Path,
+        default=None,
+        help="Required exact source checkpoint path used for C2 provenance.",
+    )
     parser.add_argument(
         "--portable-root-base",
         type=Path,
@@ -285,8 +307,8 @@ def _portable_kit_args(args: argparse.Namespace, role: str) -> str:
 
 
 def _native_cpu_enabled(args: argparse.Namespace) -> bool:
-    return bool(getattr(args, "native_cpu", False)) or str(getattr(args, "task", "")) == (
-        _MEASURED_PURE_RL_TASK_ID
+    return bool(getattr(args, "native_cpu", False)) or is_measured_pure_rl_task(
+        str(getattr(args, "task", ""))
     )
 
 
@@ -295,7 +317,7 @@ def _resolved_train_num_envs(args: argparse.Namespace) -> int:
     if configured is None:
         configured = (
             _MEASURED_PURE_RL_DEFAULT_NUM_ENVS
-            if str(getattr(args, "task", "")) == _MEASURED_PURE_RL_TASK_ID
+            if is_measured_pure_rl_task(str(getattr(args, "task", "")))
             else _DEFAULT_NUM_ENVS
         )
     value = int(configured)
@@ -462,8 +484,40 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
     return watch_cmd
 
 
+def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str] | None:
+    """Validate and materialize exact C2 warm-start provenance."""
+
+    target_stage = longitudinal_stage_for_task(str(getattr(args, "task", "")))
+    if target_stage is None:
+        return None
+    expected_source_stage = {"c2a": "c1_straight", "c2b": "c2a", "c2c": "c2b"}[target_stage]
+    source_stage = str(getattr(args, "source_stage", "") or "").strip()
+    if source_stage != expected_source_stage:
+        raise ValueError(
+            f"Target stage {target_stage} must use source stage {expected_source_stage}; "
+            f"received {source_stage or '<missing>'}."
+        )
+    configured_path = getattr(args, "source_checkpoint_path", None)
+    if configured_path is None:
+        raise ValueError("C2 training requires --source-checkpoint-path for provenance.")
+    checkpoint_path = Path(configured_path).expanduser().resolve()
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Source checkpoint does not exist: {checkpoint_path}")
+    digest = hashlib.sha256()
+    with checkpoint_path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "target_stage": target_stage,
+        "source_stage": source_stage,
+        "source_checkpoint_path": str(checkpoint_path),
+        "source_checkpoint_sha256": digest.hexdigest(),
+    }
+
+
 def main():
     args = _parse_args()
+    curriculum_source_metadata = _build_curriculum_source_metadata(args)
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)
     args.portable_root_base = _resolve_portable_root_base(args)
@@ -519,6 +573,11 @@ def main():
 
         run_dir = (log_root / f"{timestamp}_{args.run_name}").resolve()
         _wait_for_run_dir(run_dir, train, timeout_s=float(args.run_dir_timeout_s))
+        if curriculum_source_metadata is not None:
+            (run_dir / "curriculum_source.json").write_text(
+                json.dumps(curriculum_source_metadata, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
         watch_cmd = _build_watch_cmd(args, run_dir)
 
@@ -553,10 +612,11 @@ def main():
             else:
                 print("[INFO] Latest checkpoint already has a suite row; skipping final one-shot evaluation.", flush=True)
 
+            stage_id = longitudinal_stage_for_task(args.task)
             evaluation_contract = (
-                PURE_RL_CURRICULUM1_EVAL_CONTRACT
-                if str(args.task) == _MEASURED_PURE_RL_TASK_ID
-                else None
+                LONGITUDINAL_EVAL_CONTRACTS[stage_id]
+                if stage_id is not None
+                else (PURE_RL_CURRICULUM1_EVAL_CONTRACT if is_measured_pure_rl_task(args.task) else None)
             )
             best_row = refresh_best_checkpoint_artifacts(
                 run_dir,

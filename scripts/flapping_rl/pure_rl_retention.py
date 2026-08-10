@@ -30,6 +30,14 @@ RETENTION_ROW_FIELDS: tuple[str, ...] = (
     "retention_passed",
 )
 
+RETENTION_OPTIONAL_DETAIL_FIELDS: tuple[str, ...] = (
+    "success_rate",
+    "termination_rate",
+    "mean_abs_cross_track_error_m",
+    "mean_abs_height_error_m",
+    "finite_metrics",
+)
+
 
 def build_retention_matrix(
     records: Sequence[Mapping[str, object]],
@@ -70,8 +78,7 @@ def build_retention_matrix(
             raise ValueError(f"duplicate retention cell: {cell_key}")
         seen_cells.add(cell_key)
         checkpoints_by_stage[training_stage].add(checkpoint)
-        normalized.append(
-            {
+        normalized_record: dict[str, object] = {
                 "training_stage": training_stage,
                 "checkpoint": checkpoint,
                 "evaluation_stage": evaluation_stage,
@@ -81,7 +88,12 @@ def build_retention_matrix(
                 ),
                 "score": _finite_float(raw_record.get("score"), name="score"),
             }
-        )
+        for name in RETENTION_OPTIONAL_DETAIL_FIELDS[:-1]:
+            if raw_record.get(name) not in (None, ""):
+                normalized_record[name] = _finite_float(raw_record.get(name), name=name)
+        if raw_record.get("finite_metrics") not in (None, ""):
+            normalized_record["finite_metrics"] = _parse_gate(raw_record.get("finite_metrics"))
+        normalized.append(normalized_record)
 
     for stage, checkpoints in checkpoints_by_stage.items():
         if len(checkpoints) != 1:
@@ -199,6 +211,7 @@ def _parse_gate(value: object) -> bool:
 
 __all__ = [
     "RETENTION_CELL_FIELDS",
+    "RETENTION_OPTIONAL_DETAIL_FIELDS",
     "RETENTION_ROW_FIELDS",
     "build_retention_matrix",
 ]

@@ -36,6 +36,9 @@ __all__ = [
     "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
     "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
     "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg",
 ]
 
 
@@ -97,8 +100,14 @@ def __getattr__(name: str):
         "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg",
         "FlappingBotStraightFlightDeLaurierPureRLEnvCfg",
         "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg",
     ):
         from .straight_flight_env import (
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg,
             FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
             FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
             FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
@@ -174,6 +183,9 @@ def __getattr__(name: str):
             "FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg": FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
             "FlappingBotStraightFlightDeLaurierPureRLEnvCfg": FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
             "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg,
         }[name]
 
     raise AttributeError(name)

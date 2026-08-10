@@ -480,6 +480,65 @@ def test_measured_pure_rl_defaults_to_native_cpu_and_64_envs(tmp_path: Path) -> 
     assert f"--ext-folder {extension_parent.resolve()}" in watch_kit_args
 
 
+def test_longitudinal_task_uses_native_cpu_and_stage_specific_eval_suite(tmp_path: Path) -> None:
+    task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0"
+    args = train_and_watch.argparse.Namespace(
+        task=task,
+        run_name="c2b",
+        num_envs=None,
+        eval_num_envs=None,
+        max_iterations=2,
+        save_interval=1,
+        seed=0,
+        train_device="cuda:0",
+        eval_device="cuda:1",
+        episodes=None,
+        poll_s=10.0,
+        eval_suite="straight_standard",
+        headless=True,
+        resume=True,
+        load_weights_only=False,
+        load_run="c2a_run",
+        checkpoint="model_300.pt",
+        portable_root_base=tmp_path / "portable",
+        native_cpu=False,
+        native_extension_parent=tmp_path / "native_extensions",
+        agent_device=None,
+        freeze_steps_after_reset=None,
+    )
+
+    train_cmd = train_and_watch._build_train_cmd(args)
+    watch_cmd = train_and_watch._build_watch_cmd(args, tmp_path / "run")
+
+    assert train_cmd[train_cmd.index("--device") + 1] == "cpu"
+    assert train_cmd[train_cmd.index("--num_envs") + 1] == "64"
+    assert watch_cmd[watch_cmd.index("--eval_suite") + 1] == "pure_rl_longitudinal_c2b_v1"
+    assert watch_cmd[watch_cmd.index("--num_envs") + 1] == "112"
+    assert watch_cmd[watch_cmd.index("--episodes") + 1] == "112"
+
+
+def test_longitudinal_source_metadata_records_stage_checkpoint_and_hash(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "model_300.pt"
+    checkpoint.write_bytes(b"frozen-source-checkpoint")
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0",
+        source_stage="c2a",
+        source_checkpoint_path=checkpoint,
+    )
+
+    metadata = train_and_watch._build_curriculum_source_metadata(args)
+
+    assert metadata is not None
+    assert metadata["target_stage"] == "c2b"
+    assert metadata["source_stage"] == "c2a"
+    assert metadata["source_checkpoint_path"] == str(checkpoint.resolve())
+    assert len(metadata["source_checkpoint_sha256"]) == 64
+
+    args.source_stage = "c1_straight"
+    with pytest.raises(ValueError, match="must use source stage"):
+        train_and_watch._build_curriculum_source_metadata(args)
+
+
 def test_non_measured_task_keeps_legacy_launcher_defaults() -> None:
     args = train_and_watch.argparse.Namespace(
         task="Isaac-FlappingBot-StraightFlight-DeLaurier-PureRL-Direct-v0",

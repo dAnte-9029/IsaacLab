@@ -4,6 +4,17 @@ from __future__ import annotations
 
 import math
 
+try:
+    from .pure_rl_longitudinal_eval import (
+        build_longitudinal_diagnostic_grid,
+        build_longitudinal_evaluation_grid,
+    )
+except ImportError:  # pragma: no cover - direct script import path
+    from pure_rl_longitudinal_eval import (
+        build_longitudinal_diagnostic_grid,
+        build_longitudinal_evaluation_grid,
+    )
+
 
 _PURE_RL_HEADINGS_RAD = (0.0, 0.5 * math.pi, math.pi, -0.5 * math.pi)
 _PURE_RL_PHASES_RAD = (0.0, 0.5 * math.pi, math.pi, 1.5 * math.pi)
@@ -18,6 +29,9 @@ EVAL_SUITE_CHOICES = (
     "single",
     "pure_rl_curriculum1_nowind_v1",
     "pure_rl_curriculum1_nowind_v2",
+    "pure_rl_longitudinal_c2a_v1",
+    "pure_rl_longitudinal_c2b_v1",
+    "pure_rl_longitudinal_c2c_v1",
     "path_tracking_standard",
     "path_tracking_truth_nowind_v1",
     "path_tracking_estimated_nowind_v1",
@@ -54,6 +68,7 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
         mission_allow_climb_on_straight: bool | None = None,
         straight_line_heading_schedule_rad: tuple[float, ...] | None = None,
         flap_phase_schedule_rad: tuple[float, ...] | None = None,
+        longitudinal_cases=None,
     ) -> dict:
         case = {
             "name": name,
@@ -89,6 +104,22 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
             case["straight_line_heading_schedule_rad"] = tuple(straight_line_heading_schedule_rad)
         if flap_phase_schedule_rad is not None:
             case["flap_phase_schedule_rad"] = tuple(flap_phase_schedule_rad)
+        if longitudinal_cases is not None:
+            registered_cases = tuple(longitudinal_cases)
+            case["longitudinal_stage_id"] = registered_cases[0].stage_id
+            case["longitudinal_case_ids"] = tuple(item.case_id for item in registered_cases)
+            case["longitudinal_task_names"] = tuple(item.task for item in registered_cases)
+            case["longitudinal_task_schedule"] = tuple(item.task_id for item in registered_cases)
+            case["longitudinal_slope_deg_schedule"] = tuple(
+                item.signed_slope_deg for item in registered_cases
+            )
+            case["longitudinal_entry_length_m_schedule"] = tuple(
+                item.entry_length_m for item in registered_cases
+            )
+            case["longitudinal_slope_length_m_schedule"] = tuple(
+                item.slope_length_m for item in registered_cases
+            )
+            case["promotion_eligible"] = all(item.promotion_eligible for item in registered_cases)
         return case
 
     if eval_suite == "single":
@@ -109,6 +140,34 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
                 straight_line_heading_schedule_rad=tuple(pair[0] for pair in _PURE_RL_HEADING_PHASE_PAIRS),
                 flap_phase_schedule_rad=tuple(pair[1] for pair in _PURE_RL_HEADING_PHASE_PAIRS),
             )
+        ]
+
+    if eval_suite in {
+        "pure_rl_longitudinal_c2a_v1",
+        "pure_rl_longitudinal_c2b_v1",
+        "pure_rl_longitudinal_c2c_v1",
+    }:
+        stage_id = eval_suite.removeprefix("pure_rl_longitudinal_").removesuffix("_v1")
+        promotion_cases = build_longitudinal_evaluation_grid(stage_id)
+        diagnostic_cases = build_longitudinal_diagnostic_grid(stage_id)
+
+        def _longitudinal_case(name: str, registered_cases) -> dict:
+            return _case(
+                name,
+                wind_enabled=False,
+                wind_xy_mps=(0.0, 0.0),
+                wind_ou_enabled=False,
+                teacher_state_source="estimated",
+                policy_state_source="estimated",
+                imu_source="synthetic",
+                straight_line_heading_schedule_rad=tuple(item.heading_rad for item in registered_cases),
+                flap_phase_schedule_rad=tuple(item.flap_phase_rad for item in registered_cases),
+                longitudinal_cases=registered_cases,
+            )
+
+        return [
+            _longitudinal_case(f"{stage_id}_promotion_grid", promotion_cases),
+            _longitudinal_case(f"{stage_id}_signed_10deg_diagnostic", diagnostic_cases),
         ]
 
     if eval_suite == "path_tracking_standard":

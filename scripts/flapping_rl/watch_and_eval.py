@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
 import re
 import sys
@@ -50,17 +51,29 @@ from pure_rl_eval_common import (
     aggregate_pure_rl_case_row,
     aggregate_pure_rl_suite_row,
     allocate_episode_quotas,
+    assert_pure_rl_longitudinal_reset_schedule,
     assert_pure_rl_reset_schedule,
     compute_pure_rl_score,
     is_measured_pure_rl_task,
+    longitudinal_stage_for_task,
     read_pure_rl_step_metrics,
     summarize_pure_rl_episode,
+)
+from pure_rl_longitudinal_eval import (
+    LONGITUDINAL_EVAL_CONTRACTS,
+    build_longitudinal_diagnostic_grid,
+    build_longitudinal_evaluation_grid,
+    row_meets_longitudinal_promotion_gate,
+    summarize_longitudinal_evaluation,
 )
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
     resolved = _resolve_eval_suite_common(task, eval_suite)
     if resolved == "straight_standard" and is_measured_pure_rl_task(task):
+        stage_id = longitudinal_stage_for_task(task)
+        if stage_id is not None:
+            return f"pure_rl_longitudinal_{stage_id}_v1"
         return PURE_RL_CURRICULUM1_EVAL_SUITE
     return resolved
 
@@ -72,6 +85,17 @@ def _apply_eval_case_to_cfg(case: dict, cfg, *, vx_cmd: float | None, height_cmd
         cfg.randomize_flap_phase_at_reset = False
         cfg.pure_rl_eval_heading_schedule_rad = tuple(case["straight_line_heading_schedule_rad"])
         cfg.pure_rl_eval_flap_phase_schedule_rad = tuple(case["flap_phase_schedule_rad"])
+    if "longitudinal_task_schedule" in case:
+        cfg.pure_rl_eval_longitudinal_task_schedule = tuple(case["longitudinal_task_schedule"])
+        cfg.pure_rl_eval_longitudinal_slope_deg_schedule = tuple(
+            case["longitudinal_slope_deg_schedule"]
+        )
+        cfg.pure_rl_eval_entry_length_m_schedule = tuple(
+            case["longitudinal_entry_length_m_schedule"]
+        )
+        cfg.pure_rl_eval_slope_length_m_schedule = tuple(
+            case["longitudinal_slope_length_m_schedule"]
+        )
 
 
 def _resolve_eval_shape(
@@ -83,9 +107,20 @@ def _resolve_eval_shape(
 ) -> tuple[int, int]:
     """Resolve task-aware evaluation defaults while preserving explicit overrides."""
 
-    pure_rl_grid = is_measured_pure_rl_task(task) and eval_suite == PURE_RL_CURRICULUM1_EVAL_SUITE
-    resolved_num_envs = 16 if num_envs is None and pure_rl_grid else (1 if num_envs is None else int(num_envs))
-    resolved_episodes = 16 if episodes is None and pure_rl_grid else (5 if episodes is None else int(episodes))
+    stage_id = longitudinal_stage_for_task(task)
+    longitudinal_case_counts = {"c2a": 80, "c2b": 112, "c2c": 144}
+    if stage_id is not None and eval_suite == f"pure_rl_longitudinal_{stage_id}_v1":
+        default_count = longitudinal_case_counts[stage_id]
+    elif is_measured_pure_rl_task(task) and eval_suite == PURE_RL_CURRICULUM1_EVAL_SUITE:
+        default_count = 16
+    else:
+        default_count = None
+    resolved_num_envs = default_count if num_envs is None and default_count is not None else (
+        1 if num_envs is None else int(num_envs)
+    )
+    resolved_episodes = default_count if episodes is None and default_count is not None else (
+        5 if episodes is None else int(episodes)
+    )
     if resolved_num_envs <= 0 or resolved_episodes <= 0:
         raise ValueError("Evaluation environment and episode counts must be positive.")
     return resolved_num_envs, resolved_episodes
@@ -128,6 +163,12 @@ def _extract_ckpt_index(p: Path) -> int:
 
 
 def _score_row(row: dict) -> float:
+    if row.get("evaluation_contract") in LONGITUDINAL_EVAL_CONTRACTS.values():
+        survival = float(row["overall_survival_rate"])
+        path_error = float(row["mean_abs_cross_track_error_m"]) + float(
+            row["mean_abs_height_error_m"]
+        )
+        return 100.0 * survival / (1.0 + path_error)
     if row.get("evaluation_contract") == PURE_RL_CURRICULUM1_EVAL_CONTRACT:
         return compute_pure_rl_score(row)
     if "completion_rate" in row and "mean_abs_lateral_error_m" in row:
@@ -191,10 +232,11 @@ def main():
         num_envs=args.num_envs,
         episodes=args.episodes,
     )
+    longitudinal_stage_id = longitudinal_stage_for_task(args.task)
     evaluation_contract = (
-        PURE_RL_CURRICULUM1_EVAL_CONTRACT
-        if is_measured_pure_rl_task(args.task)
-        else None
+        LONGITUDINAL_EVAL_CONTRACTS[longitudinal_stage_id]
+        if longitudinal_stage_id is not None
+        else (PURE_RL_CURRICULUM1_EVAL_CONTRACT if is_measured_pure_rl_task(args.task) else None)
     )
 
     def _update_class_from_dict_allow_none(obj, data: dict, _ns: str = "") -> None:
@@ -367,6 +409,107 @@ def main():
         policy_nn.reset(torch.ones(env.unwrapped.num_envs, dtype=torch.long, device=env.unwrapped.device))
 
         if is_measured_pure_rl_task(args.task):
+            if longitudinal_stage_id is not None:
+                path = env.unwrapped._pure_rl_longitudinal_path
+                if path is None:
+                    raise RuntimeError("C2 evaluation task did not allocate longitudinal path state.")
+                assert_pure_rl_longitudinal_reset_schedule(
+                    actual_heading_rad=env.unwrapped._straight_line_heading_rad,
+                    actual_flap_phase_rad=env.unwrapped._phase,
+                    actual_task_id=path.task_id,
+                    actual_signed_slope_rad=path.signed_slope_rad,
+                    expected_heading_schedule_rad=case["straight_line_heading_schedule_rad"],
+                    expected_flap_phase_schedule_rad=case["flap_phase_schedule_rad"],
+                    expected_task_schedule=case["longitudinal_task_schedule"],
+                    expected_signed_slope_deg_schedule=case["longitudinal_slope_deg_schedule"],
+                )
+                registered_cases = (
+                    build_longitudinal_evaluation_grid(longitudinal_stage_id)
+                    if bool(case["promotion_eligible"])
+                    else build_longitudinal_diagnostic_grid(longitudinal_stage_id)
+                )
+                expected_case_ids = tuple(item.case_id for item in registered_cases)
+                if expected_case_ids != tuple(case["longitudinal_case_ids"]):
+                    raise RuntimeError("Evaluation case schedule does not match its registered C2 grid.")
+                n_env = int(env.unwrapped.num_envs)
+                target_episodes = len(registered_cases)
+                if n_env < target_episodes:
+                    raise ValueError(
+                        "C2 fixed-grid evaluation requires at least one environment per registered case."
+                    )
+                completed = [False for _ in range(n_env)]
+                metric_names = (
+                    "cross_track_error_m",
+                    "height_error_m",
+                    "along_track_velocity_mps",
+                    "reached_recovery",
+                )
+                episode_metrics = [{name: [] for name in metric_names} for _ in range(n_env)]
+                episode_rows: list[dict[str, object]] = []
+
+                while len(episode_rows) < target_episodes:
+                    with torch.inference_mode():
+                        actions = policy(obs)
+                    obs, _rew, dones, _info = env.step(actions)
+                    step_metrics = read_pure_rl_step_metrics(env.unwrapped)
+                    for env_id in range(target_episodes):
+                        if completed[env_id]:
+                            continue
+                        for name in metric_names:
+                            episode_metrics[env_id][name].append(float(step_metrics[name][env_id].item()))
+
+                    done_ids = torch.nonzero(dones > 0, as_tuple=False).squeeze(-1)
+                    for env_id in done_ids.tolist():
+                        if env_id >= target_episodes or completed[env_id]:
+                            continue
+                        trace = episode_metrics[env_id]
+                        if not trace["height_error_m"]:
+                            continue
+                        registered_case = registered_cases[env_id]
+                        terminated = bool(env.unwrapped.reset_terminated[env_id].item())
+                        recovery_reached = any(bool(value) for value in trace["reached_recovery"])
+                        numeric_values = (
+                            trace["cross_track_error_m"]
+                            + trace["height_error_m"]
+                            + trace["along_track_velocity_mps"]
+                        )
+                        episode_rows.append(
+                            {
+                                "case_id": registered_case.case_id,
+                                "stage_id": registered_case.stage_id,
+                                "task": registered_case.task,
+                                "promotion_eligible": registered_case.promotion_eligible,
+                                "terminated": terminated,
+                                "success": (not terminated) and recovery_reached,
+                                "recovery_reached": recovery_reached,
+                                "cross_track_error_m": trace["cross_track_error_m"],
+                                "height_error_m": trace["height_error_m"],
+                                "tangent_velocity_mps": trace["along_track_velocity_mps"],
+                                "finite_metrics": all(math.isfinite(value) for value in numeric_values),
+                            }
+                        )
+                        completed[env_id] = True
+                    policy_nn.reset(dones)
+
+                row = summarize_longitudinal_evaluation(
+                    episode_rows,
+                    expected_cases=registered_cases,
+                    checkpoint=str(ckpt),
+                    ppo_iteration=_extract_ckpt_index(ckpt),
+                )
+                row["case"] = str(case["name"])
+                row["episodes"] = target_episodes
+                row["termination_rate"] = 1.0 - float(row["overall_survival_rate"])
+                row["timeout_rate"] = float(row["overall_survival_rate"])
+                row["promotion_gate_passed"] = bool(
+                    bool(case["promotion_eligible"])
+                    and row_meets_longitudinal_promotion_gate(row)
+                )
+                row["success_gate_passed"] = int(row["promotion_gate_passed"])
+                row["c1_retention_passed"] = 0
+                row["score"] = _score_row(row)
+                return row
+
             if "straight_line_heading_schedule_rad" in case:
                 assert_pure_rl_reset_schedule(
                     actual_heading_rad=env.unwrapped._straight_line_heading_rad,
@@ -618,6 +761,11 @@ def main():
 
     def _eval_checkpoint(ckpt: Path) -> list[dict]:
         case_rows = [_eval_case(ckpt, case) for case in eval_cases]
+        if longitudinal_stage_id is not None:
+            promotion_row = next(row for row in case_rows if "promotion_grid" in str(row["case"]))
+            suite_row = dict(promotion_row)
+            suite_row["case"] = "suite"
+            return case_rows + [suite_row]
         if is_measured_pure_rl_task(args.task):
             suite_row = aggregate_pure_rl_suite_row(case_rows)
             return case_rows + [suite_row]
