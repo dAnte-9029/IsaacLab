@@ -770,7 +770,8 @@ def _validate_generated_batch(batch: PureRLSpatialPathBatch, *, config: PureRLSp
         dx=config.sample_spacing_m,
         dim=1,
     )
-    if bool(torch.any(absolute_heading_change_rad >= 2.0 * math.pi)):
+    non_loiter = batch.template_id != C3B_LOITER_TEMPLATE_ID
+    if bool(torch.any((absolute_heading_change_rad >= 2.0 * math.pi) & non_loiter)):
         raise RuntimeError("Generated bounded template can self-intersect after a full heading revolution.")
     _validate_nonadjacent_centerline_clearance(batch)
     if not bool(torch.all(batch.curvature_rad_per_m[:, 0] == 0.0)) or not bool(

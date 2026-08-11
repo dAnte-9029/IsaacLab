@@ -427,6 +427,41 @@ def test_intentional_c3b_loiter_is_exempt_from_nonadjacent_intersection_rejectio
     )
 
 
+def test_full_circle_heading_change_is_exempt_only_for_c3b_loiter() -> None:
+    sampled = _sample(stage="c3b", count=128, seed=71)
+    loiter_indices = torch.nonzero(
+        sampled.template_id == pure_rl_spatial_path.C3B_LOITER_TEMPLATE_ID,
+        as_tuple=False,
+    ).flatten()
+    assert loiter_indices.numel() > 0
+    row = int(loiter_indices[0])
+    loiter = pure_rl_spatial_path.PureRLSpatialPathBatch(
+        **{
+            field.name: getattr(sampled, field.name)[row : row + 1]
+            for field in fields(sampled)
+        }
+    )
+    full_circle_curvature = torch.zeros_like(loiter.curvature_rad_per_m)
+    integrated_constant_length_m = 300.0 - 0.5 * 0.25
+    full_circle_curvature[:, 1:] = 1.01 * 2.0 * math.pi / integrated_constant_length_m
+    periodic_loiter = replace(loiter, curvature_rad_per_m=full_circle_curvature)
+
+    pure_rl_spatial_path._validate_generated_batch(
+        periodic_loiter,
+        config=pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3b"],
+    )
+
+    non_loiter = replace(
+        periodic_loiter,
+        template_id=torch.full_like(periodic_loiter.template_id, pure_rl_spatial_path.ISOLATED_TURN_TEMPLATE_ID),
+    )
+    with pytest.raises(RuntimeError, match="full heading revolution"):
+        pure_rl_spatial_path._validate_generated_batch(
+            non_loiter,
+            config=pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3b"],
+        )
+
+
 def _self_intersecting_points(reference: torch.Tensor) -> torch.Tensor:
     controls = reference.new_tensor(
         [
