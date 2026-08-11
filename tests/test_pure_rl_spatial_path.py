@@ -55,6 +55,7 @@ def test_spatial_stage_configs_match_approved_ranges_and_probabilities() -> None
         assert config.guard_speed_mps == pytest.approx(12.0)
         assert config.sample_spacing_m == pytest.approx(0.25)
         assert config.path_length_m == pytest.approx(300.0)
+        assert config.minimum_altitude_m == pytest.approx(0.05)
         assert sum(config.task_probabilities) == pytest.approx(1.0)
 
     with pytest.raises(FrozenInstanceError):
@@ -314,6 +315,14 @@ def test_invalid_stage_dtype_altitude_and_config_are_rejected() -> None:
         pure_rl_spatial_path.sample_spatial_path_batch(
             num_paths=1, stage="c3a", device="cpu", dtype=torch.int64
         )
+    for low_precision_dtype in (torch.float16, torch.bfloat16):
+        with pytest.raises(TypeError, match="float32 or float64"):
+            pure_rl_spatial_path.sample_spatial_path_batch(
+                num_paths=1,
+                stage="c3a",
+                device="cpu",
+                dtype=low_precision_dtype,
+            )
     with pytest.raises(ValueError, match="initial_altitude_m"):
         pure_rl_spatial_path.sample_spatial_path_batch(
             num_paths=2,
@@ -402,6 +411,21 @@ def test_nonadjacent_centerline_self_intersection_is_rejected_for_non_loiter() -
         )
 
 
+def test_phase_shifted_parallel_branches_below_clearance_are_rejected() -> None:
+    batch = _sample(stage="c3a", count=1, seed=63)
+    too_close = replace(
+        batch,
+        points_world_m=_parallel_close_branch_points(batch.points_world_m),
+        template_id=torch.full_like(batch.template_id, pure_rl_spatial_path.ISOLATED_TURN_TEMPLATE_ID),
+    )
+
+    with pytest.raises(RuntimeError, match="nonadjacent centerline"):
+        pure_rl_spatial_path._validate_generated_batch(
+            too_close,
+            config=pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3a"],
+        )
+
+
 def test_intentional_c3b_loiter_is_exempt_from_nonadjacent_intersection_rejection() -> None:
     sampled = _sample(stage="c3b", count=128, seed=67)
     loiter_indices = torch.nonzero(
@@ -462,6 +486,25 @@ def test_full_circle_heading_change_is_exempt_only_for_c3b_loiter() -> None:
         )
 
 
+def test_c3c_low_altitude_rows_are_resampled_once_deterministically() -> None:
+    first = _sample(stage="c3c", count=256, seed=8)
+    second = _sample(stage="c3c", count=256, seed=8)
+
+    assert float(torch.amin(first.points_world_m[:, :, 2])) >= 0.05
+    for field in fields(first):
+        torch.testing.assert_close(getattr(first, field.name), getattr(second, field.name))
+
+    with pytest.raises(RuntimeError, match="altitude"):
+        pure_rl_spatial_path.sample_spatial_path_batch(
+            num_paths=1,
+            stage="c3a",
+            device="cpu",
+            dtype=torch.float64,
+            generator=torch.Generator().manual_seed(73),
+            initial_altitude_m=-1.0,
+        )
+
+
 def _self_intersecting_points(reference: torch.Tensor) -> torch.Tensor:
     controls = reference.new_tensor(
         [
@@ -477,6 +520,20 @@ def _self_intersecting_points(reference: torch.Tensor) -> torch.Tensor:
     fraction = (control_progress - lower_index.to(dtype=reference.dtype)).unsqueeze(1)
     points = torch.lerp(controls[lower_index], controls[lower_index + 1], fraction)
     return points.unsqueeze(0)
+
+
+def _parallel_close_branch_points(reference: torch.Tensor) -> torch.Tensor:
+    points = torch.empty_like(reference)
+    points[:, :, 2] = 10.0
+    points[:, 0:301, 0] = torch.linspace(0.0, 75.0, 301, device=reference.device, dtype=reference.dtype)
+    points[:, 0:301, 1] = 0.0
+    points[:, 300:305, 0] = 75.0
+    points[:, 300:305, 1] = torch.linspace(0.0, 1.4, 5, device=reference.device, dtype=reference.dtype)
+    points[:, 304:605, 0] = torch.linspace(75.0, 0.0, 301, device=reference.device, dtype=reference.dtype)
+    points[:, 304:605, 1] = 1.4
+    points[:, 604:, 0] = 0.0
+    points[:, 604:, 1] = torch.linspace(1.4, 150.4, 597, device=reference.device, dtype=reference.dtype)
+    return points
 
 
 def _contiguous_components(indices: list[int]) -> list[list[int]]:

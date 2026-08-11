@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import math
 
 import torch
@@ -33,9 +33,11 @@ _EVENT_TURN = 1
 _EVENT_VERTICAL = 2
 _EVENT_COUPLED = 3
 _GRAVITY_MPS2 = 9.81
-_INTERSECTION_VALIDATION_STRIDE = 8
-_INTERSECTION_LOCAL_SAMPLE_RADIUS = 4
+_INTERSECTION_VALIDATION_STRIDE = 4
+_INTERSECTION_LOCAL_SAMPLE_RADIUS = 8
 _MINIMUM_NONADJACENT_CLEARANCE_M = 1.5
+_CLEARANCE_VALIDATION_THRESHOLD_M = 2.5
+_CLEARANCE_VALIDATION_BATCH_SIZE = 32
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,7 @@ class PureRLSpatialStageConfig:
     guard_speed_mps: float = 12.0
     sample_spacing_m: float = 0.25
     path_length_m: float = 300.0
+    minimum_altitude_m: float = 0.05
     vertical_slope_deg_range: tuple[float, float] = (2.0, 8.0)
     loiter_radius_m_range: tuple[float, float] = (0.0, 0.0)
 
@@ -133,12 +136,12 @@ def sample_spatial_path_batch(
     generator: torch.Generator | None = None,
     initial_altitude_m: float | Tensor = 10.0,
 ) -> PureRLSpatialPathBatch:
-    """Sample dense spatial centerlines using fixed-size batched Torch operations."""
+    """Sample dense paths, replacing invalid rows in one bounded resampling pass."""
 
     if isinstance(num_paths, bool) or not isinstance(num_paths, int) or num_paths <= 0:
         raise ValueError("num_paths must be a positive integer.")
-    if not isinstance(dtype, torch.dtype) or not dtype.is_floating_point:
-        raise TypeError("dtype must be a floating-point torch dtype.")
+    if dtype not in (torch.float32, torch.float64):
+        raise TypeError("dtype must be the floating-point dtype float32 or float64.")
     resolved_device = torch.device(device)
     config = resolve_spatial_stage(stage)
     altitude = _resolve_initial_altitude(
@@ -147,6 +150,47 @@ def sample_spatial_path_batch(
         device=resolved_device,
         dtype=dtype,
     )
+    batch = _sample_spatial_path_batch_once(
+        num_paths=num_paths,
+        config=config,
+        device=resolved_device,
+        dtype=dtype,
+        generator=generator,
+        initial_altitude_m=altitude,
+    )
+    invalid_rows = _resampleable_invalid_rows(batch, config=config)
+    if bool(torch.any(invalid_rows)):
+        invalid_ids = torch.nonzero(invalid_rows, as_tuple=False).flatten()
+        replacement = _sample_spatial_path_batch_once(
+            num_paths=invalid_ids.numel(),
+            config=config,
+            device=resolved_device,
+            dtype=dtype,
+            generator=generator,
+            initial_altitude_m=altitude.index_select(0, invalid_ids),
+        )
+        replacement_invalid = _resampleable_invalid_rows(replacement, config=config)
+        if bool(torch.any(replacement_invalid)):
+            _validate_generated_batch(replacement, config=config)
+            raise RuntimeError("Spatial path replacement remained invalid after one resampling pass.")
+        batch = _replace_batch_rows(batch, row_ids=invalid_ids, replacement=replacement)
+    _validate_generated_batch(batch, config=config)
+    return batch
+
+
+def _sample_spatial_path_batch_once(
+    *,
+    num_paths: int,
+    config: PureRLSpatialStageConfig,
+    device: torch.device,
+    dtype: torch.dtype,
+    generator: torch.Generator | None,
+    initial_altitude_m: Tensor,
+) -> PureRLSpatialPathBatch:
+    """Sample one unchecked batch with fixed-size batched Torch operations."""
+
+    resolved_device = device
+    altitude = initial_altitude_m
 
     task_family_id = _sample_task_families(
         count=num_paths,
@@ -248,7 +292,7 @@ def sample_spatial_path_batch(
     peak_slope_rad = vertical_sign * peak_slope_magnitude_rad
     final_event_progress_m = torch.amax(event_end_m, dim=1)
 
-    batch = PureRLSpatialPathBatch(
+    return PureRLSpatialPathBatch(
         points_world_m=relative_points_world_m,
         tangent_world=tangent_world,
         lateral_normal_world=lateral_normal_world,
@@ -265,8 +309,6 @@ def sample_spatial_path_batch(
         event_count=event_count,
         template_id=template_id,
     )
-    _validate_generated_batch(batch, config=config)
-    return batch
 
 
 def _sample_task_families(
@@ -719,6 +761,7 @@ def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
         ("guard_speed_mps", config.guard_speed_mps),
         ("sample_spacing_m", config.sample_spacing_m),
         ("path_length_m", config.path_length_m),
+        ("minimum_altitude_m", config.minimum_altitude_m),
     ):
         if not math.isfinite(value) or value <= 0.0:
             raise ValueError(f"{name} must be finite and positive.")
@@ -765,6 +808,11 @@ def _validate_generated_batch(batch: PureRLSpatialPathBatch, *, config: PureRLSp
         raise RuntimeError("Generated spatial path contains a non-finite value.")
     if bool(torch.any(batch.final_event_progress_m > config.path_length_m)):
         raise RuntimeError("Generated spatial path extends beyond the centerline table.")
+    altitude_invalid = torch.any(batch.points_world_m[:, :, 2] < config.minimum_altitude_m, dim=1)
+    if bool(torch.any(altitude_invalid)):
+        raise RuntimeError(
+            f"Generated spatial path falls below the {config.minimum_altitude_m:.2f} m minimum altitude."
+        )
     absolute_heading_change_rad = torch.trapezoid(
         torch.abs(batch.curvature_rad_per_m),
         dx=config.sample_spacing_m,
@@ -794,22 +842,53 @@ def _validate_generated_batch(batch: PureRLSpatialPathBatch, *, config: PureRLSp
 def _validate_nonadjacent_centerline_clearance(batch: PureRLSpatialPathBatch) -> None:
     """Reject close nonlocal branches on a generation-time validation grid."""
 
+    if bool(torch.any(_nonadjacent_clearance_invalid_rows(batch))):
+        raise RuntimeError(
+            "Generated nonadjacent centerline branches do not guarantee "
+            f"{_MINIMUM_NONADJACENT_CLEARANCE_M:.1f} m clearance."
+        )
+
+
+def _resampleable_invalid_rows(
+    batch: PureRLSpatialPathBatch,
+    *,
+    config: PureRLSpatialStageConfig,
+) -> Tensor:
+    altitude_invalid = torch.any(batch.points_world_m[:, :, 2] < config.minimum_altitude_m, dim=1)
+    return altitude_invalid | _nonadjacent_clearance_invalid_rows(batch)
+
+
+def _nonadjacent_clearance_invalid_rows(batch: PureRLSpatialPathBatch) -> Tensor:
+    invalid_rows = torch.zeros_like(batch.template_id, dtype=torch.bool)
     checked_rows = batch.template_id != C3B_LOITER_TEMPLATE_ID
     if not bool(torch.any(checked_rows)):
-        return
+        return invalid_rows
+    checked_ids = torch.nonzero(checked_rows, as_tuple=False).flatten()
     sampled_points = batch.points_world_m[checked_rows, ::_INTERSECTION_VALIDATION_STRIDE, :]
-    if sampled_points.dtype in (torch.float16, torch.bfloat16):
-        sampled_points = sampled_points.to(dtype=torch.float32)
-    pairwise_distance_m = torch.cdist(sampled_points, sampled_points)
     sample_count = sampled_points.shape[1]
     sample_index = torch.arange(sample_count, device=sampled_points.device)
     nonadjacent = (
         torch.abs(sample_index.unsqueeze(0) - sample_index.unsqueeze(1))
         > _INTERSECTION_LOCAL_SAMPLE_RADIUS
     )
-    too_close = pairwise_distance_m < _MINIMUM_NONADJACENT_CLEARANCE_M
-    if bool(torch.any(too_close & nonadjacent.unsqueeze(0))):
-        raise RuntimeError(
-            "Generated nonadjacent centerline branches are closer than "
-            f"{_MINIMUM_NONADJACENT_CLEARANCE_M:.1f} m."
-        )
+    checked_invalid_chunks: list[Tensor] = []
+    for points_chunk in torch.split(sampled_points, _CLEARANCE_VALIDATION_BATCH_SIZE, dim=0):
+        pairwise_distance_m = torch.cdist(points_chunk, points_chunk)
+        too_close = pairwise_distance_m < _CLEARANCE_VALIDATION_THRESHOLD_M
+        checked_invalid_chunks.append(torch.any(too_close & nonadjacent.unsqueeze(0), dim=(1, 2)))
+    invalid_rows.index_copy_(0, checked_ids, torch.cat(checked_invalid_chunks))
+    return invalid_rows
+
+
+def _replace_batch_rows(
+    batch: PureRLSpatialPathBatch,
+    *,
+    row_ids: Tensor,
+    replacement: PureRLSpatialPathBatch,
+) -> PureRLSpatialPathBatch:
+    values: dict[str, Tensor] = {}
+    for field in fields(batch):
+        updated = getattr(batch, field.name).clone()
+        updated.index_copy_(0, row_ids, getattr(replacement, field.name))
+        values[field.name] = updated
+    return PureRLSpatialPathBatch(**values)
