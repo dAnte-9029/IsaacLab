@@ -124,18 +124,24 @@ def summarize_longitudinal_evaluation(
     if len(stage_ids) != 1:
         raise ValueError("expected_cases must belong to exactly one stage.")
     stage_id = next(iter(stage_ids))
+    promotion_eligible = all(case.promotion_eligible for case in cases)
     result = {
         "checkpoint": str(checkpoint),
         "ppo_iteration": int(ppo_iteration),
         "stage_id": stage_id,
         "evaluation_contract": LONGITUDINAL_EVAL_CONTRACTS[stage_id],
+        "promotion_eligible": promotion_eligible,
         "grid_complete": True,
         "case_count": len(cases),
         "level_case_count": len(success_by_task["level"]),
         "climb_case_count": len(success_by_task["climb"]),
         "descent_case_count": len(success_by_task["descent"]),
         "overall_survival_rate": _mean(survived),
-        "level_success_rate": _mean(success_by_task["level"]),
+        "level_success_rate": (
+            _mean(success_by_task["level"])
+            if success_by_task["level"]
+            else None
+        ),
         "climb_success_rate": _mean(success_by_task["climb"]),
         "descent_success_rate": _mean(success_by_task["descent"]),
         "recovery_reached_rate": _mean(recovered),
@@ -145,7 +151,9 @@ def summarize_longitudinal_evaluation(
         "reverse_motion_fraction": _mean([float(value < 0.0) for value in tangent_velocity_samples]),
         "finite_metrics": all(finite_flags),
     }
-    result["promotion_gate_passed"] = row_meets_longitudinal_promotion_gate(result)
+    result["promotion_gate_passed"] = bool(
+        promotion_eligible and row_meets_longitudinal_promotion_gate(result)
+    )
     return result
 
 

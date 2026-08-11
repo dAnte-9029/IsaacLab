@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import time
+import traceback
 from pathlib import Path
 from collections.abc import Iterable, Mapping, Sized
 
@@ -221,6 +222,14 @@ def _append_summary_row(summary_csv: Path, row: Mapping[str, object]) -> None:
         for existing_row in existing_rows:
             writer.writerow({key: existing_row.get(key, "") for key in merged_fieldnames})
         writer.writerow({key: row_dict.get(key, "") for key in merged_fieldnames})
+
+
+def _report_evaluation_failure(error: BaseException) -> None:
+    """Flush an evaluation traceback before Isaac Sim starts fast shutdown."""
+
+    print("[ERROR] Checkpoint evaluation failed before Isaac shutdown.", file=sys.stderr, flush=True)
+    traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
+    sys.stderr.flush()
 
 
 def main():
@@ -828,6 +837,9 @@ def main():
                 break
 
             time.sleep(float(args.poll_s))
+    except Exception as error:
+        _report_evaluation_failure(error)
+        raise
     finally:
         env.close()
         simulation_app.close()

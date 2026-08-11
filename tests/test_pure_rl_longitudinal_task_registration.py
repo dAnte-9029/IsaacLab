@@ -39,3 +39,28 @@ def test_longitudinal_tasks_register_exact_configs_and_shared_runner() -> None:
     assert registrations["Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0"]["env"] == (
         "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg"
     )
+
+    assert registrations[
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuImplicit-Direct-v0"
+    ] == {
+        "env": "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg",
+        "runner": "FlappingBotStraightFlightPPORunnerCfg",
+    }
+    assert registrations[
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuImplicit-Direct-v0"
+    ] == {
+        "env": "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg",
+        "runner": "FlappingBotStraightFlightPPORunnerCfg",
+    }
+    assert registrations[
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuPhaseMatched-Direct-v0"
+    ] == {
+        "env": "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg",
+        "runner": "FlappingBotStraightFlightPPORunnerCfg",
+    }
+    assert registrations[
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuPhaseMatched-Direct-v0"
+    ] == {
+        "env": "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg",
+        "runner": "FlappingBotStraightFlightPPORunnerCfg",
+    }

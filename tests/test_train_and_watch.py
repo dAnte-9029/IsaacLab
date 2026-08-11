@@ -108,6 +108,30 @@ def test_wait_for_run_dir_raises_if_process_exits_first(tmp_path: Path) -> None:
     else:
         raise AssertionError("Expected RuntimeError when process exits before run dir appears.")
 
+
+def test_output_forwarder_prevents_pipe_backpressure_while_waiting_for_run_dir(tmp_path: Path) -> None:
+    run_dir = tmp_path / "child_run"
+    child_code = (
+        "import pathlib, sys; "
+        "sys.stdout.write('x' * 200000); "
+        "sys.stdout.flush(); "
+        f"pathlib.Path({str(run_dir)!r}).mkdir()"
+    )
+    process = train_and_watch.subprocess.Popen(
+        [sys.executable, "-c", child_code],
+        stdout=train_and_watch.subprocess.PIPE,
+        text=True,
+    )
+    assert process.stdout is not None
+
+    output_thread = train_and_watch._start_output_forwarder(process.stdout, sink=lambda _line: None)
+    train_and_watch._wait_for_run_dir(run_dir, process, timeout_s=2.0, poll_s=0.01)
+
+    assert process.wait(timeout=2.0) == 0
+    output_thread.join(timeout=2.0)
+    assert output_thread.is_alive() is False
+
+
 def test_build_train_cmd_includes_resume_arguments() -> None:
     args = train_and_watch.argparse.Namespace(
         task="Isaac-FlappingBot-StraightFlight-DeLaurier-PureRL-Direct-v0",
@@ -189,6 +213,83 @@ def test_build_train_cmd_rejects_conflicting_resume_and_weights_only_flags() -> 
     )
 
     with pytest.raises(ValueError, match="cannot both be enabled"):
+        train_and_watch._build_train_cmd(args)
+
+
+def test_train_only_disables_watcher() -> None:
+    assert train_and_watch._watcher_enabled(train_and_watch.argparse.Namespace(train_only=False)) is True
+    assert train_and_watch._watcher_enabled(train_and_watch.argparse.Namespace(train_only=True)) is False
+
+
+def test_kit_args_can_disable_extension_fs_watcher() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+        native_cpu=True,
+        portable_root_base=Path("logs/portable/fs_watcher_disabled"),
+        native_extension_parent=Path("source/flapping_bot/native_extensions"),
+        disable_kit_fs_watcher=True,
+    )
+
+    kit_args = train_and_watch._kit_args(args, "train")
+
+    assert "--/apps/extensions/fsWatcherEnabled=false" in kit_args
+
+
+def test_build_train_cmd_forwards_positive_minibatch_override() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+        run_name="minibatch_override",
+        num_envs=128,
+        max_iterations=40,
+        save_interval=100,
+        seed=0,
+        train_device="cpu",
+        eval_device="cpu",
+        headless=True,
+        resume=False,
+        load_weights_only=False,
+        load_run=None,
+        checkpoint=None,
+        portable_root_base=Path("logs/portable/minibatch_override"),
+        native_cpu=True,
+        native_extension_parent=Path("source/flapping_bot/native_extensions"),
+        agent_device=None,
+        freeze_steps_after_reset=None,
+        agent_num_mini_batches=8,
+    )
+
+    cmd = train_and_watch._build_train_cmd(args)
+
+    assert cmd[cmd.index("--num_envs") + 1] == "128"
+    assert cmd[cmd.index("--max_iterations") + 1] == "40"
+    assert "agent.save_interval=100" in cmd
+    assert "agent.algorithm.num_mini_batches=8" in cmd
+
+
+def test_build_train_cmd_rejects_nonpositive_minibatch_override() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+        run_name="bad_minibatch_override",
+        num_envs=128,
+        max_iterations=40,
+        save_interval=100,
+        seed=0,
+        train_device="cpu",
+        eval_device="cpu",
+        headless=True,
+        resume=False,
+        load_weights_only=False,
+        load_run=None,
+        checkpoint=None,
+        portable_root_base=Path("logs/portable/bad_minibatch_override"),
+        native_cpu=True,
+        native_extension_parent=Path("source/flapping_bot/native_extensions"),
+        agent_device=None,
+        freeze_steps_after_reset=None,
+        agent_num_mini_batches=0,
+    )
+
+    with pytest.raises(ValueError, match="mini-batches"):
         train_and_watch._build_train_cmd(args)
 
 
@@ -432,14 +533,14 @@ def test_build_train_cmd_native_cpu_adds_extension_and_p0_overrides(tmp_path: Pa
     assert f"env.robot.spawn.usd_dir={expected_usd_dir}" in cmd
 
 
-def test_measured_pure_rl_defaults_to_native_cpu_and_64_envs(tmp_path: Path) -> None:
+def test_measured_pure_rl_defaults_to_accelerated_cpu_training(tmp_path: Path) -> None:
     extension_parent = tmp_path / "native_extensions"
     args = train_and_watch.argparse.Namespace(
         task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
         run_name="measured_defaults",
         num_envs=None,
-        max_iterations=2,
-        save_interval=1,
+        max_iterations=None,
+        save_interval=None,
         seed=0,
         train_device="cuda:0",
         eval_device="cuda:1",
@@ -452,6 +553,7 @@ def test_measured_pure_rl_defaults_to_native_cpu_and_64_envs(tmp_path: Path) -> 
         native_cpu=False,
         native_extension_parent=extension_parent,
         agent_device=None,
+        agent_num_mini_batches=None,
         freeze_steps_after_reset=None,
     )
 
@@ -460,7 +562,10 @@ def test_measured_pure_rl_defaults_to_native_cpu_and_64_envs(tmp_path: Path) -> 
 
     assert cmd[:2] == [sys.executable, "scripts/reinforcement_learning/rsl_rl/train.py"]
     assert cmd[cmd.index("--device") + 1] == "cpu"
-    assert cmd[cmd.index("--num_envs") + 1] == "64"
+    assert cmd[cmd.index("--num_envs") + 1] == "256"
+    assert cmd[cmd.index("--max_iterations") + 1] == "500"
+    assert "agent.save_interval=25" in cmd
+    assert "agent.algorithm.num_mini_batches=16" in cmd
     assert "agent.device=cpu" in cmd
     assert "env.freeze_steps_after_reset=0" not in cmd
     assert f"--ext-folder {extension_parent.resolve()}" in kit_args
@@ -511,7 +616,8 @@ def test_longitudinal_task_uses_native_cpu_and_stage_specific_eval_suite(tmp_pat
     watch_cmd = train_and_watch._build_watch_cmd(args, tmp_path / "run")
 
     assert train_cmd[train_cmd.index("--device") + 1] == "cpu"
-    assert train_cmd[train_cmd.index("--num_envs") + 1] == "64"
+    assert train_cmd[train_cmd.index("--num_envs") + 1] == "256"
+    assert "agent.algorithm.num_mini_batches=16" in train_cmd
     assert watch_cmd[watch_cmd.index("--eval_suite") + 1] == "pure_rl_longitudinal_c2b_v1"
     assert watch_cmd[watch_cmd.index("--num_envs") + 1] == "112"
     assert watch_cmd[watch_cmd.index("--episodes") + 1] == "112"
@@ -539,13 +645,24 @@ def test_longitudinal_source_metadata_records_stage_checkpoint_and_hash(tmp_path
         train_and_watch._build_curriculum_source_metadata(args)
 
 
+def test_longitudinal_same_stage_resume_does_not_require_curriculum_source_metadata() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-Direct-v0",
+        resume=True,
+        source_stage=None,
+        source_checkpoint_path=None,
+    )
+
+    assert train_and_watch._build_curriculum_source_metadata(args) is None
+
+
 def test_non_measured_task_keeps_legacy_launcher_defaults() -> None:
     args = train_and_watch.argparse.Namespace(
         task="Isaac-FlappingBot-StraightFlight-DeLaurier-PureRL-Direct-v0",
         run_name="legacy_defaults",
         num_envs=None,
-        max_iterations=2,
-        save_interval=1,
+        max_iterations=None,
+        save_interval=None,
         seed=0,
         train_device="cuda:0",
         eval_device="cuda:1",
@@ -557,6 +674,7 @@ def test_non_measured_task_keeps_legacy_launcher_defaults() -> None:
         portable_root_base=Path("logs/portable/legacy_defaults"),
         native_cpu=False,
         agent_device=None,
+        agent_num_mini_batches=None,
         freeze_steps_after_reset=None,
     )
 
@@ -565,6 +683,9 @@ def test_non_measured_task_keeps_legacy_launcher_defaults() -> None:
     assert cmd[:3] == ["./isaaclab.sh", "-p", "scripts/reinforcement_learning/rsl_rl/train.py"]
     assert cmd[cmd.index("--device") + 1] == "cuda:0"
     assert cmd[cmd.index("--num_envs") + 1] == "512"
+    assert cmd[cmd.index("--max_iterations") + 1] == "2000"
+    assert "agent.save_interval=100" in cmd
+    assert not any(item.startswith("agent.algorithm.num_mini_batches=") for item in cmd)
     assert "agent.device=cpu" not in cmd
 
 
@@ -587,9 +708,11 @@ def test_build_watch_cmd_native_cpu_adds_extension_and_uses_cpu(tmp_path: Path) 
 
     cmd = train_and_watch._build_watch_cmd(args, tmp_path / "run")
     kit_args = cmd[cmd.index("--kit_args") + 1]
+    repo_root = Path(train_and_watch.__file__).resolve().parents[2]
 
     assert cmd[:2] == [sys.executable, "scripts/flapping_rl/watch_and_eval.py"]
     assert cmd[cmd.index("--device") + 1] == "cpu"
+    assert f"--ext-folder {(repo_root / 'source').resolve()}" in kit_args
     assert f"--ext-folder {extension_parent.resolve()}" in kit_args
     assert "--enable omni.flapping_bot.holonomic_constraint" in kit_args
 
@@ -619,8 +742,9 @@ def test_native_child_environment_prioritizes_current_worktree_sources(monkeypat
     entries = child_env["PYTHONPATH"].split(train_and_watch.os.pathsep)
     repo_root = Path(train_and_watch.__file__).resolve().parents[2]
 
-    assert entries[:2] == [
+    assert entries[:3] == [
         str((repo_root / "source/flapping_bot").resolve()),
         str((repo_root / "source/isaaclab_assets").resolve()),
+        str((repo_root / "source/isaaclab_tasks").resolve()),
     ]
-    assert entries[2] == "/external/pythonpath"
+    assert entries[3] == "/external/pythonpath"

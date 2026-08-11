@@ -87,6 +87,42 @@ def test_frequency_phase_reference_is_sine_with_variable_frequency_derivatives()
     )
 
 
+def test_frequency_phase_step_exposes_exact_post_step_kinematics() -> None:
+    dt = 1.0 / 480.0
+    frequency_hz = 4.0
+    config = IdealInverseDynamicsPhaseDriveConfig(
+        amplitude_rad=math.radians(30.0),
+        max_frequency_hz=5.0,
+        frequency_settling_time_s=0.2,
+    )
+    result = step_ideal_frequency_phase(
+        state=IdealFrequencyPhaseState(
+            phase_rad=torch.tensor([0.0], dtype=torch.float64),
+            frequency_hz=torch.tensor([frequency_hz], dtype=torch.float64),
+        ),
+        throttle_01=torch.tensor([frequency_hz / config.max_frequency_hz], dtype=torch.float64),
+        physics_dt_s=dt,
+        config=config,
+    )
+    expected_phase = 2.0 * math.pi * frequency_hz * dt
+
+    torch.testing.assert_close(
+        result.next_kinematics.common_position_rad,
+        torch.tensor([config.amplitude_rad * math.sin(expected_phase)], dtype=torch.float64),
+        atol=1.0e-12,
+        rtol=0.0,
+    )
+    torch.testing.assert_close(
+        result.next_kinematics.common_velocity_rad_s,
+        torch.tensor(
+            [config.amplitude_rad * 2.0 * math.pi * frequency_hz * math.cos(expected_phase)],
+            dtype=torch.float64,
+        ),
+        atol=1.0e-12,
+        rtol=0.0,
+    )
+
+
 def test_tracking_acceleration_uses_discrete_error_feedback() -> None:
     dt = 1.0 / 480.0
     position_gain, velocity_gain = discrete_tracking_acceleration_gains(

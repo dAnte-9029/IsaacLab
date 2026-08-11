@@ -55,6 +55,10 @@ __all__ = [
     "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg",
     "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg",
     "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg",
     "FlappingBotStraightFlightEnv",
 ]
 
@@ -128,12 +132,20 @@ def __getattr__(name: str):
         "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg",
         "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg",
         "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg",
     ):
         from .direct.flapping_bot import (
             FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg,
             FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg,
             FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg,
             FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg,
             FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
             FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
             FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
@@ -211,6 +223,10 @@ def __getattr__(name: str):
             "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg,
             "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg,
             "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg,
         }[name]
     if name == "FlappingRoomSceneCfg":
         from .scenes import FlappingRoomSceneCfg

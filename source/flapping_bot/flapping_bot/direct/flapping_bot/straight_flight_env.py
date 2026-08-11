@@ -38,6 +38,7 @@ from ...assets import (
     IDEAL_TORQUE_NATURAL_FREQUENCY_HZ,
     KINEMATIC_WING_OVERRIDE,
     NATIVE_HOLONOMIC_WING_DRIVE,
+    PHASE_MATCHED_IMPLICIT_WING_DRIVE,
     PRESCRIBED_COUPLED_WING_DRIVE,
     SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
     FlappingBotCfg,
@@ -401,6 +402,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     ideal_inverse_tracking_natural_frequency_hz: float = 50.0
     ideal_inverse_tracking_damping_ratio: float = 1.0
     ideal_inverse_effort_limit_nm: float = IDEAL_DRIVER_EFFORT_LIMIT_NM
+    phase_matched_implicit_extra_lead_fraction: float = 0.0
 
     # dynamics decoupling (mass/inertia)
     # Plant selection is explicit so the established near-single-rigid-body
@@ -932,6 +934,72 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg(
     pure_rl_longitudinal_stage_id: str = "c2c"
 
 
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
+):
+    """Screening-only PureRL C1 task on the direct-GPU implicit wing drive."""
+
+    sim: SimulationCfg = SimulationCfg(
+        dt=PURE_RL_SHARED_CONTRACT.physics_dt_s,
+        render_interval=PURE_RL_SHARED_CONTRACT.policy_decimation,
+        device="cuda:0",
+        gravity=(0.0, 0.0, -9.81),
+        physics_material=sim_utils.RigidBodyMaterialCfg(
+            static_friction=0.8,
+            dynamic_friction=0.6,
+            restitution=0.0,
+        ),
+    )
+    scene: InteractiveSceneCfg = FlappingRoomSceneCfg(
+        num_envs=512,
+        env_spacing=5.0,
+        replicate_physics=True,
+    )
+    scene.robot = None
+    wing_drive_variant: str = IDEAL_COUPLED_WING_DRIVE
+    wing_aero_coupling_mode: str = ACTUAL_PER_WING_LINK
+    wing_aero_acceleration_source: str = ACTUAL_JOINT_ACCELERATION
+    robot: ArticulationCfg = IdealCoupledFlappingBotCfg.replace(
+        prim_path="/World/envs/env_.*/Robot",
+        spawn=IdealCoupledFlappingBotCfg.spawn.replace(
+            rigid_props=IdealCoupledFlappingBotCfg.spawn.rigid_props.replace(
+                disable_gravity=False,
+                retain_accelerations=False,
+            ),
+        ),
+    )
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg
+):
+    """Screening-only PureRL C2a task on the direct-GPU implicit wing drive."""
+
+    pure_rl_longitudinal_stage_id: str = "c2a"
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg
+):
+    """Screening-only PureRL C1 task with CPU-matched frequency/phase dynamics."""
+
+    wing_drive_variant: str = PHASE_MATCHED_IMPLICIT_WING_DRIVE
+    wing_aero_acceleration_source: str = PRESCRIBED_ACCELERATION
+    phase_matched_implicit_extra_lead_fraction: float = 0.18
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg
+):
+    """Screening-only PureRL C2a task with CPU-matched frequency/phase dynamics."""
+
+    pure_rl_longitudinal_stage_id: str = "c2a"
+
+
 class FlappingBotStraightFlightEnv(DirectRLEnv):
     cfg: FlappingBotStraightFlightEnvCfg
 
@@ -1030,6 +1098,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         validate_wing_link_aero_load_mode(cfg.wing_link_aero_load_mode)
         if wing_drive_variant in {
             IDEAL_COUPLED_WING_DRIVE,
+            PHASE_MATCHED_IMPLICIT_WING_DRIVE,
             PRESCRIBED_COUPLED_WING_DRIVE,
             IDEAL_TORQUE_COUPLED_WING_DRIVE,
             SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
@@ -1073,6 +1142,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             raise ValueError("ideal_inverse_tracking_damping_ratio must equal one.")
         if float(cfg.ideal_inverse_effort_limit_nm) <= 0.0:
             raise ValueError("ideal_inverse_effort_limit_nm must be positive.")
+        if not 0.0 <= float(cfg.phase_matched_implicit_extra_lead_fraction) < 1.0:
+            raise ValueError(
+                "phase_matched_implicit_extra_lead_fraction must be in [0, 1)."
+            )
         if wing_drive_variant == SINUSOIDAL_PHASE_SPEED_WING_DRIVE:
             if bool(cfg.enable_tail_aero):
                 raise ValueError(
@@ -1146,8 +1219,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         }:
             if cfg.plant_variant != MEASURED_WING_MULTIBODY_PLANT:
                 raise ValueError("Actual-motion wing aerodynamics require plant_variant='measured_wing_multibody'.")
-            if wing_drive_variant != IDEAL_COUPLED_WING_DRIVE:
-                raise ValueError("Actual-motion wing aerodynamics require wing_drive_variant='ideal_coupled_drive'.")
+            if wing_drive_variant not in {
+                IDEAL_COUPLED_WING_DRIVE,
+                PHASE_MATCHED_IMPLICIT_WING_DRIVE,
+            }:
+                raise ValueError(
+                    "Actual-motion wing aerodynamics require an implicit coupled wing drive."
+                )
             if not bool(cfg.use_delaurier_wings):
                 raise ValueError("Actual-motion wing aerodynamics require use_delaurier_wings=True.")
             if str(cfg.wing_moment_mode) != "strip_integrated":
@@ -1438,6 +1516,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_wing_aero_velocity_rad_s: Tensor | None = None
         self._debug_last_wing_aero_acceleration_rad_s2: Tensor | None = None
         self._debug_last_wing_actual_acceleration_rad_s2: Tensor | None = None
+        self._debug_last_pure_rl_reward_terms: dict[str, Tensor] | None = None
         self._debug_last_shadow_actual_accel_wing_force_b_n: Tensor | None = None
         self._debug_last_shadow_actual_accel_wing_moment_b_nm: Tensor | None = None
         self._debug_last_native_common_inertia_kg_m2: Tensor | None = None
@@ -1685,6 +1764,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
                 IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
                 NATIVE_HOLONOMIC_WING_DRIVE,
+                PHASE_MATCHED_IMPLICIT_WING_DRIVE,
             }
             and abs(self._wing_mid_L + self._wing_mid_R) > 1.0e-6
         ):
@@ -1716,6 +1796,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if validate_wing_drive_variant(self.cfg.wing_drive_variant) in {
             IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
             NATIVE_HOLONOMIC_WING_DRIVE,
+            PHASE_MATCHED_IMPLICIT_WING_DRIVE,
         }:
             self._ideal_inverse_phase_cfg = IdealInverseDynamicsPhaseDriveConfig(
                 amplitude_rad=self._wing_amp,
@@ -1964,6 +2045,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._robot = Articulation(self.cfg.robot)
         if validate_wing_drive_variant(self.cfg.wing_drive_variant) in {
             IDEAL_COUPLED_WING_DRIVE,
+            PHASE_MATCHED_IMPLICIT_WING_DRIVE,
             IDEAL_TORQUE_COUPLED_WING_DRIVE,
             SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
             IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
@@ -2385,6 +2467,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
             IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
             NATIVE_HOLONOMIC_WING_DRIVE,
+            PHASE_MATCHED_IMPLICIT_WING_DRIVE,
         }:
             assert self._phase_throttle is not None
             assert self._phase_target_frequency_hz is not None
@@ -2498,6 +2581,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
             IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
             NATIVE_HOLONOMIC_WING_DRIVE,
+            PHASE_MATCHED_IMPLICIT_WING_DRIVE,
         }:
             reference_phase = self._phase
         else:
@@ -2529,6 +2613,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if wing_drive_variant in {
             IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
             NATIVE_HOLONOMIC_WING_DRIVE,
+            PHASE_MATCHED_IMPLICIT_WING_DRIVE,
         }:
             assert self._ideal_inverse_phase_state is not None
             assert self._ideal_inverse_phase_cfg is not None
@@ -2555,9 +2640,38 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 duration_s=ramp_duration_s,
             )
 
+        actuator_q_cmd = self._q_cmd
+        actuator_qd_cmd = self._qd_cmd
+        if wing_drive_variant == PHASE_MATCHED_IMPLICIT_WING_DRIVE:
+            assert ideal_inverse_phase_step is not None
+            phase_matched_extra_lead_s = (
+                float(self.cfg.phase_matched_implicit_extra_lead_fraction)
+                * float(self.physics_dt)
+            )
+            phase_matched_actuator_kinematics = compute_opposed_wing_kinematics(
+                phase_rad=(
+                    ideal_inverse_phase_step.next_state.phase_rad
+                    + 2.0
+                    * math.pi
+                    * ideal_inverse_phase_step.next_state.frequency_hz
+                    * phase_matched_extra_lead_s
+                ),
+                phase_rate_rad_s=(
+                    2.0 * math.pi * ideal_inverse_phase_step.next_state.frequency_hz
+                ),
+                phase_acceleration_rad_s2=torch.zeros_like(
+                    ideal_inverse_phase_step.next_state.frequency_hz
+                ),
+                amplitude_rad=self._wing_amp,
+                left_joint_mid_rad=self._wing_mid_L,
+                right_joint_mid_rad=self._wing_mid_R,
+            )
+            actuator_q_cmd = phase_matched_actuator_kinematics.common_position_rad
+            actuator_qd_cmd = phase_matched_actuator_kinematics.common_velocity_rad_s
+
         left_cmd, right_cmd, left_qd_cmd, right_qd_cmd = map_symmetric_flap_coordinate_to_joint_space(
-            flap_position_rad=self._q_cmd,
-            flap_velocity_rad_s=self._qd_cmd,
+            flap_position_rad=actuator_q_cmd,
+            flap_velocity_rad_s=actuator_qd_cmd,
             left_joint_mid_rad=self._wing_mid_L,
             right_joint_mid_rad=self._wing_mid_R,
         )
@@ -2574,7 +2688,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             jvel[:, self._IDX_LEFT_WING] = left_qd_cmd
             jvel[:, self._IDX_RIGHT_WING] = right_qd_cmd
             self._robot.write_joint_state_to_sim(jt, jvel, joint_ids=self._joint_ids)
-        elif wing_drive_variant == IDEAL_COUPLED_WING_DRIVE:
+        elif wing_drive_variant in {
+            IDEAL_COUPLED_WING_DRIVE,
+            PHASE_MATCHED_IMPLICIT_WING_DRIVE,
+        }:
             left_driver_joint_id = [int(self._joint_ids[self._IDX_LEFT_WING])]
             self._robot.set_joint_position_target(
                 jt[:, self._IDX_LEFT_WING].unsqueeze(-1),
@@ -3123,6 +3240,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 sinusoidal_phase_step.phase_acceleration_rad_s2
             )
         elif wing_drive_variant == NATIVE_HOLONOMIC_WING_DRIVE:
+            assert ideal_inverse_phase_step is not None
+            assert self._ideal_inverse_phase_state is not None
+            self._ideal_inverse_phase_state = ideal_inverse_phase_step.next_state
+            self._phase = ideal_inverse_phase_step.next_state.phase_rad
+            self._freq = ideal_inverse_phase_step.next_state.frequency_hz
+            self._phase_acceleration_rad_s2 = ideal_inverse_phase_step.phase_acceleration_rad_s2
+        elif wing_drive_variant == PHASE_MATCHED_IMPLICIT_WING_DRIVE:
             assert ideal_inverse_phase_step is not None
             assert self._ideal_inverse_phase_state is not None
             self._ideal_inverse_phase_state = ideal_inverse_phase_step.next_state
@@ -3903,6 +4027,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
             IDEAL_INVERSE_DYNAMICS_PHASE_WING_DRIVE,
             NATIVE_HOLONOMIC_WING_DRIVE,
+            PHASE_MATCHED_IMPLICIT_WING_DRIVE,
         }:
             initial_common_position = self._wing_amp * torch.sin(phase0)
             jpos[:, self._IDX_LEFT_WING] = self._wing_mid_L + initial_common_position
@@ -4256,6 +4381,19 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 previous_applied_action=self._pure_rl_previous_reward_action,
                 config=reward_cfg,
             )
+        self._debug_last_pure_rl_reward_terms = {
+            "total_reward": terms.total_reward,
+            "path_reward": terms.path_reward,
+            "progress_reward": terms.progress_reward,
+            "velocity_reward": terms.velocity_reward,
+            "roll_reward": terms.roll_reward,
+            "angular_rate_reward": terms.angular_rate_reward,
+            "pitch_envelope_penalty": terms.pitch_envelope_penalty,
+            "flap_penalty": terms.flap_penalty,
+            "frequency_slew_penalty": terms.frequency_slew_penalty,
+            "tail_action_delta_penalty": terms.tail_action_delta_penalty,
+            "tail_action_limit_penalty": terms.tail_action_limit_penalty,
+        }
         assert self._eval_pure_rl_cross_track_error_m is not None
         assert self._eval_pure_rl_height_error_m is not None
         assert self._eval_pure_rl_along_track_progress_m is not None

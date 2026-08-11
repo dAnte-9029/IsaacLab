@@ -39,6 +39,10 @@ __all__ = [
     "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg",
     "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg",
     "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg",
+    "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg",
 ]
 
 
@@ -103,12 +107,20 @@ def __getattr__(name: str):
         "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg",
         "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg",
         "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg",
+        "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg",
     ):
         from .straight_flight_env import (
             FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg,
             FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg,
             FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg,
             FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg,
+            FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg,
             FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
             FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
             FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
@@ -186,6 +198,10 @@ def __getattr__(name: str):
             "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg,
             "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg,
             "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg,
+            "FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg,
         }[name]
 
     raise AttributeError(name)

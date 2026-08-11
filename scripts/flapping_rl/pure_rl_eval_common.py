@@ -11,10 +11,34 @@ import torch
 
 
 MEASURED_PURE_RL_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0"
+GPU_IMPLICIT_PURE_RL_TASK_ID = (
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuImplicit-Direct-v0"
+)
+GPU_IMPLICIT_PURE_RL_C2A_TASK_ID = (
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuImplicit-Direct-v0"
+)
+GPU_PHASE_MATCHED_PURE_RL_TASK_ID = (
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuPhaseMatched-Direct-v0"
+)
+GPU_PHASE_MATCHED_PURE_RL_C2A_TASK_ID = (
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuPhaseMatched-Direct-v0"
+)
 MEASURED_PURE_RL_LONGITUDINAL_TASK_STAGES: dict[str, str] = {
     "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-Direct-v0": "c2a",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0": "c2b",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0": "c2c",
+    GPU_IMPLICIT_PURE_RL_C2A_TASK_ID: "c2a",
+    GPU_PHASE_MATCHED_PURE_RL_C2A_TASK_ID: "c2a",
+}
+PURE_RL_TASK_BACKENDS: dict[str, str] = {
+    MEASURED_PURE_RL_TASK_ID: "cpu_native_authority",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-Direct-v0": "cpu_native_authority",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0": "cpu_native_authority",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0": "cpu_native_authority",
+    GPU_IMPLICIT_PURE_RL_TASK_ID: "gpu_implicit_candidate",
+    GPU_IMPLICIT_PURE_RL_C2A_TASK_ID: "gpu_implicit_candidate",
+    GPU_PHASE_MATCHED_PURE_RL_TASK_ID: "gpu_implicit_candidate",
+    GPU_PHASE_MATCHED_PURE_RL_C2A_TASK_ID: "gpu_implicit_candidate",
 }
 PURE_RL_CURRICULUM1_EVAL_SUITE = "pure_rl_curriculum1_nowind_v2"
 PURE_RL_CURRICULUM1_EVAL_CONTRACT = "pure_rl_curriculum1_v2"
@@ -39,14 +63,23 @@ PURE_RL_CURRICULUM1_EVALUATION_GATE = PureRLEvaluationGate()
 def is_measured_pure_rl_task(task: str) -> bool:
     """Return whether ``task`` belongs to the measured PureRL family."""
 
-    task_id = str(task)
-    return task_id == MEASURED_PURE_RL_TASK_ID or task_id in MEASURED_PURE_RL_LONGITUDINAL_TASK_STAGES
+    return str(task) in PURE_RL_TASK_BACKENDS
 
 
 def longitudinal_stage_for_task(task: str) -> str | None:
     """Return the C2 stage selected by a measured task, or ``None`` for C1."""
 
     return MEASURED_PURE_RL_LONGITUDINAL_TASK_STAGES.get(str(task))
+
+
+def pure_rl_backend_for_task(task: str) -> str:
+    """Return the explicit backend contract for a measured PureRL task."""
+
+    task_id = str(task)
+    try:
+        return PURE_RL_TASK_BACKENDS[task_id]
+    except KeyError as error:
+        raise ValueError(f"Unknown measured PureRL task: {task_id!r}.") from error
 
 
 def allocate_episode_quotas(total_episodes: int, num_envs: int) -> tuple[int, ...]:

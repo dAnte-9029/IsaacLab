@@ -21,6 +21,7 @@ from .flapping_bot_cfg import FlappingBotCfg
 
 KINEMATIC_WING_OVERRIDE = "kinematic_override"
 IDEAL_COUPLED_WING_DRIVE = "ideal_coupled_drive"
+PHASE_MATCHED_IMPLICIT_WING_DRIVE = "phase_matched_implicit_drive"
 PRESCRIBED_COUPLED_WING_DRIVE = "prescribed_coupled_drive"
 IDEAL_TORQUE_COUPLED_WING_DRIVE = "ideal_torque_coupled_drive"
 SINUSOIDAL_PHASE_SPEED_WING_DRIVE = "sinusoidal_phase_speed_drive"
@@ -30,6 +31,7 @@ WING_DRIVE_VARIANTS = frozenset(
     {
         KINEMATIC_WING_OVERRIDE,
         IDEAL_COUPLED_WING_DRIVE,
+        PHASE_MATCHED_IMPLICIT_WING_DRIVE,
         PRESCRIBED_COUPLED_WING_DRIVE,
         IDEAL_TORQUE_COUPLED_WING_DRIVE,
         SINUSOIDAL_PHASE_SPEED_WING_DRIVE,
@@ -181,6 +183,7 @@ def apply_hard_opposed_wing_mimic(stage: Any, *, articulation_root_path: str | N
 __all__ = [
     "KINEMATIC_WING_OVERRIDE",
     "IDEAL_COUPLED_WING_DRIVE",
+    "PHASE_MATCHED_IMPLICIT_WING_DRIVE",
     "PRESCRIBED_COUPLED_WING_DRIVE",
     "IDEAL_TORQUE_COUPLED_WING_DRIVE",
     "SINUSOIDAL_PHASE_SPEED_WING_DRIVE",

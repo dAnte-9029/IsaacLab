@@ -63,6 +63,7 @@ class IdealFrequencyPhaseStep:
 
     next_state: IdealFrequencyPhaseState
     kinematics: OpposedWingKinematics
+    next_kinematics: OpposedWingKinematics
     target_frequency_hz: Tensor
     frequency_rate_hz_s: Tensor
     phase_rate_rad_s: Tensor
@@ -159,12 +160,24 @@ def step_ideal_frequency_phase(
         + (state.frequency_hz - target_frequency_hz) * time_constant_s * (1.0 - decay)
     )
     next_phase_rad = state.phase_rad + 2.0 * math.pi * frequency_integral_hz_s
+    next_frequency_rate_hz_s = (target_frequency_hz - next_frequency_hz) / time_constant_s
+    next_phase_rate_rad_s = 2.0 * math.pi * next_frequency_hz
+    next_phase_acceleration_rad_s2 = 2.0 * math.pi * next_frequency_rate_hz_s
+    next_kinematics = compute_opposed_wing_kinematics(
+        phase_rad=next_phase_rad,
+        phase_rate_rad_s=next_phase_rate_rad_s,
+        phase_acceleration_rad_s2=next_phase_acceleration_rad_s2,
+        amplitude_rad=config.amplitude_rad,
+        left_joint_mid_rad=left_joint_mid_rad,
+        right_joint_mid_rad=right_joint_mid_rad,
+    )
     return IdealFrequencyPhaseStep(
         next_state=IdealFrequencyPhaseState(
             phase_rad=next_phase_rad,
             frequency_hz=next_frequency_hz,
         ),
         kinematics=kinematics,
+        next_kinematics=next_kinematics,
         target_frequency_hz=target_frequency_hz,
         frequency_rate_hz_s=frequency_rate_hz_s,
         phase_rate_rad_s=phase_rate_rad_s,

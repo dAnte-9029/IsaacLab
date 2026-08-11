@@ -88,6 +88,23 @@ def test_summary_reports_directions_and_passes_approved_gate() -> None:
     assert pure_rl_longitudinal_eval.row_meets_longitudinal_promotion_gate(summary)
 
 
+def test_diagnostic_summary_marks_missing_level_cases_not_applicable() -> None:
+    cases = pure_rl_longitudinal_eval.build_longitudinal_diagnostic_grid("c2a")
+
+    summary = pure_rl_longitudinal_eval.summarize_longitudinal_evaluation(
+        [_episode_row(case) for case in cases],
+        expected_cases=cases,
+        checkpoint="/checkpoints/model_300.pt",
+        ppo_iteration=300,
+    )
+
+    assert summary["level_case_count"] == 0
+    assert summary["level_success_rate"] is None
+    assert summary["climb_success_rate"] == pytest.approx(1.0)
+    assert summary["descent_success_rate"] == pytest.approx(1.0)
+    assert summary["promotion_gate_passed"] is False
+
+
 def test_direction_failure_blocks_promotion_even_when_overall_rate_is_high() -> None:
     cases = pure_rl_longitudinal_eval.build_longitudinal_evaluation_grid("c2c")
     failed_descent_ids = {case.case_id for case in [item for item in cases if item.task == "descent"][:7]}

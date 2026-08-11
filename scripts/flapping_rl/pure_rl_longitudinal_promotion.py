@@ -5,7 +5,69 @@ from __future__ import annotations
 import math
 from typing import Mapping, Sequence
 
+from pure_rl_eval_common import PURE_RL_CURRICULUM1_EVAL_CONTRACT
 from pure_rl_longitudinal_eval import row_meets_longitudinal_promotion_gate
+
+
+_REFERENCE_NUM_ENVS = 64
+_REFERENCE_NUM_STEPS_PER_ENV = 48
+_REFERENCE_MINIMUM_PPO_ITERATION = 200
+_REFERENCE_EVALUATION_INTERVAL = 100
+_MINIMUM_PROMOTION_TRANSITIONS = (
+    _REFERENCE_NUM_ENVS * _REFERENCE_NUM_STEPS_PER_ENV * _REFERENCE_MINIMUM_PPO_ITERATION
+)
+_PROMOTION_INTERVAL_TRANSITIONS = (
+    _REFERENCE_NUM_ENVS * _REFERENCE_NUM_STEPS_PER_ENV * _REFERENCE_EVALUATION_INTERVAL
+)
+
+
+def build_sample_equivalent_promotion_schedule(
+    *,
+    num_envs: int,
+    num_steps_per_env: int = _REFERENCE_NUM_STEPS_PER_ENV,
+) -> dict[str, int]:
+    """Derive exact iteration gates from the frozen reference transition counts."""
+
+    if num_envs <= 0 or num_steps_per_env <= 0:
+        raise ValueError("num_envs and num_steps_per_env must be positive.")
+    transitions_per_iteration = int(num_envs) * int(num_steps_per_env)
+    if (
+        _MINIMUM_PROMOTION_TRANSITIONS % transitions_per_iteration != 0
+        or _PROMOTION_INTERVAL_TRANSITIONS % transitions_per_iteration != 0
+    ):
+        raise ValueError("Promotion sample thresholds must map to exact PPO iteration counts.")
+    return {
+        "minimum_ppo_iteration": _MINIMUM_PROMOTION_TRANSITIONS // transitions_per_iteration,
+        "evaluation_interval": _PROMOTION_INTERVAL_TRANSITIONS // transitions_per_iteration,
+    }
+
+
+def build_c1_retention_row(row: Mapping[str, object]) -> dict[str, object]:
+    """Adapt one current C1 suite row to the longitudinal retention contract."""
+
+    evidence = _validate_c1_suite_row(row)
+    return {
+        "checkpoint": evidence["checkpoint"],
+        "evaluation_stage": "c1_straight",
+        "success_rate": evidence["timeout_rate"],
+        "termination_rate": evidence["termination_rate"],
+        "score": evidence["score"],
+        "mean_abs_cross_track_error_m": evidence["mean_abs_cross_track_error_m"],
+        "mean_abs_height_error_m": evidence["mean_abs_height_error_m"],
+        "finite_metrics": True,
+    }
+
+
+def build_c1_source_baseline(row: Mapping[str, object]) -> dict[str, object]:
+    """Extract the source-C1 baseline fields from a current C1 suite row."""
+
+    evidence = _validate_c1_suite_row(row)
+    return {
+        "checkpoint": evidence["checkpoint"],
+        "score": evidence["score"],
+        "mean_abs_cross_track_error_m": evidence["mean_abs_cross_track_error_m"],
+        "mean_abs_height_error_m": evidence["mean_abs_height_error_m"],
+    }
 
 
 def evaluate_longitudinal_promotion(
@@ -136,6 +198,29 @@ def _validate_source_baseline(row: Mapping[str, object]) -> dict[str, object]:
     }
 
 
+def _validate_c1_suite_row(row: Mapping[str, object]) -> dict[str, object]:
+    if str(row.get("evaluation_contract", "")).strip() != PURE_RL_CURRICULUM1_EVAL_CONTRACT:
+        raise ValueError(f"C1 evidence must use {PURE_RL_CURRICULUM1_EVAL_CONTRACT}.")
+    if str(row.get("case", "")).strip() != "suite":
+        raise ValueError("C1 retention evidence must be a suite row.")
+    checkpoint = _required_text(row, "checkpoint")
+    timeout_rate = _finite_float(row, "timeout_rate")
+    termination_rate = _finite_float(row, "termination_rate")
+    if not 0.0 <= timeout_rate <= 1.0 or not 0.0 <= termination_rate <= 1.0:
+        raise ValueError("C1 timeout and termination rates must be finite fractions.")
+    return {
+        "checkpoint": checkpoint,
+        "timeout_rate": timeout_rate,
+        "termination_rate": termination_rate,
+        "score": _finite_float(row, "score"),
+        "mean_abs_cross_track_error_m": _finite_nonnegative_float(
+            row,
+            "mean_abs_cross_track_error_m",
+        ),
+        "mean_abs_height_error_m": _finite_nonnegative_float(row, "mean_abs_height_error_m"),
+    }
+
+
 def _validate_evaluation_metrics(row: Mapping[str, object]) -> None:
     for name in (
         "overall_survival_rate",
@@ -189,4 +274,9 @@ def _finite_nonnegative_float(row: Mapping[str, object], name: str) -> float:
     return value
 
 
-__all__ = ["evaluate_longitudinal_promotion"]
+__all__ = [
+    "build_c1_retention_row",
+    "build_c1_source_baseline",
+    "build_sample_equivalent_promotion_schedule",
+    "evaluate_longitudinal_promotion",
+]

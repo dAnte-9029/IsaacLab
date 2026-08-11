@@ -403,3 +403,16 @@ def test_watch_and_eval_rewrites_summary_csv_when_new_columns_are_added(tmp_path
     assert rows[0]["stall_rate"] == ""
     assert rows[1]["checkpoint"] == "model_2.pt"
     assert rows[1]["stall_rate"] == "0.25"
+
+
+def test_watch_and_eval_reports_failure_before_isaac_shutdown(capsys) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    try:
+        raise RuntimeError("evaluation aggregation failed")
+    except RuntimeError as error:
+        watch_and_eval._report_evaluation_failure(error)
+
+    stderr = capsys.readouterr().err
+    assert "[ERROR] Checkpoint evaluation failed before Isaac shutdown." in stderr
+    assert "RuntimeError: evaluation aggregation failed" in stderr

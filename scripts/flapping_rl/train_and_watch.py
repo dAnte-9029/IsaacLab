@@ -35,8 +35,11 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import TextIO
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -57,7 +60,12 @@ from pure_rl_longitudinal_eval import LONGITUDINAL_EVAL_CONTRACTS
 _NATIVE_HOLONOMIC_EXTENSION_ID = "omni.flapping_bot.holonomic_constraint"
 _MEASURED_PURE_RL_TASK_ID = MEASURED_PURE_RL_TASK_ID
 _DEFAULT_NUM_ENVS = 512
-_MEASURED_PURE_RL_DEFAULT_NUM_ENVS = 64
+_DEFAULT_MAX_ITERATIONS = 2000
+_DEFAULT_SAVE_INTERVAL = 100
+_MEASURED_PURE_RL_DEFAULT_NUM_ENVS = 256
+_MEASURED_PURE_RL_DEFAULT_MAX_ITERATIONS = 500
+_MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL = 25
+_MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES = 16
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
@@ -109,12 +117,22 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help=(
-            "Training environment count. Defaults to 64 for the CPU-native MeasuredPureRL task "
+            "Training environment count. Defaults to 256 for the CPU-native MeasuredPureRL task "
             "and 512 for other tasks."
         ),
     )
-    parser.add_argument("--max-iterations", type=int, default=2000)
-    parser.add_argument("--save-interval", type=int, default=100)
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="Defaults to 500 for MeasuredPureRL tasks and 2000 for other tasks.",
+    )
+    parser.add_argument(
+        "--save-interval",
+        type=int,
+        default=None,
+        help="Defaults to 25 for MeasuredPureRL tasks and 100 for other tasks.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--mass-kg-override",
@@ -144,6 +162,22 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Optional RSL-RL policy/optimizer device override; --native-cpu defaults this to cpu.",
+    )
+    parser.add_argument(
+        "--agent-num-mini-batches",
+        type=int,
+        default=None,
+        help="Positive PPO minibatch count. Defaults to 16 for MeasuredPureRL tasks.",
+    )
+    parser.add_argument(
+        "--train-only",
+        action="store_true",
+        help="Run training without the concurrent checkpoint watcher or final evaluation.",
+    )
+    parser.add_argument(
+        "--disable-kit-fs-watcher",
+        action="store_true",
+        help="Disable Kit extension filesystem watching for non-interactive runs.",
     )
     parser.add_argument(
         "--freeze-steps-after-reset",
@@ -230,6 +264,28 @@ def _latest_checkpoint(run_dir: Path) -> Path | None:
     return ckpts[-1].resolve()
 
 
+def _start_output_forwarder(
+    stream: TextIO,
+    *,
+    sink: Callable[[str], None] | None = None,
+) -> threading.Thread:
+    """Drain a child stream in the background to prevent pipe backpressure."""
+
+    if sink is None:
+
+        def sink(line: str) -> None:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+    def _forward() -> None:
+        for line in stream:
+            sink(line)
+
+    thread = threading.Thread(target=_forward, name="train-output-forwarder", daemon=True)
+    thread.start()
+    return thread
+
+
 def _wait_for_run_dir(run_dir: Path, train: subprocess.Popen, *, timeout_s: float, poll_s: float = 0.5) -> None:
     t0 = time.time()
     while not run_dir.is_dir():
@@ -312,6 +368,10 @@ def _native_cpu_enabled(args: argparse.Namespace) -> bool:
     )
 
 
+def _watcher_enabled(args: argparse.Namespace) -> bool:
+    return not bool(getattr(args, "train_only", False))
+
+
 def _resolved_train_num_envs(args: argparse.Namespace) -> int:
     configured = getattr(args, "num_envs", None)
     if configured is None:
@@ -323,6 +383,46 @@ def _resolved_train_num_envs(args: argparse.Namespace) -> int:
     value = int(configured)
     if value <= 0:
         raise ValueError("--num-envs must be positive.")
+    return value
+
+
+def _resolved_max_iterations(args: argparse.Namespace) -> int:
+    configured = getattr(args, "max_iterations", None)
+    if configured is None:
+        configured = (
+            _MEASURED_PURE_RL_DEFAULT_MAX_ITERATIONS
+            if is_measured_pure_rl_task(str(getattr(args, "task", "")))
+            else _DEFAULT_MAX_ITERATIONS
+        )
+    value = int(configured)
+    if value <= 0:
+        raise ValueError("--max-iterations must be positive.")
+    return value
+
+
+def _resolved_save_interval(args: argparse.Namespace) -> int:
+    configured = getattr(args, "save_interval", None)
+    if configured is None:
+        configured = (
+            _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL
+            if is_measured_pure_rl_task(str(getattr(args, "task", "")))
+            else _DEFAULT_SAVE_INTERVAL
+        )
+    value = int(configured)
+    if value <= 0:
+        raise ValueError("--save-interval must be positive.")
+    return value
+
+
+def _resolved_agent_num_mini_batches(args: argparse.Namespace) -> int | None:
+    configured = getattr(args, "agent_num_mini_batches", None)
+    if configured is None and is_measured_pure_rl_task(str(getattr(args, "task", ""))):
+        configured = _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES
+    if configured is None:
+        return None
+    value = int(configured)
+    if value <= 0:
+        raise ValueError("--agent-num-mini-batches must be positive.")
     return value
 
 
@@ -374,6 +474,7 @@ def _child_process_env(args: argparse.Namespace) -> dict[str, str]:
     local_sources = [
         str((repo_root / "source/flapping_bot").resolve()),
         str((repo_root / "source/isaaclab_assets").resolve()),
+        str((repo_root / "source/isaaclab_tasks").resolve()),
     ]
     existing_pythonpath = child_env.get("PYTHONPATH", "")
     if existing_pythonpath:
@@ -384,8 +485,12 @@ def _child_process_env(args: argparse.Namespace) -> dict[str, str]:
 
 def _kit_args(args: argparse.Namespace, role: str) -> str:
     kit_args = _portable_kit_args(args, role)
+    if bool(getattr(args, "disable_kit_fs_watcher", False)):
+        kit_args += " --/apps/extensions/fsWatcherEnabled=false"
     if _native_cpu_enabled(args):
+        repo_source = (Path(__file__).resolve().parents[2] / "source").resolve()
         kit_args += (
+            f" --ext-folder {repo_source}"
             f" --ext-folder {_native_extension_parent(args)}"
             f" --enable {_NATIVE_HOLONOMIC_EXTENSION_ID}"
         )
@@ -411,11 +516,11 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
         "--num_envs",
         str(_resolved_train_num_envs(args)),
         "--max_iterations",
-        str(args.max_iterations),
+        str(_resolved_max_iterations(args)),
         "--seed",
         str(args.seed),
         f"agent.run_name={args.run_name}",
-        f"agent.save_interval={args.save_interval}",
+        f"agent.save_interval={_resolved_save_interval(args)}",
     ]
     if bool(args.resume):
         train_cmd.append("--resume")
@@ -431,6 +536,9 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
         agent_device = agent_device or "cpu"
     if agent_device is not None:
         train_cmd.append(f"agent.device={agent_device}")
+    agent_num_mini_batches = _resolved_agent_num_mini_batches(args)
+    if agent_num_mini_batches is not None:
+        train_cmd.append(f"agent.algorithm.num_mini_batches={agent_num_mini_batches}")
     freeze_steps_after_reset = getattr(args, "freeze_steps_after_reset", None)
     if freeze_steps_after_reset is not None:
         if int(freeze_steps_after_reset) < 0:
@@ -485,10 +593,12 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
 
 
 def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str] | None:
-    """Validate and materialize exact C2 warm-start provenance."""
+    """Validate cross-stage warm-start provenance; same-stage resumes keep their run metadata."""
 
     target_stage = longitudinal_stage_for_task(str(getattr(args, "task", "")))
     if target_stage is None:
+        return None
+    if bool(getattr(args, "resume", False)):
         return None
     expected_source_stage = {"c2a": "c1_straight", "c2b": "c2a", "c2c": "c2b"}[target_stage]
     source_stage = str(getattr(args, "source_stage", "") or "").strip()
@@ -523,7 +633,8 @@ def main():
     args.portable_root_base = _resolve_portable_root_base(args)
     _validate_native_extension(args)
     _portable_root_for_role(args, "train").mkdir(parents=True, exist_ok=True)
-    _portable_root_for_role(args, "watch").mkdir(parents=True, exist_ok=True)
+    if _watcher_enabled(args):
+        _portable_root_for_role(args, "watch").mkdir(parents=True, exist_ok=True)
     if _native_cpu_enabled(args):
         if not _native_asset_source().is_file():
             raise FileNotFoundError(f"Native PureRL URDF does not exist: {_native_asset_source()}")
@@ -572,6 +683,7 @@ def main():
             raise RuntimeError("Failed to parse log directory from training output.")
 
         run_dir = (log_root / f"{timestamp}_{args.run_name}").resolve()
+        output_thread = _start_output_forwarder(train.stdout)
         _wait_for_run_dir(run_dir, train, timeout_s=float(args.run_dir_timeout_s))
         if curriculum_source_metadata is not None:
             (run_dir / "curriculum_source.json").write_text(
@@ -579,18 +691,16 @@ def main():
                 encoding="utf-8",
             )
 
-        watch_cmd = _build_watch_cmd(args, run_dir)
-
-        print("[INFO] Launching watcher:")
-        print(" ", " ".join(watch_cmd), flush=True)
-        watcher = subprocess.Popen(watch_cmd, start_new_session=True, env=child_env)
-
-        assert train.stdout is not None
-        for line in train.stdout:
-            sys.stdout.write(line)
-            sys.stdout.flush()
+        if _watcher_enabled(args):
+            watch_cmd = _build_watch_cmd(args, run_dir)
+            print("[INFO] Launching watcher:")
+            print(" ", " ".join(watch_cmd), flush=True)
+            watcher = subprocess.Popen(watch_cmd, start_new_session=True, env=child_env)
+        else:
+            print("[INFO] Train-only mode: checkpoint watcher disabled.", flush=True)
 
         rc = train.wait()
+        output_thread.join(timeout=5.0)
         print(f"[INFO] Training finished with return code: {rc}", flush=True)
         final_eval_needed = rc == 0 and run_dir is not None and watch_cmd is not None
     except KeyboardInterrupt:
@@ -639,6 +749,8 @@ def main():
                 )
 
         _safe_terminate(train)
+        if "output_thread" in locals():
+            output_thread.join(timeout=5.0)
 
     raise SystemExit(rc)
 

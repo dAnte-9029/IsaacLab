@@ -65,7 +65,11 @@ from flapping_bot import (  # noqa: E402
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC2bEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg,
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg,
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg,
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg,
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg,
     FlappingBotStraightFlightDeLaurierPureRLEnvCfg,
     FlappingBotStraightFlightDeLaurierTeacherRLEnvCfg,
     FlappingBotStraightFlightDeLaurierWeakTeacherRLEnvCfg,
@@ -180,6 +184,50 @@ gym.register(
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuImplicit-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuImplicit-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuImplicitEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuPhaseMatched-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuPhaseMatchedEnvCfg,
+        "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
+    },
+)
+
+
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuPhaseMatched-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": FlappingBotStraightFlightDeLaurierMeasuredPureRLC2aGpuPhaseMatchedEnvCfg,
         "rsl_rl_cfg_entry_point": FlappingBotStraightFlightPPORunnerCfg,
     },
 )

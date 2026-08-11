@@ -59,6 +59,103 @@ SOURCE_BASELINE = {
 }
 
 
+def _c1_suite_row(**overrides: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "checkpoint": "/checkpoints/c2a.pt",
+        "evaluation_contract": "pure_rl_curriculum1_v2",
+        "case": "suite",
+        "timeout_rate": 0.97,
+        "termination_rate": 0.03,
+        "score": 98.0,
+        "mean_abs_cross_track_error_m": 0.20,
+        "mean_abs_height_error_m": 0.18,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_build_c1_retention_row_adapts_current_suite_contract() -> None:
+    result = promotion.build_c1_retention_row(_c1_suite_row())
+
+    assert result == {
+        "checkpoint": "/checkpoints/c2a.pt",
+        "evaluation_stage": "c1_straight",
+        "success_rate": 0.97,
+        "termination_rate": 0.03,
+        "score": 98.0,
+        "mean_abs_cross_track_error_m": 0.20,
+        "mean_abs_height_error_m": 0.18,
+        "finite_metrics": True,
+    }
+
+
+def test_build_c1_retention_row_rejects_non_suite_or_nonfinite_evidence() -> None:
+    with pytest.raises(ValueError, match="suite"):
+        promotion.build_c1_retention_row(_c1_suite_row(case="fixed_grid"))
+    with pytest.raises(ValueError, match="finite"):
+        promotion.build_c1_retention_row(_c1_suite_row(score=float("nan")))
+
+
+def test_build_c1_source_baseline_uses_same_contract_metrics() -> None:
+    result = promotion.build_c1_source_baseline(_c1_suite_row(checkpoint="/checkpoints/c1.pt"))
+
+    assert result == {
+        "checkpoint": "/checkpoints/c1.pt",
+        "score": 98.0,
+        "mean_abs_cross_track_error_m": 0.20,
+        "mean_abs_height_error_m": 0.18,
+    }
+
+
+@pytest.mark.parametrize(
+    ("num_envs", "minimum_iteration", "evaluation_interval"),
+    [(64, 200, 100), (128, 100, 50), (256, 50, 25)],
+)
+def test_build_sample_equivalent_promotion_schedule_preserves_reference_transitions(
+    num_envs: int,
+    minimum_iteration: int,
+    evaluation_interval: int,
+) -> None:
+    schedule = promotion.build_sample_equivalent_promotion_schedule(num_envs=num_envs)
+
+    assert schedule == {
+        "minimum_ppo_iteration": minimum_iteration,
+        "evaluation_interval": evaluation_interval,
+    }
+
+
+def test_build_sample_equivalent_promotion_schedule_fails_closed_for_invalid_or_inexact_rollout() -> None:
+    with pytest.raises(ValueError, match="positive"):
+        promotion.build_sample_equivalent_promotion_schedule(num_envs=0)
+    with pytest.raises(ValueError, match="exact"):
+        promotion.build_sample_equivalent_promotion_schedule(num_envs=96)
+
+
+def test_256_environment_schedule_promotes_sample_equivalent_adjacent_passes() -> None:
+    evaluations = [
+        _evaluation("model_25.pt", 25),
+        _evaluation("model_50.pt", 50),
+        _evaluation("model_75.pt", 75),
+    ]
+    retention = [
+        _retention("model_25.pt"),
+        _retention("model_50.pt"),
+        _retention("model_75.pt"),
+    ]
+
+    result = promotion.evaluate_longitudinal_promotion(
+        evaluations,
+        c1_retention_rows=retention,
+        source_c1_baseline=SOURCE_BASELINE,
+        stage_id="c2a",
+        **promotion.build_sample_equivalent_promotion_schedule(num_envs=256),
+    )
+
+    assert result["promoted"] is True
+    assert result["ppo_iteration"] == 75
+    assert result["consecutive_checkpoints"] == ["model_50.pt", "model_75.pt"]
+
+
 def test_two_consecutive_passing_checkpoints_promote_the_later_checkpoint() -> None:
     evaluations = [
         _evaluation("model_100.pt", 100),

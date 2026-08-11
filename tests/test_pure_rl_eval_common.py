@@ -51,6 +51,37 @@ def test_longitudinal_task_mapping_keeps_c1_contract_distinct() -> None:
     )
 
 
+def test_gpu_implicit_task_mapping_is_explicit_and_preserves_stage_identity() -> None:
+    gpu_c1 = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuImplicit-Direct-v0"
+    gpu_c2a = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuImplicit-Direct-v0"
+
+    assert pure_rl_eval_common.is_measured_pure_rl_task(gpu_c1)
+    assert pure_rl_eval_common.is_measured_pure_rl_task(gpu_c2a)
+    assert pure_rl_eval_common.longitudinal_stage_for_task(gpu_c1) is None
+    assert pure_rl_eval_common.longitudinal_stage_for_task(gpu_c2a) == "c2a"
+    assert pure_rl_eval_common.pure_rl_backend_for_task(gpu_c1) == "gpu_implicit_candidate"
+    assert pure_rl_eval_common.pure_rl_backend_for_task(gpu_c2a) == "gpu_implicit_candidate"
+    phase_matched_c1 = (
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuPhaseMatched-Direct-v0"
+    )
+    phase_matched_c2a = (
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuPhaseMatched-Direct-v0"
+    )
+    assert pure_rl_eval_common.is_measured_pure_rl_task(phase_matched_c1)
+    assert pure_rl_eval_common.is_measured_pure_rl_task(phase_matched_c2a)
+    assert pure_rl_eval_common.longitudinal_stage_for_task(phase_matched_c1) is None
+    assert pure_rl_eval_common.longitudinal_stage_for_task(phase_matched_c2a) == "c2a"
+    assert pure_rl_eval_common.pure_rl_backend_for_task(phase_matched_c1) == "gpu_implicit_candidate"
+    assert pure_rl_eval_common.pure_rl_backend_for_task(phase_matched_c2a) == "gpu_implicit_candidate"
+    assert (
+        pure_rl_eval_common.pure_rl_backend_for_task(pure_rl_eval_common.MEASURED_PURE_RL_TASK_ID)
+        == "cpu_native_authority"
+    )
+
+    with pytest.raises(ValueError, match="Unknown measured PureRL task"):
+        pure_rl_eval_common.pure_rl_backend_for_task("not-a-pure-rl-task")
+
+
 def test_reset_schedule_contract_accepts_repeated_grid_and_rejects_drift() -> None:
     headings = torch.tensor([0.0, 1.0, 0.0, 1.0])
     phases = torch.tensor([0.5, 1.5, 0.5, 1.5])
