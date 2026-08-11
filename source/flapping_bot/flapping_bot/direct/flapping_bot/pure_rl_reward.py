@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 
 import torch
@@ -102,6 +102,31 @@ class PureRLTerminationTerms:
             "tilt": self.tilt,
             "cross_track": self.cross_track,
             "height_error": self.height_error,
+            "terminated": self.terminated,
+        }
+
+
+@dataclass(frozen=True)
+class PureRLSpatialTerminationTerms:
+    """Per-environment spatial termination causes and their union."""
+
+    ground: Tensor
+    tilt: Tensor
+    cross_track: Tensor
+    height_error: Tensor
+    roll_limit: Tensor
+    terminated: Tensor
+    tilt_rad: Tensor
+
+    def as_dict(self) -> dict[str, Tensor]:
+        """Return stable telemetry names without copying tensors."""
+
+        return {
+            "ground": self.ground,
+            "tilt": self.tilt,
+            "cross_track": self.cross_track,
+            "height_error": self.height_error,
+            "roll_limit": self.roll_limit,
             "terminated": self.terminated,
         }
 
@@ -245,6 +270,62 @@ def compute_pure_rl_path_reward_terms(
     )
 
 
+def compute_pure_rl_spatial_path_reward_terms(
+    *,
+    cross_track_error_m: Tensor,
+    height_error_m: Tensor,
+    tangent_velocity_mps: Tensor,
+    lateral_normal_velocity_mps: Tensor,
+    vertical_normal_velocity_mps: Tensor,
+    roll_rad: Tensor,
+    pitch_rad: Tensor,
+    angular_velocity_body_rad_s: Tensor,
+    actual_flap_frequency_hz: Tensor,
+    frequency_slew_hz_per_s: Tensor,
+    applied_action: Tensor,
+    previous_applied_action: Tensor,
+    turn_activity: Tensor,
+    config: PureRLRewardConfig = PURE_RL_CURRICULUM1_REWARD_CONFIG,
+) -> PureRLRewardTerms:
+    """Compute path reward terms with relaxed roll reward during spatial turns."""
+
+    base = compute_pure_rl_path_reward_terms(
+        cross_track_error_m=cross_track_error_m,
+        height_error_m=height_error_m,
+        tangent_velocity_mps=tangent_velocity_mps,
+        lateral_normal_velocity_mps=lateral_normal_velocity_mps,
+        vertical_normal_velocity_mps=vertical_normal_velocity_mps,
+        roll_rad=roll_rad,
+        pitch_rad=pitch_rad,
+        angular_velocity_body_rad_s=angular_velocity_body_rad_s,
+        actual_flap_frequency_hz=actual_flap_frequency_hz,
+        frequency_slew_hz_per_s=frequency_slew_hz_per_s,
+        applied_action=applied_action,
+        previous_applied_action=previous_applied_action,
+        config=config,
+    )
+    _validate_vector("turn_activity", turn_activity)
+    _validate_aligned(roll_rad, "turn_activity", turn_activity)
+    if bool(torch.any((turn_activity < 0.0) | (turn_activity > 1.0))):
+        raise ValueError("turn_activity must lie in [0, 1].")
+
+    normalized_excess = torch.clamp(
+        (torch.abs(roll_rad) - math.radians(25.0)) / math.radians(10.0),
+        min=0.0,
+        max=1.0,
+    )
+    active_turn_roll_reward = 1.0 - torch.square(normalized_excess)
+    spatial_roll_reward = torch.lerp(base.roll_reward, active_turn_roll_reward, turn_activity)
+    spatial_total_reward = base.total_reward + config.roll_reward_weight * (
+        spatial_roll_reward - base.roll_reward
+    )
+    return replace(
+        base,
+        roll_reward=spatial_roll_reward,
+        total_reward=spatial_total_reward,
+    )
+
+
 def compute_pure_rl_termination_terms(
     *,
     height_m: Tensor,
@@ -284,6 +365,46 @@ def compute_pure_rl_termination_terms(
         height_error=height_error,
         terminated=terminated,
         tilt_rad=tilt_rad,
+    )
+
+
+def compute_pure_rl_spatial_termination_terms(
+    *,
+    height_m: Tensor,
+    cross_track_error_m: Tensor,
+    height_error_m: Tensor,
+    projected_gravity_body: Tensor,
+    roll_rad: Tensor,
+    maximum_abs_roll_rad: float = math.radians(35.0),
+    config: PureRLTerminationConfig = PURE_RL_CURRICULUM1_TERMINATION_CONFIG,
+) -> PureRLSpatialTerminationTerms:
+    """Compute spatial termination causes with an absolute-roll limit."""
+
+    base = compute_pure_rl_termination_terms(
+        height_m=height_m,
+        cross_track_error_m=cross_track_error_m,
+        height_error_m=height_error_m,
+        projected_gravity_body=projected_gravity_body,
+        config=config,
+    )
+    _validate_vector("roll_rad", roll_rad)
+    _validate_aligned(height_m, "roll_rad", roll_rad)
+    if (
+        not math.isfinite(float(maximum_abs_roll_rad))
+        or maximum_abs_roll_rad <= 0.0
+        or maximum_abs_roll_rad > math.pi
+    ):
+        raise ValueError("maximum_abs_roll_rad must be finite and lie in (0, pi].")
+
+    roll_limit = torch.abs(roll_rad) >= maximum_abs_roll_rad
+    return PureRLSpatialTerminationTerms(
+        ground=base.ground,
+        tilt=base.tilt,
+        cross_track=base.cross_track,
+        height_error=base.height_error,
+        roll_limit=roll_limit,
+        terminated=base.terminated | roll_limit,
+        tilt_rad=base.tilt_rad,
     )
 
 
@@ -372,6 +493,10 @@ __all__ = [
     "PureRLRewardTerms",
     "PureRLTerminationConfig",
     "PureRLTerminationTerms",
+    "PureRLSpatialTerminationTerms",
+    "compute_pure_rl_path_reward_terms",
     "compute_pure_rl_reward_terms",
+    "compute_pure_rl_spatial_path_reward_terms",
+    "compute_pure_rl_spatial_termination_terms",
     "compute_pure_rl_termination_terms",
 ]

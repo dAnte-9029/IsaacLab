@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, fields
+from dataclasses import FrozenInstanceError, asdict, fields
 import importlib.util
 import math
 from pathlib import Path
@@ -23,21 +23,39 @@ sys.modules[SPEC.name] = pure_rl_reward
 SPEC.loader.exec_module(pure_rl_reward)
 
 
-def _reward_inputs(count: int, *, dtype: torch.dtype = torch.float64) -> dict[str, torch.Tensor]:
+def _reward_inputs(
+    count: int,
+    *,
+    dtype: torch.dtype = torch.float64,
+    device: torch.device | str = "cpu",
+) -> dict[str, torch.Tensor]:
     return {
-        "cross_track_error_m": torch.zeros(count, dtype=dtype),
-        "height_error_m": torch.zeros(count, dtype=dtype),
-        "along_track_velocity_mps": torch.zeros(count, dtype=dtype),
-        "cross_track_velocity_mps": torch.zeros(count, dtype=dtype),
-        "vertical_velocity_mps": torch.zeros(count, dtype=dtype),
-        "roll_rad": torch.zeros(count, dtype=dtype),
-        "pitch_rad": torch.zeros(count, dtype=dtype),
-        "angular_velocity_body_rad_s": torch.zeros((count, 3), dtype=dtype),
-        "actual_flap_frequency_hz": torch.zeros(count, dtype=dtype),
-        "frequency_slew_hz_per_s": torch.zeros(count, dtype=dtype),
-        "applied_action": torch.zeros((count, 4), dtype=dtype),
-        "previous_applied_action": torch.zeros((count, 4), dtype=dtype),
+        "cross_track_error_m": torch.zeros(count, dtype=dtype, device=device),
+        "height_error_m": torch.zeros(count, dtype=dtype, device=device),
+        "along_track_velocity_mps": torch.zeros(count, dtype=dtype, device=device),
+        "cross_track_velocity_mps": torch.zeros(count, dtype=dtype, device=device),
+        "vertical_velocity_mps": torch.zeros(count, dtype=dtype, device=device),
+        "roll_rad": torch.zeros(count, dtype=dtype, device=device),
+        "pitch_rad": torch.zeros(count, dtype=dtype, device=device),
+        "angular_velocity_body_rad_s": torch.zeros((count, 3), dtype=dtype, device=device),
+        "actual_flap_frequency_hz": torch.zeros(count, dtype=dtype, device=device),
+        "frequency_slew_hz_per_s": torch.zeros(count, dtype=dtype, device=device),
+        "applied_action": torch.zeros((count, 4), dtype=dtype, device=device),
+        "previous_applied_action": torch.zeros((count, 4), dtype=dtype, device=device),
     }
+
+
+def _path_reward_inputs(
+    count: int,
+    *,
+    dtype: torch.dtype = torch.float64,
+    device: torch.device | str = "cpu",
+) -> dict[str, torch.Tensor]:
+    inputs = _reward_inputs(count, dtype=dtype, device=device)
+    inputs["tangent_velocity_mps"] = inputs.pop("along_track_velocity_mps")
+    inputs["lateral_normal_velocity_mps"] = inputs.pop("cross_track_velocity_mps")
+    inputs["vertical_normal_velocity_mps"] = inputs.pop("vertical_velocity_mps")
+    return inputs
 
 
 def test_reward_config_supports_hydra_style_restore_without_changing_defaults_or_reward() -> None:
@@ -286,3 +304,208 @@ def test_builders_preserve_batch_one_float32_and_fail_closed_on_invalid_input() 
             height_error_m=torch.zeros(1),
             projected_gravity_body=torch.zeros((1, 2)),
         )
+
+
+def test_spatial_reward_at_zero_turn_activity_is_exactly_the_base_path_reward() -> None:
+    inputs = _path_reward_inputs(4)
+    inputs["cross_track_error_m"][:] = torch.tensor([-1.2, -0.3, 0.4, 1.7])
+    inputs["height_error_m"][:] = torch.tensor([0.8, -0.2, 0.0, 1.1])
+    inputs["tangent_velocity_mps"][:] = torch.tensor([-1.0, 0.0, 4.0, 8.0])
+    inputs["lateral_normal_velocity_mps"][:] = torch.tensor([0.5, -1.5, 0.0, 2.0])
+    inputs["vertical_normal_velocity_mps"][:] = torch.tensor([-0.8, 0.2, 1.2, 0.0])
+    inputs["roll_rad"][:] = torch.tensor([0.0, 0.1, -0.4, 0.7])
+    inputs["pitch_rad"][:] = torch.tensor([0.0, 0.3, -0.6, 0.9])
+    inputs["angular_velocity_body_rad_s"][:] = torch.arange(12, dtype=torch.float64).reshape(4, 3) / 10.0
+    inputs["actual_flap_frequency_hz"][:] = torch.tensor([0.0, 2.0, 3.5, 5.0])
+    inputs["frequency_slew_hz_per_s"][:] = torch.tensor([0.0, -0.5, 1.0, 2.0])
+    inputs["applied_action"][:] = torch.linspace(-0.9, 0.9, 16, dtype=torch.float64).reshape(4, 4)
+    inputs["previous_applied_action"][:] = inputs["applied_action"] - 0.1
+
+    baseline = pure_rl_reward.compute_pure_rl_path_reward_terms(**inputs)
+    spatial = pure_rl_reward.compute_pure_rl_spatial_path_reward_terms(
+        **inputs,
+        turn_activity=torch.zeros(4, dtype=torch.float64),
+    )
+
+    for field in fields(pure_rl_reward.PureRLRewardTerms):
+        torch.testing.assert_close(
+            getattr(spatial, field.name),
+            getattr(baseline, field.name),
+            rtol=0.0,
+            atol=0.0,
+        )
+
+
+def test_spatial_roll_reward_has_approved_boundaries_and_smooth_activity_blend() -> None:
+    rolls_deg = torch.tensor([0.0, 25.0, 30.0, 35.0], dtype=torch.float64)
+    inputs = _path_reward_inputs(12)
+    inputs["roll_rad"][:] = torch.deg2rad(rolls_deg.repeat(3))
+    turn_activity = torch.tensor([0.0] * 4 + [0.5] * 4 + [1.0] * 4, dtype=torch.float64)
+
+    baseline = pure_rl_reward.compute_pure_rl_path_reward_terms(**inputs)
+    spatial = pure_rl_reward.compute_pure_rl_spatial_path_reward_terms(
+        **inputs,
+        turn_activity=turn_activity,
+    )
+
+    active_turn_roll_reward = torch.tensor([1.0, 1.0, 0.75, 0.0], dtype=torch.float64)
+    torch.testing.assert_close(spatial.roll_reward[:4], baseline.roll_reward[:4], rtol=0.0, atol=0.0)
+    torch.testing.assert_close(
+        spatial.roll_reward[4:8],
+        0.5 * (baseline.roll_reward[4:8] + active_turn_roll_reward),
+    )
+    torch.testing.assert_close(spatial.roll_reward[8:], active_turn_roll_reward)
+
+    expected_total = baseline.total_reward + (
+        pure_rl_reward.PURE_RL_CURRICULUM1_REWARD_CONFIG.roll_reward_weight
+        * (spatial.roll_reward - baseline.roll_reward)
+    )
+    torch.testing.assert_close(spatial.total_reward, expected_total, rtol=0.0, atol=0.0)
+    for field in fields(pure_rl_reward.PureRLRewardTerms):
+        if field.name not in {"roll_reward", "total_reward"}:
+            torch.testing.assert_close(
+                getattr(spatial, field.name),
+                getattr(baseline, field.name),
+                rtol=0.0,
+                atol=0.0,
+            )
+
+
+def test_spatial_roll_reward_is_sign_symmetric() -> None:
+    inputs = _path_reward_inputs(8)
+    positive_roll = torch.deg2rad(torch.tensor([0.0, 25.0, 30.0, 35.0], dtype=torch.float64))
+    inputs["roll_rad"][:] = torch.cat((positive_roll, -positive_roll))
+
+    terms = pure_rl_reward.compute_pure_rl_spatial_path_reward_terms(
+        **inputs,
+        turn_activity=torch.ones(8, dtype=torch.float64),
+    )
+
+    torch.testing.assert_close(terms.roll_reward[:4], terms.roll_reward[4:], rtol=0.0, atol=0.0)
+
+
+@pytest.mark.parametrize(
+    ("turn_activity", "message"),
+    [
+        (torch.zeros((2, 1)), "shape"),
+        (torch.tensor([0.0, float("nan")]), "finite"),
+        (torch.tensor([-0.1, 0.0]), r"\[0, 1\]"),
+        (torch.tensor([0.0, 1.1]), r"\[0, 1\]"),
+    ],
+)
+def test_spatial_reward_rejects_invalid_turn_activity(turn_activity: torch.Tensor, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        pure_rl_reward.compute_pure_rl_spatial_path_reward_terms(
+            **_path_reward_inputs(2, dtype=turn_activity.dtype),
+            turn_activity=turn_activity,
+        )
+
+
+def test_spatial_reward_rejects_misaligned_turn_activity() -> None:
+    with pytest.raises(ValueError, match="batch dimension"):
+        pure_rl_reward.compute_pure_rl_spatial_path_reward_terms(
+            **_path_reward_inputs(2),
+            turn_activity=torch.zeros(1, dtype=torch.float64),
+        )
+
+
+def test_spatial_termination_preserves_base_causes_and_unions_roll_limit() -> None:
+    height = torch.tensor([0.0, 10.0, 10.0, 10.0, 10.0, 10.0], dtype=torch.float64)
+    cross_track = torch.tensor([0.0, 0.0, 3.1, 0.0, 0.0, 0.0], dtype=torch.float64)
+    height_error = torch.tensor([0.0, 0.0, 0.0, 3.1, 0.0, 0.0], dtype=torch.float64)
+    gravity = torch.tensor(
+        [
+            [0.0, 0.0, -1.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0],
+            [0.0, 0.0, -1.0],
+            [0.0, 0.0, -1.0],
+            [0.0, 0.0, -1.0],
+        ],
+        dtype=torch.float64,
+    )
+    roll_rad = torch.deg2rad(torch.tensor([0.0, 0.0, 0.0, 0.0, 25.0, 35.0], dtype=torch.float64))
+
+    base = pure_rl_reward.compute_pure_rl_termination_terms(
+        height_m=height,
+        cross_track_error_m=cross_track,
+        height_error_m=height_error,
+        projected_gravity_body=gravity,
+    )
+    spatial = pure_rl_reward.compute_pure_rl_spatial_termination_terms(
+        height_m=height,
+        cross_track_error_m=cross_track,
+        height_error_m=height_error,
+        projected_gravity_body=gravity,
+        roll_rad=roll_rad,
+    )
+
+    for name in ("ground", "tilt", "cross_track", "height_error", "tilt_rad"):
+        torch.testing.assert_close(getattr(spatial, name), getattr(base, name), rtol=0.0, atol=0.0)
+    assert spatial.roll_limit.tolist() == [False, False, False, False, False, True]
+    assert spatial.terminated.tolist() == [True, True, True, True, False, True]
+    assert set(spatial.as_dict()) == {
+        "ground",
+        "tilt",
+        "cross_track",
+        "height_error",
+        "roll_limit",
+        "terminated",
+    }
+    with pytest.raises(FrozenInstanceError):
+        spatial.roll_limit = torch.zeros_like(spatial.roll_limit)
+
+
+@pytest.mark.parametrize("maximum_abs_roll_rad", [0.0, -1.0, float("inf"), float("nan")])
+def test_spatial_termination_rejects_invalid_roll_threshold(maximum_abs_roll_rad: float) -> None:
+    with pytest.raises(ValueError, match="maximum_abs_roll_rad"):
+        pure_rl_reward.compute_pure_rl_spatial_termination_terms(
+            height_m=torch.ones(1),
+            cross_track_error_m=torch.zeros(1),
+            height_error_m=torch.zeros(1),
+            projected_gravity_body=torch.tensor([[0.0, 0.0, -1.0]]),
+            roll_rad=torch.zeros(1),
+            maximum_abs_roll_rad=maximum_abs_roll_rad,
+        )
+
+
+@pytest.mark.parametrize(
+    ("roll_rad", "message"),
+    [
+        (torch.zeros((1, 1)), "shape"),
+        (torch.tensor([float("nan")]), "finite"),
+        (torch.zeros(2), "batch dimension"),
+    ],
+)
+def test_spatial_termination_rejects_invalid_roll_vector(roll_rad: torch.Tensor, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        pure_rl_reward.compute_pure_rl_spatial_termination_terms(
+            height_m=torch.ones(1),
+            cross_track_error_m=torch.zeros(1),
+            height_error_m=torch.zeros(1),
+            projected_gravity_body=torch.tensor([[0.0, 0.0, -1.0]]),
+            roll_rad=roll_rad,
+        )
+
+
+def test_spatial_builders_preserve_batch_one_dtype_and_device() -> None:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    inputs = _path_reward_inputs(1, dtype=torch.float32, device=device)
+    reward_terms = pure_rl_reward.compute_pure_rl_spatial_path_reward_terms(
+        **inputs,
+        turn_activity=torch.tensor([0.5], dtype=torch.float32, device=device),
+    )
+    termination_terms = pure_rl_reward.compute_pure_rl_spatial_termination_terms(
+        height_m=torch.ones(1, dtype=torch.float32, device=device),
+        cross_track_error_m=torch.zeros(1, dtype=torch.float32, device=device),
+        height_error_m=torch.zeros(1, dtype=torch.float32, device=device),
+        projected_gravity_body=torch.tensor([[0.0, 0.0, -1.0]], dtype=torch.float32, device=device),
+        roll_rad=torch.zeros(1, dtype=torch.float32, device=device),
+    )
+
+    assert reward_terms.total_reward.shape == (1,)
+    assert reward_terms.total_reward.dtype == torch.float32
+    assert reward_terms.total_reward.device == inputs["roll_rad"].device
+    assert termination_terms.terminated.shape == (1,)
+    assert termination_terms.roll_limit.dtype == torch.bool
+    assert termination_terms.roll_limit.device == inputs["roll_rad"].device
