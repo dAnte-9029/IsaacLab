@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import FrozenInstanceError, fields, replace
 import importlib.util
 import math
 from pathlib import Path
@@ -385,6 +385,63 @@ def test_c3c_rehearsal_includes_c3b_and_custom_coupled_upper_bound_is_honored() 
         generator=torch.Generator().manual_seed(59),
     )
     assert bool(torch.all(torch.abs(custom_batch.peak_slope_rad) <= math.radians(4.0)))
+
+
+def test_nonadjacent_centerline_self_intersection_is_rejected_for_non_loiter() -> None:
+    batch = _sample(stage="c3a", count=1, seed=61)
+    crossing = replace(
+        batch,
+        points_world_m=_self_intersecting_points(batch.points_world_m),
+        template_id=torch.full_like(batch.template_id, pure_rl_spatial_path.ISOLATED_TURN_TEMPLATE_ID),
+    )
+
+    with pytest.raises(RuntimeError, match="nonadjacent centerline"):
+        pure_rl_spatial_path._validate_generated_batch(
+            crossing,
+            config=pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3a"],
+        )
+
+
+def test_intentional_c3b_loiter_is_exempt_from_nonadjacent_intersection_rejection() -> None:
+    sampled = _sample(stage="c3b", count=128, seed=67)
+    loiter_indices = torch.nonzero(
+        sampled.template_id == pure_rl_spatial_path.C3B_LOITER_TEMPLATE_ID,
+        as_tuple=False,
+    ).flatten()
+    assert loiter_indices.numel() > 0
+    row = int(loiter_indices[0])
+    loiter = pure_rl_spatial_path.PureRLSpatialPathBatch(
+        **{
+            field.name: getattr(sampled, field.name)[row : row + 1]
+            for field in fields(sampled)
+        }
+    )
+    intentional_periodicity = replace(
+        loiter,
+        points_world_m=_self_intersecting_points(loiter.points_world_m),
+    )
+
+    pure_rl_spatial_path._validate_generated_batch(
+        intentional_periodicity,
+        config=pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3b"],
+    )
+
+
+def _self_intersecting_points(reference: torch.Tensor) -> torch.Tensor:
+    controls = reference.new_tensor(
+        [
+            [0.0, 0.0, 10.0],
+            [20.0, 20.0, 10.0],
+            [0.0, 20.0, 10.0],
+            [20.0, 0.0, 10.0],
+            [40.0, 0.0, 10.0],
+        ]
+    )
+    control_progress = torch.linspace(0.0, 4.0, 1201, device=reference.device, dtype=reference.dtype)
+    lower_index = torch.floor(control_progress).to(dtype=torch.int64).clamp(max=3)
+    fraction = (control_progress - lower_index.to(dtype=reference.dtype)).unsqueeze(1)
+    points = torch.lerp(controls[lower_index], controls[lower_index + 1], fraction)
+    return points.unsqueeze(0)
 
 
 def _contiguous_components(indices: list[int]) -> list[list[int]]:
