@@ -38,6 +38,9 @@ _INTERSECTION_LOCAL_SAMPLE_RADIUS = 8
 _MINIMUM_NONADJACENT_CLEARANCE_M = 1.5
 _CLEARANCE_VALIDATION_THRESHOLD_M = 2.5
 _CLEARANCE_VALIDATION_BATCH_SIZE = 32
+PURE_RL_PREVIEW_TIMES_S: tuple[float, ...] = (0.12, 0.24, 0.36, 0.48, 0.60)
+_LOCAL_PROJECTION_BEHIND_M = 2.0
+_LOCAL_PROJECTION_AHEAD_M = 4.0
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,26 @@ class PureRLSpatialPathBatch:
     peak_slope_rad: Tensor
     event_count: Tensor
     template_id: Tensor
+    sample_spacing_m: float
+    path_length_m: float
+
+
+@dataclass(frozen=True)
+class PureRLSpatialPathQuery:
+    """Current route-frame geometry and time-based world-frame preview."""
+
+    progress_m: Tensor
+    reference_position_world_m: Tensor
+    horizontal_normal_error_m: Tensor
+    vertical_normal_error_m: Tensor
+    tangent_world: Tensor
+    lateral_normal_world: Tensor
+    vertical_normal_world: Tensor
+    active_curvature_rad_per_m: Tensor
+    active_slope_rad: Tensor
+    turn_activity: Tensor
+    preview_points_world_m: Tensor
+    reached_all_events: Tensor
 
 
 SPATIAL_STAGE_CONFIGS: dict[str, PureRLSpatialStageConfig] = {
@@ -176,6 +199,158 @@ def sample_spatial_path_batch(
         batch = _replace_batch_rows(batch, row_ids=invalid_ids, replacement=replacement)
     _validate_generated_batch(batch, config=config)
     return batch
+
+
+def query_spatial_path(
+    *,
+    path: PureRLSpatialPathBatch,
+    previous_progress_m: Tensor,
+    position_world_m: Tensor,
+    ground_velocity_world_mps: Tensor,
+    minimum_preview_speed_mps: float = 1.0,
+    maximum_preview_speed_mps: float = 12.0,
+    preview_times_s: tuple[float, ...] = PURE_RL_PREVIEW_TIMES_S,
+) -> PureRLSpatialPathQuery:
+    """Project positions onto a bounded local path window and query route geometry."""
+
+    _validate_path_batch(path)
+    count = path.points_world_m.shape[0]
+    _validate_query_tensor(
+        "previous_progress_m",
+        previous_progress_m,
+        expected_shape=(count,),
+        reference=path.points_world_m,
+    )
+    _validate_query_tensor(
+        "position_world_m",
+        position_world_m,
+        expected_shape=(count, 3),
+        reference=path.points_world_m,
+    )
+    _validate_query_tensor(
+        "ground_velocity_world_mps",
+        ground_velocity_world_mps,
+        expected_shape=(count, 3),
+        reference=path.points_world_m,
+    )
+    minimum_speed = float(minimum_preview_speed_mps)
+    maximum_speed = float(maximum_preview_speed_mps)
+    if (
+        not math.isfinite(minimum_speed)
+        or not math.isfinite(maximum_speed)
+        or minimum_speed < 0.0
+        or maximum_speed < minimum_speed
+    ):
+        raise ValueError("Preview-speed bounds must satisfy finite 0 <= minimum <= maximum.")
+    _validate_preview_times(preview_times_s)
+
+    point_count = path.points_world_m.shape[1]
+    spacing = path.sample_spacing_m
+    previous_segment = torch.floor(
+        torch.clamp(previous_progress_m, min=0.0, max=path.path_length_m) / spacing
+    ).to(dtype=torch.int64)
+    previous_segment.clamp_(max=point_count - 2)
+    behind_count = math.ceil(_LOCAL_PROJECTION_BEHIND_M / spacing)
+    ahead_count = math.ceil(_LOCAL_PROJECTION_AHEAD_M / spacing)
+    offsets = torch.arange(
+        -behind_count,
+        ahead_count + 1,
+        device=path.points_world_m.device,
+        dtype=torch.int64,
+    )
+    segment_indices = (previous_segment.unsqueeze(1) + offsets.unsqueeze(0)).clamp(
+        min=0,
+        max=point_count - 2,
+    )
+    row_indices = torch.arange(count, device=path.points_world_m.device).unsqueeze(1)
+    segment_start = path.points_world_m[row_indices, segment_indices]
+    segment_end = path.points_world_m[row_indices, segment_indices + 1]
+    segment_delta = segment_end - segment_start
+    denominator = torch.sum(segment_delta * segment_delta, dim=2)
+    projection_fraction = torch.sum(
+        (position_world_m.unsqueeze(1) - segment_start) * segment_delta,
+        dim=2,
+    ) / torch.clamp(denominator, min=torch.finfo(path.points_world_m.dtype).tiny)
+    projection_fraction.clamp_(min=0.0, max=1.0)
+    projected_points = segment_start + projection_fraction.unsqueeze(2) * segment_delta
+    squared_distance = torch.sum((position_world_m.unsqueeze(1) - projected_points) ** 2, dim=2)
+    closest_offset = torch.argmin(squared_distance, dim=1)
+    closest_segment = segment_indices[row_indices.squeeze(1), closest_offset]
+    closest_fraction = projection_fraction[row_indices.squeeze(1), closest_offset]
+    progress_m = (closest_segment.to(dtype=path.points_world_m.dtype) + closest_fraction) * spacing
+
+    reference_position_world_m = _interpolate_path_table(path.points_world_m, progress_m, path=path)
+    tangent_raw = _interpolate_path_table(path.tangent_world, progress_m, path=path)
+    lateral_raw = _interpolate_path_table(path.lateral_normal_world, progress_m, path=path)
+    tangent_world, lateral_normal_world, vertical_normal_world = _orthonormalize_route_frame(
+        tangent_raw=tangent_raw,
+        lateral_raw=lateral_raw,
+    )
+    active_curvature_rad_per_m = _interpolate_path_table(path.curvature_rad_per_m, progress_m, path=path)
+    active_slope_rad = _interpolate_path_table(path.slope_rad, progress_m, path=path)
+    turn_activity = _interpolate_path_table(path.turn_activity, progress_m, path=path)
+    displacement_world_m = position_world_m - reference_position_world_m
+    horizontal_normal_error_m = torch.sum(displacement_world_m * lateral_normal_world, dim=1)
+    vertical_normal_error_m = torch.sum(displacement_world_m * vertical_normal_world, dim=1)
+
+    tangent_speed_mps = torch.sum(ground_velocity_world_mps * tangent_world, dim=1)
+    preview_speed_mps = torch.clamp(tangent_speed_mps, min=minimum_speed, max=maximum_speed)
+    preview_times = path.points_world_m.new_tensor(preview_times_s)
+    preview_progress_m = progress_m.unsqueeze(1) + preview_speed_mps.unsqueeze(1) * preview_times
+    preview_progress_m.clamp_(max=path.path_length_m)
+    preview_points_world_m = _interpolate_path_table(path.points_world_m, preview_progress_m, path=path)
+
+    return PureRLSpatialPathQuery(
+        progress_m=progress_m,
+        reference_position_world_m=reference_position_world_m,
+        horizontal_normal_error_m=horizontal_normal_error_m,
+        vertical_normal_error_m=vertical_normal_error_m,
+        tangent_world=tangent_world,
+        lateral_normal_world=lateral_normal_world,
+        vertical_normal_world=vertical_normal_world,
+        active_curvature_rad_per_m=active_curvature_rad_per_m,
+        active_slope_rad=active_slope_rad,
+        turn_activity=turn_activity,
+        preview_points_world_m=preview_points_world_m,
+        reached_all_events=progress_m >= path.final_event_progress_m,
+    )
+
+
+def write_spatial_path_batch_rows_(
+    *,
+    destination: PureRLSpatialPathBatch,
+    env_ids: Tensor,
+    source: PureRLSpatialPathBatch,
+) -> None:
+    """Copy every batched path field into selected destination rows in place."""
+
+    _validate_path_batch(destination)
+    _validate_path_batch(source, require_nonempty=False)
+    if not isinstance(env_ids, torch.Tensor) or env_ids.ndim != 1 or env_ids.dtype != torch.int64:
+        raise ValueError("env_ids must be an int64 tensor with shape (K,).")
+    if env_ids.device != destination.points_world_m.device:
+        raise ValueError("env_ids must be on the destination device.")
+    if source.points_world_m.shape[0] != env_ids.shape[0]:
+        raise ValueError("source batch length must match env_ids.")
+    if bool(torch.any((env_ids < 0) | (env_ids >= destination.points_world_m.shape[0]))):
+        raise IndexError("env_ids contains an out-of-range environment index.")
+    if torch.unique(env_ids).numel() != env_ids.numel():
+        raise ValueError("env_ids must contain unique environment indices.")
+    if source.sample_spacing_m != destination.sample_spacing_m:
+        raise ValueError("source and destination must share sample spacing.")
+    if source.path_length_m != destination.path_length_m:
+        raise ValueError("source and destination must share path length metadata.")
+
+    destination_fields = _batched_path_field_names(destination)
+    for name in destination_fields:
+        destination_value = getattr(destination, name)
+        source_value = getattr(source, name)
+        if source_value.shape[1:] != destination_value.shape[1:]:
+            raise ValueError(f"source path.{name} must match destination trailing shape.")
+        if source_value.dtype != destination_value.dtype or source_value.device != destination_value.device:
+            raise ValueError(f"source path.{name} must match destination dtype and device.")
+    for name in destination_fields:
+        getattr(destination, name).index_copy_(0, env_ids, getattr(source, name))
 
 
 def _sample_spatial_path_batch_once(
@@ -308,6 +483,8 @@ def _sample_spatial_path_batch_once(
         peak_slope_rad=peak_slope_rad,
         event_count=event_count,
         template_id=template_id,
+        sample_spacing_m=config.sample_spacing_m,
+        path_length_m=config.path_length_m,
     )
 
 
@@ -790,6 +967,9 @@ def _validate_range(name: str, bounds: tuple[float, float], *, allow_zero: bool)
 
 
 def _validate_generated_batch(batch: PureRLSpatialPathBatch, *, config: PureRLSpatialStageConfig) -> None:
+    _validate_path_batch(batch)
+    if batch.sample_spacing_m != config.sample_spacing_m or batch.path_length_m != config.path_length_m:
+        raise RuntimeError("Generated spatial path table metadata does not match its stage config.")
     float_tensors = (
         batch.points_world_m,
         batch.tangent_world,
@@ -886,9 +1066,143 @@ def _replace_batch_rows(
     row_ids: Tensor,
     replacement: PureRLSpatialPathBatch,
 ) -> PureRLSpatialPathBatch:
-    values: dict[str, Tensor] = {}
+    values: dict[str, Tensor | float] = {}
     for field in fields(batch):
-        updated = getattr(batch, field.name).clone()
-        updated.index_copy_(0, row_ids, getattr(replacement, field.name))
-        values[field.name] = updated
+        value = getattr(batch, field.name)
+        if isinstance(value, torch.Tensor):
+            updated = value.clone()
+            updated.index_copy_(0, row_ids, getattr(replacement, field.name))
+            values[field.name] = updated
+        else:
+            if value != getattr(replacement, field.name):
+                raise ValueError("Replacement spatial path metadata must match the destination batch.")
+            values[field.name] = value
     return PureRLSpatialPathBatch(**values)
+
+
+def _validate_path_batch(path: PureRLSpatialPathBatch, *, require_nonempty: bool = True) -> None:
+    if not isinstance(path, PureRLSpatialPathBatch):
+        raise TypeError("path must be a PureRLSpatialPathBatch.")
+    points = path.points_world_m
+    if (
+        not isinstance(points, torch.Tensor)
+        or points.ndim != 3
+        or points.shape[2] != 3
+        or points.shape[1] < 2
+    ):
+        raise ValueError("path.points_world_m must have shape (N, P, 3) with P >= 2.")
+    if require_nonempty and points.shape[0] == 0:
+        raise ValueError("path batch must be non-empty.")
+    if points.dtype not in (torch.float32, torch.float64):
+        raise TypeError("path floating-point dtype must be float32 or float64.")
+    count, point_count, _ = points.shape
+    for name in ("tangent_world", "lateral_normal_world", "vertical_normal_world"):
+        _validate_path_tensor(path, name=name, shape=(count, point_count, 3), reference=points)
+    for name in ("curvature_rad_per_m", "slope_rad", "turn_activity"):
+        _validate_path_tensor(path, name=name, shape=(count, point_count), reference=points)
+    for name in (
+        "final_event_progress_m",
+        "turn_sign",
+        "vertical_sign",
+        "peak_geometry_roll_rad",
+        "peak_slope_rad",
+    ):
+        _validate_path_tensor(path, name=name, shape=(count,), reference=points)
+    for name in ("task_family_id", "event_count", "template_id"):
+        value = getattr(path, name)
+        if (
+            not isinstance(value, torch.Tensor)
+            or value.shape != (count,)
+            or value.dtype != torch.int64
+            or value.device != points.device
+        ):
+            raise ValueError(f"path.{name} must be int64 on the path device with shape ({count},).")
+    if (
+        isinstance(path.sample_spacing_m, bool)
+        or not isinstance(path.sample_spacing_m, (int, float))
+        or not math.isfinite(path.sample_spacing_m)
+        or path.sample_spacing_m <= 0.0
+    ):
+        raise ValueError("path.sample_spacing_m must be finite and positive.")
+    expected_length_m = (point_count - 1) * float(path.sample_spacing_m)
+    if (
+        isinstance(path.path_length_m, bool)
+        or not isinstance(path.path_length_m, (int, float))
+        or not math.isfinite(path.path_length_m)
+        or not math.isclose(float(path.path_length_m), expected_length_m, rel_tol=0.0, abs_tol=1.0e-9)
+    ):
+        raise ValueError("path.path_length_m must match the represented table length.")
+
+
+def _validate_path_tensor(
+    path: PureRLSpatialPathBatch,
+    *,
+    name: str,
+    shape: tuple[int, ...],
+    reference: Tensor,
+) -> None:
+    value = getattr(path, name)
+    if (
+        not isinstance(value, torch.Tensor)
+        or value.shape != shape
+        or value.dtype != reference.dtype
+        or value.device != reference.device
+    ):
+        raise ValueError(f"path.{name} must match path points shape, dtype, and device.")
+
+
+def _validate_query_tensor(
+    name: str,
+    value: Tensor,
+    *,
+    expected_shape: tuple[int, ...],
+    reference: Tensor,
+) -> None:
+    if not isinstance(value, torch.Tensor) or value.shape != expected_shape:
+        raise ValueError(f"{name} must have shape {expected_shape}.")
+    if value.dtype not in (torch.float32, torch.float64):
+        raise TypeError(f"{name} must use float32 or float64.")
+    if value.dtype != reference.dtype or value.device != reference.device:
+        raise ValueError(f"{name} must match path dtype and device.")
+    if not bool(torch.all(torch.isfinite(value))):
+        raise ValueError(f"{name} must contain only finite values.")
+
+
+def _validate_preview_times(preview_times_s: tuple[float, ...]) -> None:
+    if len(preview_times_s) != len(PURE_RL_PREVIEW_TIMES_S):
+        raise ValueError("preview_times_s must contain exactly five entries.")
+    converted = tuple(float(value) for value in preview_times_s)
+    if any(not math.isfinite(value) or value <= 0.0 for value in converted):
+        raise ValueError("preview_times_s entries must be finite and positive.")
+    if any(later <= earlier for earlier, later in zip(converted, converted[1:])):
+        raise ValueError("preview_times_s must be strictly increasing.")
+
+
+def _interpolate_path_table(table: Tensor, progress_m: Tensor, *, path: PureRLSpatialPathBatch) -> Tensor:
+    point_count = table.shape[1]
+    scaled_progress = progress_m / path.sample_spacing_m
+    lower_index = torch.floor(scaled_progress).to(dtype=torch.int64).clamp(min=0, max=point_count - 2)
+    fraction = scaled_progress - lower_index.to(dtype=progress_m.dtype)
+    row_shape = (table.shape[0],) + (1,) * (progress_m.ndim - 1)
+    row_index = torch.arange(table.shape[0], device=table.device).reshape(row_shape).expand_as(lower_index)
+    lower_value = table[row_index, lower_index]
+    upper_value = table[row_index, lower_index + 1]
+    if table.ndim == 3:
+        fraction = fraction.unsqueeze(-1)
+    return torch.lerp(lower_value, upper_value, fraction)
+
+
+def _orthonormalize_route_frame(*, tangent_raw: Tensor, lateral_raw: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    lateral_normal_world = torch.nn.functional.normalize(lateral_raw, dim=1)
+    tangent_orthogonal = tangent_raw - torch.sum(
+        tangent_raw * lateral_normal_world,
+        dim=1,
+        keepdim=True,
+    ) * lateral_normal_world
+    tangent_world = torch.nn.functional.normalize(tangent_orthogonal, dim=1)
+    vertical_normal_world = torch.cross(tangent_world, lateral_normal_world, dim=1)
+    return tangent_world, lateral_normal_world, vertical_normal_world
+
+
+def _batched_path_field_names(path: PureRLSpatialPathBatch) -> tuple[str, ...]:
+    return tuple(field.name for field in fields(path) if isinstance(getattr(path, field.name), torch.Tensor))

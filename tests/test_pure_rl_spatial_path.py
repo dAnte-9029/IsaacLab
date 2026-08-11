@@ -108,6 +108,8 @@ def test_sampled_batch_exposes_dense_centerline_and_finite_metadata() -> None:
     assert batch.task_family_id.dtype == torch.int64
     assert batch.event_count.shape == (64,)
     assert batch.event_count.dtype == torch.int64
+    assert batch.sample_spacing_m == pytest.approx(0.25)
+    assert batch.path_length_m == pytest.approx(300.0)
 
 
 def test_c3c_current_paths_have_two_to_four_events_and_respect_coupled_demand() -> None:
@@ -434,12 +436,7 @@ def test_intentional_c3b_loiter_is_exempt_from_nonadjacent_intersection_rejectio
     ).flatten()
     assert loiter_indices.numel() > 0
     row = int(loiter_indices[0])
-    loiter = pure_rl_spatial_path.PureRLSpatialPathBatch(
-        **{
-            field.name: getattr(sampled, field.name)[row : row + 1]
-            for field in fields(sampled)
-        }
-    )
+    loiter = _select_path_rows(sampled, torch.tensor([row], dtype=torch.int64))
     intentional_periodicity = replace(
         loiter,
         points_world_m=_self_intersecting_points(loiter.points_world_m),
@@ -459,12 +456,7 @@ def test_full_circle_heading_change_is_exempt_only_for_c3b_loiter() -> None:
     ).flatten()
     assert loiter_indices.numel() > 0
     row = int(loiter_indices[0])
-    loiter = pure_rl_spatial_path.PureRLSpatialPathBatch(
-        **{
-            field.name: getattr(sampled, field.name)[row : row + 1]
-            for field in fields(sampled)
-        }
-    )
+    loiter = _select_path_rows(sampled, torch.tensor([row], dtype=torch.int64))
     full_circle_curvature = torch.zeros_like(loiter.curvature_rad_per_m)
     integrated_constant_length_m = 300.0 - 0.5 * 0.25
     full_circle_curvature[:, 1:] = 1.01 * 2.0 * math.pi / integrated_constant_length_m
@@ -544,3 +536,356 @@ def _contiguous_components(indices: list[int]) -> list[list[int]]:
         else:
             components[-1].append(index)
     return components
+
+
+def _straight_path_batch(
+    *,
+    count: int,
+    point_count: int = 21,
+    sample_spacing_m: float = 1.0,
+    dtype: torch.dtype = torch.float64,
+) -> object:
+    progress_m = torch.arange(point_count, dtype=dtype) * sample_spacing_m
+    points = torch.zeros((count, point_count, 3), dtype=dtype)
+    points[:, :, 0] = progress_m
+    points[:, :, 2] = 10.0
+    tangent = torch.zeros_like(points)
+    tangent[:, :, 0] = 1.0
+    lateral = torch.zeros_like(points)
+    lateral[:, :, 1] = 1.0
+    vertical = torch.zeros_like(points)
+    vertical[:, :, 2] = 1.0
+    zeros_table = torch.zeros((count, point_count), dtype=dtype)
+    zeros_row = torch.zeros(count, dtype=dtype)
+    zeros_int = torch.zeros(count, dtype=torch.int64)
+    return pure_rl_spatial_path.PureRLSpatialPathBatch(
+        points_world_m=points,
+        tangent_world=tangent,
+        lateral_normal_world=lateral,
+        vertical_normal_world=vertical,
+        curvature_rad_per_m=zeros_table.clone(),
+        slope_rad=zeros_table.clone(),
+        turn_activity=zeros_table.clone(),
+        final_event_progress_m=torch.full((count,), 8.0, dtype=dtype),
+        task_family_id=zeros_int.clone(),
+        turn_sign=zeros_row.clone(),
+        vertical_sign=zeros_row.clone(),
+        peak_geometry_roll_rad=zeros_row.clone(),
+        peak_slope_rad=zeros_row.clone(),
+        event_count=zeros_int.clone(),
+        template_id=zeros_int.clone(),
+        sample_spacing_m=sample_spacing_m,
+        path_length_m=(point_count - 1) * sample_spacing_m,
+    )
+
+
+def _select_path_rows(path: object, row_ids: torch.Tensor) -> object:
+    values = {}
+    for field in fields(path):
+        value = getattr(path, field.name)
+        values[field.name] = value.index_select(0, row_ids) if isinstance(value, torch.Tensor) else value
+    return pure_rl_spatial_path.PureRLSpatialPathBatch(**values)
+
+
+def test_query_projects_and_interpolates_straight_table_with_signed_errors() -> None:
+    path = _straight_path_batch(count=2)
+    progress_table = torch.arange(21, dtype=torch.float64).expand(2, -1)
+    path = replace(
+        path,
+        curvature_rad_per_m=0.1 * progress_table,
+        slope_rad=0.01 * progress_table,
+        turn_activity=0.02 * progress_table,
+    )
+    query = pure_rl_spatial_path.query_spatial_path(
+        path=path,
+        previous_progress_m=torch.tensor([2.0, 2.0], dtype=torch.float64),
+        position_world_m=torch.tensor([[2.25, 2.0, 11.0], [2.25, -2.0, 9.0]], dtype=torch.float64),
+        ground_velocity_world_mps=torch.tensor([[4.0, 0.0, 0.0]] * 2, dtype=torch.float64),
+    )
+
+    torch.testing.assert_close(query.progress_m, torch.tensor([2.25, 2.25], dtype=torch.float64))
+    torch.testing.assert_close(
+        query.reference_position_world_m,
+        torch.tensor([[2.25, 0.0, 10.0], [2.25, 0.0, 10.0]], dtype=torch.float64),
+    )
+    torch.testing.assert_close(query.horizontal_normal_error_m, torch.tensor([2.0, -2.0], dtype=torch.float64))
+    torch.testing.assert_close(query.vertical_normal_error_m, torch.tensor([1.0, -1.0], dtype=torch.float64))
+    torch.testing.assert_close(query.active_curvature_rad_per_m, torch.full((2,), 0.225, dtype=torch.float64))
+    torch.testing.assert_close(query.active_slope_rad, torch.full((2,), 0.0225, dtype=torch.float64))
+    torch.testing.assert_close(query.turn_activity, torch.full((2,), 0.045, dtype=torch.float64))
+    with pytest.raises(FrozenInstanceError):
+        query.progress_m = torch.zeros_like(query.progress_m)
+
+
+def test_query_uses_local_window_and_allows_two_meter_backward_progress() -> None:
+    path = _straight_path_batch(count=2, point_count=25)
+    branch_points = path.points_world_m.clone()
+    branch_points[:, :11, 0] = torch.arange(11, dtype=torch.float64)
+    branch_points[:, :11, 1] = 0.0
+    branch_points[:, 11:, 0] = torch.arange(10, -4, -1, dtype=torch.float64)
+    branch_points[:, 11:, 1] = 0.2
+    path = replace(path, points_world_m=branch_points)
+
+    query = pure_rl_spatial_path.query_spatial_path(
+        path=path,
+        previous_progress_m=torch.tensor([3.0, 5.0], dtype=torch.float64),
+        position_world_m=torch.tensor([[3.0, 0.19, 10.0], [3.0, 0.0, 10.0]], dtype=torch.float64),
+        ground_velocity_world_mps=torch.zeros((2, 3), dtype=torch.float64),
+    )
+
+    assert query.progress_m[0].item() == pytest.approx(3.0)
+    assert query.progress_m[1].item() == pytest.approx(3.0)
+
+
+def test_query_preview_uses_tangent_speed_clamps_default_times_and_path_end() -> None:
+    path = _straight_path_batch(count=3, point_count=11)
+    query = pure_rl_spatial_path.query_spatial_path(
+        path=path,
+        previous_progress_m=torch.tensor([2.0, 2.0, 9.8], dtype=torch.float64),
+        position_world_m=torch.tensor(
+            [[2.0, 0.0, 10.0], [2.0, 0.0, 10.0], [9.8, 0.0, 10.0]], dtype=torch.float64
+        ),
+        ground_velocity_world_mps=torch.tensor(
+            [[-4.0, 0.0, 0.0], [6.0, 0.0, 0.0], [20.0, 0.0, 0.0]], dtype=torch.float64
+        ),
+    )
+
+    preview_times = torch.tensor([0.12, 0.24, 0.36, 0.48, 0.60], dtype=torch.float64)
+    torch.testing.assert_close(query.preview_points_world_m[0, :, 0], 2.0 + preview_times)
+    torch.testing.assert_close(query.preview_points_world_m[1, :, 0], 2.0 + 6.0 * preview_times)
+    torch.testing.assert_close(query.preview_points_world_m[2, :, 0], torch.full((5,), 10.0, dtype=torch.float64))
+    assert query.preview_points_world_m.shape == (3, 5, 3)
+
+
+def test_query_returns_orthonormal_frames_for_generated_level_slope_turn_and_coupled_cases() -> None:
+    sampled = _sample(stage="c3c", count=256, seed=79)
+    level = (sampled.curvature_rad_per_m == 0.0) & (sampled.slope_rad == 0.0)
+    slope = (sampled.curvature_rad_per_m == 0.0) & (sampled.slope_rad != 0.0)
+    turn = (sampled.curvature_rad_per_m != 0.0) & (sampled.slope_rad == 0.0)
+    coupled = (sampled.curvature_rad_per_m != 0.0) & (sampled.slope_rad != 0.0)
+    case_masks = (level, slope, turn, coupled)
+    assert all(bool(torch.any(mask)) for mask in case_masks)
+    row_indices = [int(torch.nonzero(mask, as_tuple=False)[0, 0]) for mask in case_masks]
+    table_indices = [int(torch.nonzero(mask, as_tuple=False)[0, 1]) for mask in case_masks]
+    path = _select_path_rows(sampled, torch.tensor(row_indices, dtype=torch.int64))
+    table_ids = torch.tensor(table_indices, dtype=torch.int64)
+    positions = path.points_world_m[torch.arange(4), table_ids]
+    query = pure_rl_spatial_path.query_spatial_path(
+        path=path,
+        previous_progress_m=table_ids.to(dtype=torch.float64) * path.sample_spacing_m,
+        position_world_m=positions,
+        ground_velocity_world_mps=torch.zeros((4, 3), dtype=torch.float64),
+    )
+
+    for basis in (query.tangent_world, query.lateral_normal_world, query.vertical_normal_world):
+        torch.testing.assert_close(torch.linalg.vector_norm(basis, dim=1), torch.ones(4, dtype=torch.float64))
+    zeros = torch.zeros(4, dtype=torch.float64)
+    torch.testing.assert_close(
+        torch.sum(query.tangent_world * query.lateral_normal_world, dim=1), zeros, atol=1e-12, rtol=0.0
+    )
+    torch.testing.assert_close(
+        torch.sum(query.tangent_world * query.vertical_normal_world, dim=1), zeros, atol=1e-12, rtol=0.0
+    )
+    torch.testing.assert_close(
+        torch.sum(query.lateral_normal_world * query.vertical_normal_world, dim=1), zeros, atol=1e-12, rtol=0.0
+    )
+    torch.testing.assert_close(
+        torch.cross(query.tangent_world, query.lateral_normal_world, dim=1),
+        query.vertical_normal_world,
+        atol=1e-12,
+        rtol=0.0,
+    )
+
+
+def test_constant_slope_spatial_query_matches_longitudinal_query_on_path() -> None:
+    longitudinal_path = _load_longitudinal_module()
+    dtype = torch.float64
+    slope_rad = math.radians(5.0)
+    spacing = 0.1
+    progress = torch.arange(201, dtype=dtype) * spacing
+    path = _straight_path_batch(count=1, point_count=201, sample_spacing_m=spacing)
+    tangent = torch.tensor([math.cos(slope_rad), 0.0, math.sin(slope_rad)], dtype=dtype)
+    lateral = torch.tensor([0.0, 1.0, 0.0], dtype=dtype)
+    vertical = torch.tensor([-math.sin(slope_rad), 0.0, math.cos(slope_rad)], dtype=dtype)
+    points = torch.zeros_like(path.points_world_m)
+    points[0] = torch.tensor([0.0, 0.0, 10.0], dtype=dtype) + progress.unsqueeze(1) * tangent
+    path = replace(
+        path,
+        points_world_m=points,
+        tangent_world=tangent.reshape(1, 1, 3).expand(1, 201, 3).clone(),
+        lateral_normal_world=lateral.reshape(1, 1, 3).expand(1, 201, 3).clone(),
+        vertical_normal_world=vertical.reshape(1, 1, 3).expand(1, 201, 3).clone(),
+        slope_rad=torch.full((1, 201), slope_rad, dtype=dtype),
+    )
+    position = points[:, 50]
+    velocity = 8.0 * tangent.unsqueeze(0)
+    spatial_query = pure_rl_spatial_path.query_spatial_path(
+        path=path,
+        previous_progress_m=torch.tensor([5.0], dtype=dtype),
+        position_world_m=position,
+        ground_velocity_world_mps=velocity,
+    )
+    longitudinal_batch = longitudinal_path.PureRLLongitudinalPathBatch(
+        task_id=torch.tensor([longitudinal_path.CLIMB_TASK_ID], dtype=torch.int64),
+        heading_rad=torch.zeros(1, dtype=dtype),
+        signed_slope_rad=torch.full((1,), slope_rad, dtype=dtype),
+        entry_length_m=torch.zeros(1, dtype=dtype),
+        slope_length_m=torch.full((1,), 100.0, dtype=dtype),
+        initial_altitude_m=torch.full((1,), 10.0, dtype=dtype),
+    )
+    longitudinal_query = longitudinal_path.query_longitudinal_path(
+        path=longitudinal_batch,
+        position_world_m=position,
+        ground_velocity_world_mps=velocity,
+    )
+
+    torch.testing.assert_close(spatial_query.reference_position_world_m, position, atol=2e-14, rtol=0.0)
+    torch.testing.assert_close(
+        spatial_query.preview_points_world_m,
+        longitudinal_query.preview_points_world_m,
+        atol=2e-12,
+        rtol=0.0,
+    )
+
+
+def test_query_reached_all_events_boundary_is_inclusive() -> None:
+    path = replace(
+        _straight_path_batch(count=2),
+        final_event_progress_m=torch.tensor([4.0, 4.0], dtype=torch.float64),
+    )
+    query = pure_rl_spatial_path.query_spatial_path(
+        path=path,
+        previous_progress_m=torch.tensor([4.0, 4.0], dtype=torch.float64),
+        position_world_m=torch.tensor([[4.0, 0.0, 10.0], [3.999, 0.0, 10.0]], dtype=torch.float64),
+        ground_velocity_world_mps=torch.zeros((2, 3), dtype=torch.float64),
+    )
+    assert query.reached_all_events.tolist() == [True, False]
+
+
+def test_partial_write_updates_only_selected_rows_and_every_batched_field() -> None:
+    destination = _straight_path_batch(count=4)
+    source = _straight_path_batch(count=2)
+    source_values = {}
+    for index, field in enumerate(fields(source), start=1):
+        value = getattr(source, field.name)
+        if isinstance(value, torch.Tensor):
+            fill = index if value.dtype == torch.int64 else float(index)
+            source_values[field.name] = torch.full_like(value, fill)
+        else:
+            source_values[field.name] = value
+    source = pure_rl_spatial_path.PureRLSpatialPathBatch(**source_values)
+    before = {
+        field.name: getattr(destination, field.name).clone()
+        for field in fields(destination)
+        if isinstance(getattr(destination, field.name), torch.Tensor)
+    }
+    destination_identity = id(destination)
+    env_ids = torch.tensor([1, 3], dtype=torch.int64)
+
+    pure_rl_spatial_path.write_spatial_path_batch_rows_(destination=destination, env_ids=env_ids, source=source)
+
+    assert id(destination) == destination_identity
+    untouched = torch.tensor([0, 2], dtype=torch.int64)
+    for field in fields(destination):
+        value = getattr(destination, field.name)
+        if not isinstance(value, torch.Tensor):
+            continue
+        torch.testing.assert_close(value.index_select(0, env_ids), getattr(source, field.name))
+        torch.testing.assert_close(value.index_select(0, untouched), before[field.name].index_select(0, untouched))
+
+
+@pytest.mark.parametrize(
+    ("keyword", "value"),
+    [
+        ("previous_progress_m", torch.zeros((1, 1), dtype=torch.float64)),
+        ("position_world_m", torch.zeros((1, 2), dtype=torch.float64)),
+        ("ground_velocity_world_mps", torch.zeros((1, 3), dtype=torch.float32)),
+    ],
+)
+def test_query_rejects_invalid_tensor_shapes_and_dtypes(keyword: str, value: torch.Tensor) -> None:
+    arguments = {
+        "path": _straight_path_batch(count=1),
+        "previous_progress_m": torch.zeros(1, dtype=torch.float64),
+        "position_world_m": torch.tensor([[0.0, 0.0, 10.0]], dtype=torch.float64),
+        "ground_velocity_world_mps": torch.zeros((1, 3), dtype=torch.float64),
+    }
+    arguments[keyword] = value
+    with pytest.raises((TypeError, ValueError), match=keyword):
+        pure_rl_spatial_path.query_spatial_path(**arguments)
+
+
+@pytest.mark.parametrize("bounds", [(-1.0, 12.0), (13.0, 12.0), (math.nan, 12.0), (1.0, math.inf)])
+def test_query_rejects_invalid_preview_speed_bounds(bounds: tuple[float, float]) -> None:
+    with pytest.raises(ValueError, match="Preview-speed bounds"):
+        pure_rl_spatial_path.query_spatial_path(
+            path=_straight_path_batch(count=1),
+            previous_progress_m=torch.zeros(1, dtype=torch.float64),
+            position_world_m=torch.tensor([[0.0, 0.0, 10.0]], dtype=torch.float64),
+            ground_velocity_world_mps=torch.zeros((1, 3), dtype=torch.float64),
+            minimum_preview_speed_mps=bounds[0],
+            maximum_preview_speed_mps=bounds[1],
+        )
+
+
+@pytest.mark.parametrize(
+    "preview_times_s",
+    [(), (0.12, 0.24, 0.36, 0.48), (0.12, 0.24, 0.36, 0.48, math.nan), (0.12, 0.24, 0.24, 0.48, 0.60)],
+)
+def test_query_rejects_invalid_preview_times(preview_times_s: tuple[float, ...]) -> None:
+    with pytest.raises(ValueError, match="preview_times_s"):
+        pure_rl_spatial_path.query_spatial_path(
+            path=_straight_path_batch(count=1),
+            previous_progress_m=torch.zeros(1, dtype=torch.float64),
+            position_world_m=torch.tensor([[0.0, 0.0, 10.0]], dtype=torch.float64),
+            ground_velocity_world_mps=torch.zeros((1, 3), dtype=torch.float64),
+            preview_times_s=preview_times_s,
+        )
+
+
+def test_query_and_partial_write_reject_device_metadata_and_env_id_contract_mismatches() -> None:
+    path = _straight_path_batch(count=2)
+    with pytest.raises(ValueError, match="position_world_m"):
+        pure_rl_spatial_path.query_spatial_path(
+            path=path,
+            previous_progress_m=torch.zeros(2, dtype=torch.float64),
+            position_world_m=torch.empty((2, 3), dtype=torch.float64, device="meta"),
+            ground_velocity_world_mps=torch.zeros((2, 3), dtype=torch.float64),
+        )
+
+    source = _straight_path_batch(count=1)
+    invalid_env_ids = (
+        torch.tensor([0], dtype=torch.int32),
+        torch.tensor([[0]], dtype=torch.int64),
+        torch.tensor([2], dtype=torch.int64),
+    )
+    for env_ids in invalid_env_ids:
+        with pytest.raises((ValueError, IndexError)):
+            pure_rl_spatial_path.write_spatial_path_batch_rows_(destination=path, env_ids=env_ids, source=source)
+    with pytest.raises(ValueError, match="unique"):
+        pure_rl_spatial_path.write_spatial_path_batch_rows_(
+            destination=path,
+            env_ids=torch.tensor([0, 0], dtype=torch.int64),
+            source=_straight_path_batch(count=2),
+        )
+    with pytest.raises(ValueError, match="source batch length"):
+        pure_rl_spatial_path.write_spatial_path_batch_rows_(
+            destination=path,
+            env_ids=torch.tensor([0, 1], dtype=torch.int64),
+            source=source,
+        )
+    with pytest.raises(ValueError, match="sample spacing"):
+        pure_rl_spatial_path.write_spatial_path_batch_rows_(
+            destination=path,
+            env_ids=torch.tensor([0], dtype=torch.int64),
+            source=replace(source, sample_spacing_m=0.5, path_length_m=10.0),
+        )
+
+
+def _load_longitudinal_module():
+    module_path = MODULE_PATH.with_name("pure_rl_longitudinal_path.py")
+    spec = importlib.util.spec_from_file_location("pure_rl_longitudinal_path_for_spatial_test", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
