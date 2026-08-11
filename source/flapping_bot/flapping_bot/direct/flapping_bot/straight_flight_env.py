@@ -165,11 +165,22 @@ from .pure_rl_longitudinal_path import (
     sample_longitudinal_path_batch,
     write_longitudinal_path_batch_rows_,
 )
+from .pure_rl_spatial_path import (
+    PureRLSpatialPathBatch,
+    PureRLSpatialPathQuery,
+    PureRLSpatialStageConfig,
+    query_spatial_path,
+    resolve_spatial_stage,
+    sample_spatial_path_batch,
+    write_spatial_path_batch_rows_,
+)
 from .pure_rl_reward import (
     PURE_RL_CURRICULUM1_TERMINATION_CONFIG,
     PureRLRewardConfig,
     compute_pure_rl_path_reward_terms,
     compute_pure_rl_reward_terms,
+    compute_pure_rl_spatial_path_reward_terms,
+    compute_pure_rl_spatial_termination_terms,
     compute_pure_rl_termination_terms,
 )
 from .state_source_contract import (
@@ -228,6 +239,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_eval_entry_length_m_schedule: tuple[float, ...] | None = None
     pure_rl_eval_slope_length_m_schedule: tuple[float, ...] | None = None
     pure_rl_longitudinal_stage_id: str | None = None
+    pure_rl_spatial_stage_id: str | None = None
     pure_rl_preview_minimum_speed_mps: float = 1.0
     pure_rl_preview_maximum_speed_mps: float = 12.0
     use_pure_rl_curriculum1_reward: bool = False
@@ -880,6 +892,7 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg(FlappingBotStraight
     pure_rl_reward_telemetry_enabled: bool = True
     pure_rl_reward_cfg: PureRLRewardConfig = PureRLRewardConfig()
     pure_rl_longitudinal_stage_id: str | None = None
+    pure_rl_spatial_stage_id: str | None = None
     terminate_ground_height: float = 0.05
     terminate_tilt_deg: float = 75.0
     terminate_abs_y: float = 3.0
@@ -932,6 +945,36 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLC2cEnvCfg(
     """Measured PureRL longitudinal curriculum stage C2c."""
 
     pure_rl_longitudinal_stage_id: str = "c2c"
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
+):
+    """Measured PureRL spatial curriculum stage C3a."""
+
+    pure_rl_spatial_stage_id: str = "c3a"
+    episode_length_s: float = 20.0
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLC3bEnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
+):
+    """Measured PureRL spatial curriculum stage C3b."""
+
+    pure_rl_spatial_stage_id: str = "c3b"
+    episode_length_s: float = 20.0
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLC3cEnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
+):
+    """Measured PureRL spatial curriculum stage C3c."""
+
+    pure_rl_spatial_stage_id: str = "c3c"
+    episode_length_s: float = 20.0
 
 
 @configclass
@@ -1011,11 +1054,23 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             if cfg.pure_rl_longitudinal_stage_id is not None
             else None
         )
+        spatial_stage = (
+            resolve_spatial_stage(cfg.pure_rl_spatial_stage_id)
+            if cfg.pure_rl_spatial_stage_id is not None
+            else None
+        )
+        if longitudinal_stage is not None and spatial_stage is not None:
+            raise ValueError("PureRL longitudinal and spatial stages are mutually exclusive.")
         if longitudinal_stage is not None:
             if not bool(cfg.use_pure_rl_actor_observation) or not bool(cfg.use_pure_rl_curriculum1_reward):
                 raise ValueError("PureRL longitudinal stages require the PureRL observation and reward contracts.")
             if bool(cfg.wind_enabled) or bool(cfg.randomize_wind) or bool(cfg.wind_ou_enabled):
                 raise ValueError("PureRL C2 longitudinal stages require wind to remain disabled.")
+        if spatial_stage is not None:
+            if not bool(cfg.use_pure_rl_actor_observation) or not bool(cfg.use_pure_rl_curriculum1_reward):
+                raise ValueError("PureRL spatial stages require the PureRL observation and reward contracts.")
+            if bool(cfg.wind_enabled) or bool(cfg.randomize_wind) or bool(cfg.wind_ou_enabled):
+                raise ValueError("PureRL C3 spatial stages require wind to remain disabled.")
         if bool(cfg.use_pure_rl_actor_observation):
             if action_interface != DIRECT_TAIL_SURFACE_ACTION:
                 raise ValueError("PureRL actor observations require the direct-tail-surface action interface.")
@@ -1399,6 +1454,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._native_holonomic_joint_paths: list[str] = []
         self._pure_rl_longitudinal_stage: PureRLLongitudinalStageConfig | None = longitudinal_stage
         self._pure_rl_longitudinal_path: PureRLLongitudinalPathBatch | None = None
+        self._pure_rl_spatial_stage: PureRLSpatialStageConfig | None = spatial_stage
+        self._pure_rl_spatial_path: PureRLSpatialPathBatch | None = None
+        self._pure_rl_spatial_progress_m: Tensor | None = None
 
         # wing phase and frequency
         self._phase: Tensor | None = None  # (N,)
@@ -1468,6 +1526,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._eval_pure_rl_vertical_normal_velocity_mps: Tensor | None = None
         self._eval_pure_rl_active_slope_rad: Tensor | None = None
         self._eval_pure_rl_reached_recovery: Tensor | None = None
+        self._eval_pure_rl_active_curvature_rad_per_m: Tensor | None = None
+        self._eval_pure_rl_turn_activity: Tensor | None = None
+        self._eval_pure_rl_reached_all_events: Tensor | None = None
         self._eval_pure_rl_tilt_rad: Tensor | None = None
         self._eval_pure_rl_angular_rate_rad_s: Tensor | None = None
         self._eval_pure_rl_actual_flap_frequency_hz: Tensor | None = None
@@ -1480,6 +1541,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._eval_pure_rl_tilt_termination: Tensor | None = None
         self._eval_pure_rl_cross_track_termination: Tensor | None = None
         self._eval_pure_rl_height_termination: Tensor | None = None
+        self._eval_pure_rl_roll_limit_termination: Tensor | None = None
         self._pure_rl_termination_cfg = replace(
             PURE_RL_CURRICULUM1_TERMINATION_CONFIG,
             ground_height_m=float(cfg.terminate_ground_height),
@@ -1620,6 +1682,15 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 slope_length_m=torch.zeros(N, device=self.device),
                 initial_altitude_m=torch.zeros(N, device=self.device),
             )
+        if self._pure_rl_spatial_stage is not None:
+            self._pure_rl_spatial_path = sample_spatial_path_batch(
+                num_paths=N,
+                stage=self._pure_rl_spatial_stage,
+                device=self.device,
+                dtype=self._straight_line_heading_rad.dtype,
+                initial_altitude_m=float(self.cfg.height_cmd),
+            )
+            self._pure_rl_spatial_progress_m = torch.zeros(N, device=self.device)
         if bool(self.cfg.use_pure_rl_actor_observation):
             self._pure_rl_history_valid = torch.zeros(N, dtype=torch.bool, device=self.device)
             self._pure_rl_previous_orientation_wxyz = torch.zeros(N, 4, device=self.device)
@@ -1642,11 +1713,19 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._eval_pure_rl_height_error_m = torch.zeros(N, device=self.device)
             self._eval_pure_rl_along_track_progress_m = torch.zeros(N, device=self.device)
             self._eval_pure_rl_along_track_velocity_mps = torch.zeros(N, device=self.device)
-            if self._pure_rl_longitudinal_stage is not None:
+            if self._pure_rl_longitudinal_stage is not None or self._pure_rl_spatial_stage is not None:
                 self._eval_pure_rl_lateral_normal_velocity_mps = torch.zeros(N, device=self.device)
                 self._eval_pure_rl_vertical_normal_velocity_mps = torch.zeros(N, device=self.device)
                 self._eval_pure_rl_active_slope_rad = torch.zeros(N, device=self.device)
+            if self._pure_rl_longitudinal_stage is not None:
                 self._eval_pure_rl_reached_recovery = torch.zeros(N, dtype=torch.bool, device=self.device)
+            if self._pure_rl_spatial_stage is not None:
+                self._eval_pure_rl_active_curvature_rad_per_m = torch.zeros(N, device=self.device)
+                self._eval_pure_rl_turn_activity = torch.zeros(N, device=self.device)
+                self._eval_pure_rl_reached_all_events = torch.zeros(N, dtype=torch.bool, device=self.device)
+                self._eval_pure_rl_roll_limit_termination = torch.zeros(
+                    N, dtype=torch.bool, device=self.device
+                )
             self._eval_pure_rl_tilt_rad = torch.zeros(N, device=self.device)
             self._eval_pure_rl_angular_rate_rad_s = torch.zeros(N, device=self.device)
             self._eval_pure_rl_actual_flap_frequency_hz = torch.zeros(N, device=self.device)
@@ -3842,7 +3921,27 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # Randomize the world-frame line direction while keeping the vehicle,
         # initial velocity and route geometry mutually aligned.
         n = env_ids.shape[0]
-        if self._pure_rl_longitudinal_stage is not None:
+        if self._pure_rl_spatial_stage is not None:
+            assert self._pure_rl_spatial_path is not None
+            assert self._pure_rl_spatial_progress_m is not None
+            sampled_path = sample_spatial_path_batch(
+                num_paths=n,
+                stage=self._pure_rl_spatial_stage,
+                device=self.device,
+                dtype=self._height_cmd.dtype,
+                initial_altitude_m=self._height_cmd[env_ids],
+            )
+            write_spatial_path_batch_rows_(
+                destination=self._pure_rl_spatial_path,
+                env_ids=env_ids.to(dtype=torch.int64),
+                source=sampled_path,
+            )
+            self._pure_rl_spatial_progress_m[env_ids] = 0.0
+            heading = torch.atan2(
+                sampled_path.tangent_world[:, 0, 1],
+                sampled_path.tangent_world[:, 0, 0],
+            )
+        elif self._pure_rl_longitudinal_stage is not None:
             assert self._pure_rl_longitudinal_path is not None
             if self.cfg.pure_rl_eval_longitudinal_task_schedule is not None:
                 assert self.cfg.pure_rl_eval_heading_schedule_rad is not None
@@ -3934,7 +4033,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 float(self.cfg.reset_forward_speed_mps),
                 device=self.device,
             )
-        lin_vel[:, 0:2] = reset_forward_speed.unsqueeze(1) * self._straight_line_tangent_w[env_ids, 0:2]
+        if self._pure_rl_spatial_stage is not None:
+            lin_vel[:] = reset_forward_speed.unsqueeze(1) * sampled_path.tangent_world[:, 0, :]
+        else:
+            lin_vel[:, 0:2] = (
+                reset_forward_speed.unsqueeze(1) * self._straight_line_tangent_w[env_ids, 0:2]
+            )
         ang_vel = torch.zeros(n, 3, device=self.device)
         root_state = torch.cat([pos, rot, lin_vel, ang_vel], dim=1)
         self._robot.write_root_state_to_sim(root_state, env_ids=env_ids)
@@ -4152,8 +4256,43 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._hist_valid[env_ids] = False
         if self._pure_rl_history_valid is not None:
             self._pure_rl_history_valid[env_ids] = False
+            assert self._pure_rl_sensor_history is not None
+            assert self._pure_rl_action_history is not None
+            assert self._pure_rl_previous_orientation_wxyz is not None
+            self._pure_rl_sensor_history[env_ids] = 0.0
+            self._pure_rl_action_history[env_ids] = 0.0
+            self._pure_rl_previous_orientation_wxyz[env_ids] = 0.0
+            self._pure_rl_previous_orientation_wxyz[env_ids, 0] = 1.0
         if self._pure_rl_previous_reward_action is not None:
             self._pure_rl_previous_reward_action[env_ids] = self._act_cmd[env_ids]
+        for buffer in (
+            self._eval_pure_rl_cross_track_error_m,
+            self._eval_pure_rl_height_error_m,
+            self._eval_pure_rl_along_track_progress_m,
+            self._eval_pure_rl_along_track_velocity_mps,
+            self._eval_pure_rl_lateral_normal_velocity_mps,
+            self._eval_pure_rl_vertical_normal_velocity_mps,
+            self._eval_pure_rl_active_slope_rad,
+            self._eval_pure_rl_reached_recovery,
+            self._eval_pure_rl_active_curvature_rad_per_m,
+            self._eval_pure_rl_turn_activity,
+            self._eval_pure_rl_reached_all_events,
+            self._eval_pure_rl_tilt_rad,
+            self._eval_pure_rl_angular_rate_rad_s,
+            self._eval_pure_rl_actual_flap_frequency_hz,
+            self._eval_pure_rl_frequency_limit_active,
+            self._eval_pure_rl_tail_limit_active,
+            self._eval_pure_rl_normalized_action_delta,
+            self._eval_pure_rl_frequency_slew_hz_per_s,
+            self._eval_pure_rl_frequency_governor_limited,
+            self._eval_pure_rl_ground_termination,
+            self._eval_pure_rl_tilt_termination,
+            self._eval_pure_rl_cross_track_termination,
+            self._eval_pure_rl_height_termination,
+            self._eval_pure_rl_roll_limit_termination,
+        ):
+            if buffer is not None:
+                buffer[env_ids] = 0
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
     def _query_pure_rl_longitudinal_path(self) -> PureRLLongitudinalPathQuery:
@@ -4167,6 +4306,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             minimum_preview_speed_mps=float(self.cfg.pure_rl_preview_minimum_speed_mps),
             maximum_preview_speed_mps=float(self.cfg.pure_rl_preview_maximum_speed_mps),
         )
+
+    def _query_pure_rl_spatial_path(self) -> PureRLSpatialPathQuery:
+        """Query the active C3 path and advance its explicit projection state."""
+
+        assert self._pure_rl_spatial_path is not None
+        assert self._pure_rl_spatial_progress_m is not None
+        query = query_spatial_path(
+            path=self._pure_rl_spatial_path,
+            previous_progress_m=self._pure_rl_spatial_progress_m,
+            position_world_m=self._robot.data.root_pos_w - self.scene.env_origins,
+            ground_velocity_world_mps=self._robot.data.root_lin_vel_w,
+            minimum_preview_speed_mps=float(self.cfg.pure_rl_preview_minimum_speed_mps),
+            maximum_preview_speed_mps=float(self.cfg.pure_rl_preview_maximum_speed_mps),
+        )
+        self._pure_rl_spatial_progress_m.copy_(query.progress_m)
+        return query
 
     def _get_pure_rl_observations(self) -> dict[str, Tensor]:
         """Build the normalized 555-value actor observation at policy rate."""
@@ -4197,7 +4352,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         )
 
         local_position_w = self._robot.data.root_pos_w - self.scene.env_origins
-        if self._pure_rl_longitudinal_stage is not None:
+        if self._pure_rl_spatial_stage is not None:
+            preview_points_w = self._query_pure_rl_spatial_path().preview_points_world_m
+        elif self._pure_rl_longitudinal_stage is not None:
             preview_points_w = self._query_pure_rl_longitudinal_path().preview_points_world_m
         else:
             route_origin_w = torch.zeros_like(local_position_w)
@@ -4321,7 +4478,37 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         ground_velocity_w = self._robot.data.root_lin_vel_w
         roll_rad, pitch_rad, _yaw_rad = euler_xyz_from_quat(self._robot.data.root_quat_w)
         reward_cfg = self.cfg.pure_rl_reward_cfg
-        if self._pure_rl_longitudinal_stage is not None:
+        if self._pure_rl_spatial_stage is not None:
+            query = self._query_pure_rl_spatial_path()
+            height_error_m = query.vertical_normal_error_m
+            cross_track_error_m = query.horizontal_normal_error_m
+            along_track_progress_m = query.progress_m
+            along_track_velocity_mps = torch.sum(ground_velocity_w * query.tangent_world, dim=1)
+            cross_track_velocity_mps = torch.sum(
+                ground_velocity_w * query.lateral_normal_world,
+                dim=1,
+            )
+            vertical_velocity_mps = torch.sum(
+                ground_velocity_w * query.vertical_normal_world,
+                dim=1,
+            )
+            terms = compute_pure_rl_spatial_path_reward_terms(
+                cross_track_error_m=cross_track_error_m,
+                height_error_m=height_error_m,
+                tangent_velocity_mps=along_track_velocity_mps,
+                lateral_normal_velocity_mps=cross_track_velocity_mps,
+                vertical_normal_velocity_mps=vertical_velocity_mps,
+                roll_rad=roll_rad,
+                pitch_rad=pitch_rad,
+                angular_velocity_body_rad_s=self._robot.data.root_ang_vel_b,
+                actual_flap_frequency_hz=self._freq,
+                frequency_slew_hz_per_s=self._frequency_slew_hz_per_s,
+                applied_action=self._act_cmd,
+                previous_applied_action=self._pure_rl_previous_reward_action,
+                turn_activity=query.turn_activity,
+                config=reward_cfg,
+            )
+        elif self._pure_rl_longitudinal_stage is not None:
             query = self._query_pure_rl_longitudinal_path()
             height_error_m = query.height_error_m
             cross_track_error_m = query.cross_track_error_m
@@ -4409,15 +4596,23 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._eval_pure_rl_height_error_m.copy_(height_error_m)
         self._eval_pure_rl_along_track_progress_m.copy_(along_track_progress_m)
         self._eval_pure_rl_along_track_velocity_mps.copy_(along_track_velocity_mps)
-        if self._pure_rl_longitudinal_stage is not None:
+        if self._pure_rl_longitudinal_stage is not None or self._pure_rl_spatial_stage is not None:
             assert self._eval_pure_rl_lateral_normal_velocity_mps is not None
             assert self._eval_pure_rl_vertical_normal_velocity_mps is not None
             assert self._eval_pure_rl_active_slope_rad is not None
-            assert self._eval_pure_rl_reached_recovery is not None
             self._eval_pure_rl_lateral_normal_velocity_mps.copy_(cross_track_velocity_mps)
             self._eval_pure_rl_vertical_normal_velocity_mps.copy_(vertical_velocity_mps)
             self._eval_pure_rl_active_slope_rad.copy_(query.active_slope_rad)
+        if self._pure_rl_longitudinal_stage is not None:
+            assert self._eval_pure_rl_reached_recovery is not None
             self._eval_pure_rl_reached_recovery.copy_(query.reached_recovery)
+        if self._pure_rl_spatial_stage is not None:
+            assert self._eval_pure_rl_active_curvature_rad_per_m is not None
+            assert self._eval_pure_rl_turn_activity is not None
+            assert self._eval_pure_rl_reached_all_events is not None
+            self._eval_pure_rl_active_curvature_rad_per_m.copy_(query.active_curvature_rad_per_m)
+            self._eval_pure_rl_turn_activity.copy_(query.turn_activity)
+            self._eval_pure_rl_reached_all_events.copy_(query.reached_all_events)
         self._eval_pure_rl_angular_rate_rad_s.copy_(
             torch.linalg.vector_norm(self._robot.data.root_ang_vel_b, dim=1)
         )
@@ -4501,7 +4696,49 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     ),
                 }
             )
-            if self._pure_rl_longitudinal_stage is not None:
+            if self._pure_rl_spatial_stage is not None:
+                assert self._pure_rl_spatial_path is not None
+                assert self._eval_pure_rl_active_curvature_rad_per_m is not None
+                assert self._eval_pure_rl_active_slope_rad is not None
+                assert self._eval_pure_rl_turn_activity is not None
+                assert self._eval_pure_rl_reached_all_events is not None
+                log.update(
+                    {
+                        "PureRLPath/mean_sampled_task_family_id": (
+                            self._pure_rl_spatial_path.task_family_id.to(torch.float32).mean()
+                        ),
+                        "PureRLPath/mean_sampled_template_id": (
+                            self._pure_rl_spatial_path.template_id.to(torch.float32).mean()
+                        ),
+                        "PureRLPath/mean_sampled_turn_sign": self._pure_rl_spatial_path.turn_sign.mean(),
+                        "PureRLPath/mean_sampled_vertical_sign": (
+                            self._pure_rl_spatial_path.vertical_sign.mean()
+                        ),
+                        "PureRLPath/mean_sampled_peak_geometry_roll_rad": (
+                            self._pure_rl_spatial_path.peak_geometry_roll_rad.mean()
+                        ),
+                        "PureRLPath/mean_sampled_peak_slope_rad": (
+                            self._pure_rl_spatial_path.peak_slope_rad.mean()
+                        ),
+                        "PureRLPath/mean_active_curvature_rad_per_m": (
+                            self._eval_pure_rl_active_curvature_rad_per_m.mean()
+                        ),
+                        "PureRLPath/mean_active_slope_rad": self._eval_pure_rl_active_slope_rad.mean(),
+                        "PureRLPath/mean_turn_activity": self._eval_pure_rl_turn_activity.mean(),
+                        "PureRLPath/all_events_reached_fraction": (
+                            self._eval_pure_rl_reached_all_events.to(torch.float32).mean()
+                        ),
+                        "PureRLPath/mean_tangent_velocity_mps": along_track_velocity_mps.mean(),
+                        "PureRLPath/mean_abs_lateral_normal_velocity_mps": (
+                            cross_track_velocity_mps.abs().mean()
+                        ),
+                        "PureRLPath/mean_abs_vertical_normal_velocity_mps": (
+                            vertical_velocity_mps.abs().mean()
+                        ),
+                        "PureRLPath/mean_abs_roll_rad": roll_rad.abs().mean(),
+                    }
+                )
+            elif self._pure_rl_longitudinal_stage is not None:
                 assert self._pure_rl_longitudinal_path is not None
                 assert self._eval_pure_rl_active_slope_rad is not None
                 assert self._eval_pure_rl_reached_recovery is not None
@@ -4583,20 +4820,32 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         height = pos_w[:, 2]
         timed_out = self.episode_length_buf >= self.max_episode_length - 1
         if bool(self.cfg.use_pure_rl_curriculum1_reward):
-            if self._pure_rl_longitudinal_stage is not None:
-                query = self._query_pure_rl_longitudinal_path()
-                cross_track_error_m = query.cross_track_error_m
-                height_error_m = query.height_error_m
+            if self._pure_rl_spatial_stage is not None:
+                query = self._query_pure_rl_spatial_path()
+                roll_rad, _pitch_rad, _yaw_rad = euler_xyz_from_quat(self._robot.data.root_quat_w)
+                terms = compute_pure_rl_spatial_termination_terms(
+                    height_m=height,
+                    cross_track_error_m=query.horizontal_normal_error_m,
+                    height_error_m=query.vertical_normal_error_m,
+                    projected_gravity_body=self._robot.data.projected_gravity_b,
+                    roll_rad=roll_rad,
+                    config=self._pure_rl_termination_cfg,
+                )
             else:
-                cross_track_error_m = self._straight_line_cross_track_m(pos_w)
-                height_error_m = height - self._height_cmd
-            terms = compute_pure_rl_termination_terms(
-                height_m=height,
-                cross_track_error_m=cross_track_error_m,
-                height_error_m=height_error_m,
-                projected_gravity_body=self._robot.data.projected_gravity_b,
-                config=self._pure_rl_termination_cfg,
-            )
+                if self._pure_rl_longitudinal_stage is not None:
+                    query = self._query_pure_rl_longitudinal_path()
+                    cross_track_error_m = query.cross_track_error_m
+                    height_error_m = query.height_error_m
+                else:
+                    cross_track_error_m = self._straight_line_cross_track_m(pos_w)
+                    height_error_m = height - self._height_cmd
+                terms = compute_pure_rl_termination_terms(
+                    height_m=height,
+                    cross_track_error_m=cross_track_error_m,
+                    height_error_m=height_error_m,
+                    projected_gravity_body=self._robot.data.projected_gravity_b,
+                    config=self._pure_rl_termination_cfg,
+                )
             assert self._eval_pure_rl_tilt_rad is not None
             assert self._eval_pure_rl_ground_termination is not None
             assert self._eval_pure_rl_tilt_termination is not None
@@ -4607,6 +4856,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._eval_pure_rl_tilt_termination.copy_(terms.tilt)
             self._eval_pure_rl_cross_track_termination.copy_(terms.cross_track)
             self._eval_pure_rl_height_termination.copy_(terms.height_error)
+            if self._pure_rl_spatial_stage is not None:
+                assert self._eval_pure_rl_roll_limit_termination is not None
+                self._eval_pure_rl_roll_limit_termination.copy_(terms.roll_limit)
             if bool(self.cfg.pure_rl_reward_telemetry_enabled):
                 log = self.extras.setdefault("log", {})
                 log.update(
@@ -4626,6 +4878,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                         "PureRLState/mean_tilt_rad": terms.tilt_rad.mean(),
                     }
                 )
+                if self._pure_rl_spatial_stage is not None:
+                    log["PureRLTermination/roll_limit_fraction"] = terms.roll_limit.to(
+                        torch.float32
+                    ).mean()
             return terms.terminated, timed_out
 
         fell = height <= float(self.cfg.terminate_ground_height)
