@@ -15,6 +15,11 @@ except ImportError:  # pragma: no cover - direct script import path
         build_longitudinal_evaluation_grid,
     )
 
+try:
+    from .pure_rl_spatial_eval import build_spatial_evaluation_grid
+except ImportError:  # pragma: no cover - direct script import path
+    from pure_rl_spatial_eval import build_spatial_evaluation_grid
+
 
 _PURE_RL_HEADINGS_RAD = (0.0, 0.5 * math.pi, math.pi, -0.5 * math.pi)
 _PURE_RL_PHASES_RAD = (0.0, 0.5 * math.pi, math.pi, 1.5 * math.pi)
@@ -32,6 +37,9 @@ EVAL_SUITE_CHOICES = (
     "pure_rl_longitudinal_c2a_v1",
     "pure_rl_longitudinal_c2b_v1",
     "pure_rl_longitudinal_c2c_v1",
+    "pure_rl_spatial_c3a_v1",
+    "pure_rl_spatial_c3b_v1",
+    "pure_rl_spatial_c3c_v1",
     "path_tracking_standard",
     "path_tracking_truth_nowind_v1",
     "path_tracking_estimated_nowind_v1",
@@ -69,6 +77,7 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
         straight_line_heading_schedule_rad: tuple[float, ...] | None = None,
         flap_phase_schedule_rad: tuple[float, ...] | None = None,
         longitudinal_cases=None,
+        spatial_cases=None,
     ) -> dict:
         case = {
             "name": name,
@@ -120,6 +129,17 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
                 item.slope_length_m for item in registered_cases
             )
             case["promotion_eligible"] = all(item.promotion_eligible for item in registered_cases)
+        if spatial_cases is not None:
+            registered_cases = tuple(spatial_cases)
+            case["spatial_stage_id"] = registered_cases[0].stage_id
+            case["spatial_case_ids"] = tuple(item.case_id for item in registered_cases)
+            case["spatial_template_schedule"] = tuple(item.template_id for item in registered_cases)
+            case["spatial_geometry_roll_deg_schedule"] = tuple(
+                item.geometry_roll_deg for item in registered_cases
+            )
+            case["spatial_slope_deg_schedule"] = tuple(item.slope_deg for item in registered_cases)
+            case["spatial_turn_sign_schedule"] = tuple(item.turn_sign for item in registered_cases)
+            case["promotion_eligible"] = True
         return case
 
     if eval_suite == "single":
@@ -168,6 +188,30 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
         return [
             _longitudinal_case(f"{stage_id}_promotion_grid", promotion_cases),
             _longitudinal_case(f"{stage_id}_signed_10deg_diagnostic", diagnostic_cases),
+        ]
+
+    if eval_suite in {
+        "pure_rl_spatial_c3a_v1",
+        "pure_rl_spatial_c3b_v1",
+        "pure_rl_spatial_c3c_v1",
+    }:
+        stage_id = eval_suite.removeprefix("pure_rl_spatial_").removesuffix("_v1")
+        registered_cases = build_spatial_evaluation_grid(stage_id)
+        return [
+            _case(
+                f"{stage_id}_promotion_grid",
+                wind_enabled=False,
+                wind_xy_mps=(0.0, 0.0),
+                wind_ou_enabled=False,
+                teacher_state_source="estimated",
+                policy_state_source="estimated",
+                imu_source="synthetic",
+                straight_line_heading_schedule_rad=tuple(
+                    item.heading_rad for item in registered_cases
+                ),
+                flap_phase_schedule_rad=tuple(item.flap_phase_rad for item in registered_cases),
+                spatial_cases=registered_cases,
+            )
         ]
 
     if eval_suite == "path_tracking_standard":

@@ -630,6 +630,18 @@ def test_spatial_curriculum_source_chain_rejects_wrong_stage(tmp_path: Path) -> 
         train_and_watch._build_curriculum_source_metadata(args)
 
 
+def test_spatial_task_uses_stage_specific_eval_suite_and_shape() -> None:
+    task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0"
+    args = train_and_watch.argparse.Namespace(
+        task=task,
+        eval_suite="straight_standard",
+        eval_num_envs=None,
+        episodes=None,
+    )
+    assert train_and_watch._resolve_eval_suite(task, "straight_standard") == "pure_rl_spatial_c3c_v1"
+    assert train_and_watch._resolve_eval_shape(args) == (96, 96)
+
+
 def test_longitudinal_task_uses_native_cpu_and_stage_specific_eval_suite(tmp_path: Path) -> None:
     task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0"
     args = train_and_watch.argparse.Namespace(

@@ -73,6 +73,28 @@ def test_pure_rl_longitudinal_suites_expose_promotion_and_diagnostic_schedules()
         assert diagnostic["promotion_eligible"] is False
 
 
+def test_spatial_suites_expose_exact_registered_schedules() -> None:
+    expected_counts = {"c3a": 96, "c3b": 112, "c3c": 96}
+    choices = get_eval_suite_choices()
+    for stage, expected_count in expected_counts.items():
+        suite = f"pure_rl_spatial_{stage}_v1"
+        assert suite in choices
+        cases = build_eval_cases(suite)
+        assert len(cases) == 1
+        case = cases[0]
+        assert case["spatial_stage_id"] == stage
+        assert len(case["spatial_case_ids"]) == expected_count
+        for schedule_name in (
+            "straight_line_heading_schedule_rad",
+            "flap_phase_schedule_rad",
+            "spatial_template_schedule",
+            "spatial_geometry_roll_deg_schedule",
+            "spatial_slope_deg_schedule",
+            "spatial_turn_sign_schedule",
+        ):
+            assert len(case[schedule_name]) == expected_count
+
+
 def test_path_tracking_estimated_nowind_suite_uses_estimated_teacher_contract() -> None:
     cases = build_eval_cases("path_tracking_estimated_nowind_v1")
 

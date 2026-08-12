@@ -138,6 +138,14 @@ def test_watch_and_eval_resolves_longitudinal_task_to_stage_grid_and_shape() -> 
     assert watch_and_eval._resolve_eval_shape(task, suite, num_envs=None, episodes=None) == (80, 80)
 
 
+def test_watch_and_eval_resolves_spatial_task_to_stage_grid_and_shape() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
+    suite = watch_and_eval._resolve_eval_suite(task, "straight_standard")
+    assert suite == "pure_rl_spatial_c3b_v1"
+    assert watch_and_eval._resolve_eval_shape(task, suite, num_envs=None, episodes=None) == (112, 112)
+
+
 def test_watch_and_eval_applies_longitudinal_fixed_schedules() -> None:
     watch_and_eval = _load_watch_and_eval_module()
     cfg = types.SimpleNamespace(
@@ -177,6 +185,39 @@ def test_watch_and_eval_applies_longitudinal_fixed_schedules() -> None:
     assert cfg.pure_rl_eval_longitudinal_slope_deg_schedule == (4.0, -4.0)
     assert cfg.pure_rl_eval_entry_length_m_schedule == (17.5, 17.5)
     assert cfg.pure_rl_eval_slope_length_m_schedule == (25.0, 25.0)
+
+
+def test_watch_and_eval_applies_spatial_fixed_schedules() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    cfg = types.SimpleNamespace(
+        randomize_straight_line_heading=True,
+        randomize_flap_phase_at_reset=True,
+        pure_rl_eval_heading_schedule_rad=None,
+        pure_rl_eval_flap_phase_schedule_rad=None,
+        pure_rl_eval_spatial_template_schedule=None,
+        pure_rl_eval_spatial_geometry_roll_deg_schedule=None,
+        pure_rl_eval_spatial_slope_deg_schedule=None,
+        pure_rl_eval_spatial_turn_sign_schedule=None,
+    )
+    case = {
+        "name": "c3a_grid",
+        "wind_enabled": False,
+        "wind_xy_mps": (0.0, 0.0),
+        "wind_ou_enabled": False,
+        "wind_ou_tau_s": 2.0,
+        "wind_ou_sigma_xy_mps": (0.0, 0.0),
+        "straight_line_heading_schedule_rad": (0.0, 1.0),
+        "flap_phase_schedule_rad": (0.5, 1.5),
+        "spatial_template_schedule": (2, 2),
+        "spatial_geometry_roll_deg_schedule": (9.0, 13.0),
+        "spatial_slope_deg_schedule": (0.0, 0.0),
+        "spatial_turn_sign_schedule": (-1, 1),
+    }
+    watch_and_eval._apply_eval_case_to_cfg(case, cfg, vx_cmd=None, height_cmd=None)
+    assert cfg.pure_rl_eval_spatial_template_schedule == (2, 2)
+    assert cfg.pure_rl_eval_spatial_geometry_roll_deg_schedule == (9.0, 13.0)
+    assert cfg.pure_rl_eval_spatial_slope_deg_schedule == (0.0, 0.0)
+    assert cfg.pure_rl_eval_spatial_turn_sign_schedule == (-1, 1)
 
 
 def test_watch_and_eval_applies_pure_rl_fixed_heading_phase_schedule() -> None:

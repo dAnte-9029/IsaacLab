@@ -1548,6 +1548,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._eval_pure_rl_active_curvature_rad_per_m: Tensor | None = None
         self._eval_pure_rl_turn_activity: Tensor | None = None
         self._eval_pure_rl_reached_all_events: Tensor | None = None
+        self._eval_pure_rl_abs_roll_rad: Tensor | None = None
         self._eval_pure_rl_tilt_rad: Tensor | None = None
         self._eval_pure_rl_angular_rate_rad_s: Tensor | None = None
         self._eval_pure_rl_actual_flap_frequency_hz: Tensor | None = None
@@ -1744,6 +1745,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 self._eval_pure_rl_active_curvature_rad_per_m = torch.zeros(N, device=self.device)
                 self._eval_pure_rl_turn_activity = torch.zeros(N, device=self.device)
                 self._eval_pure_rl_reached_all_events = torch.zeros(N, dtype=torch.bool, device=self.device)
+                self._eval_pure_rl_abs_roll_rad = torch.zeros(N, device=self.device)
                 self._eval_pure_rl_roll_limit_termination = torch.zeros(
                     N, dtype=torch.bool, device=self.device
                 )
@@ -4331,34 +4333,6 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if self._pure_rl_spatial_stage is not None:
             self._pure_rl_spatial_query_cache = None
             self._pure_rl_spatial_query_step = -1
-        for buffer in (
-            self._eval_pure_rl_cross_track_error_m,
-            self._eval_pure_rl_height_error_m,
-            self._eval_pure_rl_along_track_progress_m,
-            self._eval_pure_rl_along_track_velocity_mps,
-            self._eval_pure_rl_lateral_normal_velocity_mps,
-            self._eval_pure_rl_vertical_normal_velocity_mps,
-            self._eval_pure_rl_active_slope_rad,
-            self._eval_pure_rl_reached_recovery,
-            self._eval_pure_rl_active_curvature_rad_per_m,
-            self._eval_pure_rl_turn_activity,
-            self._eval_pure_rl_reached_all_events,
-            self._eval_pure_rl_tilt_rad,
-            self._eval_pure_rl_angular_rate_rad_s,
-            self._eval_pure_rl_actual_flap_frequency_hz,
-            self._eval_pure_rl_frequency_limit_active,
-            self._eval_pure_rl_tail_limit_active,
-            self._eval_pure_rl_normalized_action_delta,
-            self._eval_pure_rl_frequency_slew_hz_per_s,
-            self._eval_pure_rl_frequency_governor_limited,
-            self._eval_pure_rl_ground_termination,
-            self._eval_pure_rl_tilt_termination,
-            self._eval_pure_rl_cross_track_termination,
-            self._eval_pure_rl_height_termination,
-            self._eval_pure_rl_roll_limit_termination,
-        ):
-            if buffer is not None:
-                buffer[env_ids] = 0
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
     def _query_pure_rl_longitudinal_path(self) -> PureRLLongitudinalPathQuery:
@@ -4683,9 +4657,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             assert self._eval_pure_rl_active_curvature_rad_per_m is not None
             assert self._eval_pure_rl_turn_activity is not None
             assert self._eval_pure_rl_reached_all_events is not None
+            assert self._eval_pure_rl_abs_roll_rad is not None
             self._eval_pure_rl_active_curvature_rad_per_m.copy_(query.active_curvature_rad_per_m)
             self._eval_pure_rl_turn_activity.copy_(query.turn_activity)
             self._eval_pure_rl_reached_all_events.copy_(query.reached_all_events)
+            self._eval_pure_rl_abs_roll_rad.copy_(roll_rad.abs())
         self._eval_pure_rl_angular_rate_rad_s.copy_(
             torch.linalg.vector_norm(self._robot.data.root_ang_vel_b, dim=1)
         )

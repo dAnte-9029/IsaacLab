@@ -54,8 +54,10 @@ from pure_rl_eval_common import (
     curriculum_stage_for_task,
     is_measured_pure_rl_task,
     longitudinal_stage_for_task,
+    spatial_stage_for_task,
 )
 from pure_rl_longitudinal_eval import LONGITUDINAL_EVAL_CONTRACTS
+from pure_rl_spatial_eval import SPATIAL_EVAL_CONTRACTS
 
 
 _NATIVE_HOLONOMIC_EXTENSION_ID = "omni.flapping_bot.holonomic_constraint"
@@ -71,8 +73,13 @@ _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES = 16
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
     if eval_suite == "straight_standard" and is_measured_pure_rl_task(task):
-        stage_id = longitudinal_stage_for_task(task)
-        return PURE_RL_CURRICULUM1_EVAL_SUITE if stage_id is None else f"pure_rl_longitudinal_{stage_id}_v1"
+        longitudinal_stage_id = longitudinal_stage_for_task(task)
+        if longitudinal_stage_id is not None:
+            return f"pure_rl_longitudinal_{longitudinal_stage_id}_v1"
+        spatial_stage_id = spatial_stage_for_task(task)
+        if spatial_stage_id is not None:
+            return f"pure_rl_spatial_{spatial_stage_id}_v1"
+        return PURE_RL_CURRICULUM1_EVAL_SUITE
     if eval_suite == "straight_standard" and "PathTracking" in str(task):
         if "Primitive" in str(task):
             return "path_tracking_estimated_primitives_nowind_v1"
@@ -84,9 +91,12 @@ def _resolve_eval_shape(args: argparse.Namespace) -> tuple[int, int]:
     """Resolve task-aware watcher defaults while preserving explicit overrides."""
 
     stage_id = longitudinal_stage_for_task(args.task)
+    spatial_stage_id = spatial_stage_for_task(args.task)
     resolved_suite = _resolve_eval_suite(args.task, str(args.eval_suite))
     if stage_id is not None and resolved_suite == f"pure_rl_longitudinal_{stage_id}_v1":
         default_count = {"c2a": 80, "c2b": 112, "c2c": 144}[stage_id]
+    elif spatial_stage_id is not None and resolved_suite == f"pure_rl_spatial_{spatial_stage_id}_v1":
+        default_count = {"c3a": 96, "c3b": 112, "c3c": 96}[spatial_stage_id]
     elif is_measured_pure_rl_task(args.task) and resolved_suite == PURE_RL_CURRICULUM1_EVAL_SUITE:
         default_count = 16
     else:
@@ -731,10 +741,15 @@ def main():
                 print("[INFO] Latest checkpoint already has a suite row; skipping final one-shot evaluation.", flush=True)
 
             stage_id = longitudinal_stage_for_task(args.task)
+            spatial_stage_id = spatial_stage_for_task(args.task)
             evaluation_contract = (
                 LONGITUDINAL_EVAL_CONTRACTS[stage_id]
                 if stage_id is not None
-                else (PURE_RL_CURRICULUM1_EVAL_CONTRACT if is_measured_pure_rl_task(args.task) else None)
+                else (
+                    SPATIAL_EVAL_CONTRACTS[spatial_stage_id]
+                    if spatial_stage_id is not None
+                    else (PURE_RL_CURRICULUM1_EVAL_CONTRACT if is_measured_pure_rl_task(args.task) else None)
+                )
             )
             best_row = refresh_best_checkpoint_artifacts(
                 run_dir,

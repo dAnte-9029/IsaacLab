@@ -199,6 +199,79 @@ def assert_pure_rl_longitudinal_reset_schedule(
         raise RuntimeError("PureRL reset did not reproduce the registered longitudinal task/slope schedule.")
 
 
+def assert_pure_rl_spatial_reset_schedule(
+    *,
+    actual_heading_rad: torch.Tensor,
+    actual_flap_phase_rad: torch.Tensor,
+    actual_template_id: torch.Tensor,
+    actual_geometry_roll_rad: torch.Tensor,
+    actual_slope_rad: torch.Tensor,
+    actual_turn_sign: torch.Tensor,
+    expected_heading_schedule_rad: Sequence[float],
+    expected_flap_phase_schedule_rad: Sequence[float],
+    expected_template_schedule: Sequence[int],
+    expected_geometry_roll_deg_schedule: Sequence[float],
+    expected_slope_deg_schedule: Sequence[float],
+    expected_turn_sign_schedule: Sequence[int],
+    atol: float = 1.0e-5,
+) -> None:
+    """Fail closed unless a C3 reset reproduces the full registered schedule."""
+
+    assert_pure_rl_reset_schedule(
+        actual_heading_rad=actual_heading_rad,
+        actual_flap_phase_rad=actual_flap_phase_rad,
+        expected_heading_schedule_rad=expected_heading_schedule_rad,
+        expected_flap_phase_schedule_rad=expected_flap_phase_schedule_rad,
+        atol=atol,
+    )
+    expected_length = len(expected_heading_schedule_rad)
+    schedules = (
+        expected_template_schedule,
+        expected_geometry_roll_deg_schedule,
+        expected_slope_deg_schedule,
+        expected_turn_sign_schedule,
+    )
+    if any(len(schedule) != expected_length for schedule in schedules):
+        raise ValueError("PureRL spatial reset schedules must be aligned.")
+    actual_tensors = (
+        actual_template_id,
+        actual_geometry_roll_rad,
+        actual_slope_rad,
+        actual_turn_sign,
+    )
+    if any(tensor.shape != actual_heading_rad.shape for tensor in actual_tensors):
+        raise ValueError("PureRL spatial reset tensors must be aligned one-dimensional tensors.")
+    env_ids = torch.arange(actual_heading_rad.numel(), device=actual_heading_rad.device)
+    expected_template = torch.as_tensor(
+        expected_template_schedule,
+        device=actual_template_id.device,
+        dtype=actual_template_id.dtype,
+    )[env_ids % expected_length]
+    expected_roll = torch.deg2rad(torch.as_tensor(
+        expected_geometry_roll_deg_schedule,
+        device=actual_geometry_roll_rad.device,
+        dtype=actual_geometry_roll_rad.dtype,
+    ))[env_ids % expected_length]
+    expected_slope = torch.deg2rad(torch.as_tensor(
+        expected_slope_deg_schedule,
+        device=actual_slope_rad.device,
+        dtype=actual_slope_rad.dtype,
+    ))[env_ids % expected_length]
+    expected_turn = torch.as_tensor(
+        expected_turn_sign_schedule,
+        device=actual_turn_sign.device,
+        dtype=actual_turn_sign.dtype,
+    )[env_ids % expected_length]
+    mismatch = (
+        torch.any(actual_template_id != expected_template)
+        or torch.any(torch.abs(actual_geometry_roll_rad - expected_roll) > atol)
+        or torch.any(torch.abs(actual_slope_rad - expected_slope) > atol)
+        or torch.any(actual_turn_sign != expected_turn)
+    )
+    if bool(mismatch):
+        raise RuntimeError("PureRL reset did not reproduce the registered spatial path schedule.")
+
+
 def read_pure_rl_step_metrics(env) -> dict[str, torch.Tensor]:
     """Read the latest pre-reset route-relative evaluation buffers."""
 
@@ -257,6 +330,38 @@ def read_pure_rl_step_metrics(env) -> dict[str, torch.Tensor]:
         )
         result["sampled_task_id"] = path.task_id.detach().cpu().clone()
         result["sampled_signed_slope_rad"] = path.signed_slope_rad.detach().cpu().clone()
+    if spatial_stage_for_task(getattr(getattr(env, "spec", None), "id", "")) is not None or getattr(
+        env,
+        "_pure_rl_spatial_path",
+        None,
+    ) is not None:
+        spatial_required = {
+            "lateral_normal_velocity_mps": "_eval_pure_rl_lateral_normal_velocity_mps",
+            "vertical_normal_velocity_mps": "_eval_pure_rl_vertical_normal_velocity_mps",
+            "active_slope_rad": "_eval_pure_rl_active_slope_rad",
+            "active_curvature_rad_per_m": "_eval_pure_rl_active_curvature_rad_per_m",
+            "turn_activity": "_eval_pure_rl_turn_activity",
+            "reached_all_events": "_eval_pure_rl_reached_all_events",
+            "roll_limit_termination": "_eval_pure_rl_roll_limit_termination",
+            "abs_roll_rad": "_eval_pure_rl_abs_roll_rad",
+        }
+        missing_spatial = [
+            attribute for attribute in spatial_required.values() if getattr(env, attribute, None) is None
+        ]
+        path = getattr(env, "_pure_rl_spatial_path", None)
+        if missing_spatial or path is None:
+            raise AttributeError(f"PureRL spatial evaluation buffers are missing: {missing_spatial}")
+        result.update(
+            {
+                name: getattr(env, attribute).detach().cpu().clone()
+                for name, attribute in spatial_required.items()
+            }
+        )
+        result["sampled_template_id"] = path.template_id.detach().cpu().clone()
+        result["sampled_turn_sign"] = path.turn_sign.detach().cpu().clone()
+        result["sampled_vertical_sign"] = path.vertical_sign.detach().cpu().clone()
+        result["sampled_geometry_roll_rad"] = path.peak_geometry_roll_rad.detach().cpu().clone()
+        result["sampled_slope_rad"] = path.peak_slope_rad.detach().cpu().clone()
     return result
 
 

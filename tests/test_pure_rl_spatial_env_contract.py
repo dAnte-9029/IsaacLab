@@ -255,3 +255,21 @@ def test_c3_configs_are_lazy_exported_without_path_tracking_or_upstream_dependen
     assert "path_tracking_env" not in env_text
     assert "isaaclab_tasks" not in env_text
     assert "print(" not in _source(_method(_class(_module(), "FlappingBotStraightFlightEnv"), "_get_pure_rl_curriculum1_reward"))
+
+def test_pure_rl_eval_snapshots_survive_auto_reset_until_watcher_reads_them() -> None:
+    module = ast.parse(ENV_FILE.read_text())
+    reset_method = next(
+        node
+        for node in ast.walk(module)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "_reset_idx"
+    )
+    reset_loops = [
+        node
+        for node in ast.walk(reset_method)
+        if isinstance(node, ast.For)
+        and any(
+            isinstance(item, ast.Attribute) and item.attr.startswith("_eval_pure_rl_")
+            for item in ast.walk(node.iter)
+        )
+    ]
+    assert reset_loops == []

@@ -94,6 +94,65 @@ def test_gpu_implicit_task_mapping_is_explicit_and_preserves_stage_identity() ->
         pure_rl_eval_common.pure_rl_backend_for_task("not-a-pure-rl-task")
 
 
+def test_step_metrics_include_spatial_route_and_roll_telemetry() -> None:
+    class Env:
+        pass
+
+    env = Env()
+    for attribute in (
+        "_eval_pure_rl_cross_track_error_m",
+        "_eval_pure_rl_height_error_m",
+        "_eval_pure_rl_along_track_progress_m",
+        "_eval_pure_rl_along_track_velocity_mps",
+        "_eval_pure_rl_tilt_rad",
+        "_eval_pure_rl_angular_rate_rad_s",
+        "_eval_pure_rl_actual_flap_frequency_hz",
+        "_eval_pure_rl_frequency_limit_active",
+        "_eval_pure_rl_tail_limit_active",
+        "_eval_pure_rl_normalized_action_delta",
+        "_eval_pure_rl_frequency_slew_hz_per_s",
+        "_eval_pure_rl_frequency_governor_limited",
+        "_eval_pure_rl_ground_termination",
+        "_eval_pure_rl_tilt_termination",
+        "_eval_pure_rl_cross_track_termination",
+        "_eval_pure_rl_height_termination",
+    ):
+        setattr(env, attribute, torch.zeros(2))
+    env._eval_pure_rl_lateral_normal_velocity_mps = torch.zeros(2)
+    env._eval_pure_rl_vertical_normal_velocity_mps = torch.zeros(2)
+    env._eval_pure_rl_active_slope_rad = torch.zeros(2)
+    env._eval_pure_rl_active_curvature_rad_per_m = torch.zeros(2)
+    env._eval_pure_rl_turn_activity = torch.zeros(2)
+    env._eval_pure_rl_reached_all_events = torch.ones(2, dtype=torch.bool)
+    env._eval_pure_rl_roll_limit_termination = torch.zeros(2, dtype=torch.bool)
+    env._eval_pure_rl_abs_roll_rad = torch.tensor([0.1, 0.2])
+    env._pure_rl_spatial_path = type(
+        "Path",
+        (),
+        {
+            "task_family_id": torch.tensor([3, 3]),
+            "template_id": torch.tensor([10, 10]),
+            "turn_sign": torch.tensor([-1.0, 1.0]),
+            "vertical_sign": torch.tensor([-1.0, 1.0]),
+            "peak_geometry_roll_rad": torch.tensor([0.1, 0.2]),
+            "peak_slope_rad": torch.tensor([-0.1, 0.1]),
+        },
+    )()
+    metrics = pure_rl_eval_common.read_pure_rl_step_metrics(env)
+    for name in (
+        "active_curvature_rad_per_m",
+        "active_slope_rad",
+        "turn_activity",
+        "reached_all_events",
+        "roll_limit_termination",
+        "abs_roll_rad",
+        "sampled_template_id",
+        "sampled_turn_sign",
+        "sampled_vertical_sign",
+    ):
+        assert name in metrics
+
+
 def test_reset_schedule_contract_accepts_repeated_grid_and_rejects_drift() -> None:
     headings = torch.tensor([0.0, 1.0, 0.0, 1.0])
     phases = torch.tensor([0.5, 1.5, 0.5, 1.5])
@@ -111,6 +170,29 @@ def test_reset_schedule_contract_accepts_repeated_grid_and_rejects_drift() -> No
             expected_heading_schedule_rad=(0.0, 1.0),
             expected_flap_phase_schedule_rad=(0.5, 1.5),
         )
+
+
+def test_spatial_reset_schedule_contract_checks_path_geometry_and_direction() -> None:
+    kwargs = {
+        "actual_heading_rad": torch.tensor([0.0, 1.0]),
+        "actual_flap_phase_rad": torch.tensor([0.5, 1.5]),
+        "actual_template_id": torch.tensor([2, 10]),
+        "actual_geometry_roll_rad": torch.deg2rad(torch.tensor([9.0, 16.0])),
+        "actual_slope_rad": torch.deg2rad(torch.tensor([0.0, -3.0])),
+        "actual_turn_sign": torch.tensor([-1.0, 1.0]),
+        "expected_heading_schedule_rad": (0.0, 1.0),
+        "expected_flap_phase_schedule_rad": (0.5, 1.5),
+        "expected_template_schedule": (2, 10),
+        "expected_geometry_roll_deg_schedule": (9.0, 16.0),
+        "expected_slope_deg_schedule": (0.0, -3.0),
+        "expected_turn_sign_schedule": (-1, 1),
+    }
+    pure_rl_eval_common.assert_pure_rl_spatial_reset_schedule(**kwargs)
+
+    drifted = dict(kwargs)
+    drifted["actual_geometry_roll_rad"] = kwargs["actual_geometry_roll_rad"] + torch.tensor([0.0, 0.1])
+    with pytest.raises(RuntimeError, match="registered spatial path schedule"):
+        pure_rl_eval_common.assert_pure_rl_spatial_reset_schedule(**drifted)
 
 
 def test_episode_summary_uses_route_progress_without_target_speed_error() -> None:
