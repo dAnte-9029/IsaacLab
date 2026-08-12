@@ -585,6 +585,51 @@ def test_measured_pure_rl_defaults_to_accelerated_cpu_training(tmp_path: Path) -
     assert f"--ext-folder {extension_parent.resolve()}" in watch_kit_args
 
 
+@pytest.mark.parametrize(
+    ("target_stage", "source_stage"),
+    (("c3a", "c2c"), ("c3b", "c3a"), ("c3c", "c3b")),
+)
+def test_spatial_curriculum_source_chain_and_defaults(
+    tmp_path: Path, target_stage: str, source_stage: str
+) -> None:
+    checkpoint = tmp_path / "model_50.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    task_suffix = f"C3{target_stage[-1]}"
+    args = train_and_watch.argparse.Namespace(
+        task=f"Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-{task_suffix}-Direct-v0",
+        source_stage=source_stage,
+        source_checkpoint_path=checkpoint,
+        resume=False,
+        num_envs=None,
+        max_iterations=None,
+        save_interval=None,
+        agent_num_mini_batches=None,
+    )
+
+    metadata = train_and_watch._build_curriculum_source_metadata(args)
+
+    assert metadata is not None
+    assert metadata["target_stage"] == target_stage
+    assert metadata["source_stage"] == source_stage
+    assert train_and_watch._resolved_train_num_envs(args) == 256
+    assert train_and_watch._resolved_agent_num_mini_batches(args) == 16
+    assert train_and_watch._resolved_max_iterations(args) == 500
+    assert train_and_watch._resolved_save_interval(args) == 25
+
+
+def test_spatial_curriculum_source_chain_rejects_wrong_stage(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "model_50.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0",
+        source_stage="c2c",
+        source_checkpoint_path=checkpoint,
+        resume=False,
+    )
+    with pytest.raises(ValueError, match="must use source stage c3a"):
+        train_and_watch._build_curriculum_source_metadata(args)
+
+
 def test_longitudinal_task_uses_native_cpu_and_stage_specific_eval_suite(tmp_path: Path) -> None:
     task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0"
     args = train_and_watch.argparse.Namespace(

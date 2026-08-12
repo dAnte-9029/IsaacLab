@@ -51,6 +51,18 @@ def test_longitudinal_task_mapping_keeps_c1_contract_distinct() -> None:
     )
 
 
+def test_spatial_task_mapping_and_generic_curriculum_stage_are_explicit() -> None:
+    for stage in ("c3a", "c3b", "c3c"):
+        task = f"Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3{stage[-1]}-Direct-v0"
+        assert pure_rl_eval_common.spatial_stage_for_task(task) == stage
+        assert pure_rl_eval_common.curriculum_stage_for_task(task) == stage
+        assert pure_rl_eval_common.longitudinal_stage_for_task(task) is None
+        assert pure_rl_eval_common.pure_rl_backend_for_task(task) == "cpu_native_authority"
+    c2 = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0"
+    assert pure_rl_eval_common.curriculum_stage_for_task(c2) == "c2c"
+    assert pure_rl_eval_common.curriculum_stage_for_task(pure_rl_eval_common.MEASURED_PURE_RL_TASK_ID) is None
+
+
 def test_gpu_implicit_task_mapping_is_explicit_and_preserves_stage_identity() -> None:
     gpu_c1 = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-GpuImplicit-Direct-v0"
     gpu_c2a = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-GpuImplicit-Direct-v0"

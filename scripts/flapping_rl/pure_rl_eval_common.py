@@ -30,11 +30,19 @@ MEASURED_PURE_RL_LONGITUDINAL_TASK_STAGES: dict[str, str] = {
     GPU_IMPLICIT_PURE_RL_C2A_TASK_ID: "c2a",
     GPU_PHASE_MATCHED_PURE_RL_C2A_TASK_ID: "c2a",
 }
+MEASURED_PURE_RL_SPATIAL_TASK_STAGES: dict[str, str] = {
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0": "c3a",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0": "c3b",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0": "c3c",
+}
 PURE_RL_TASK_BACKENDS: dict[str, str] = {
     MEASURED_PURE_RL_TASK_ID: "cpu_native_authority",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2a-Direct-v0": "cpu_native_authority",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0": "cpu_native_authority",
     "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0": "cpu_native_authority",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0": "cpu_native_authority",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0": "cpu_native_authority",
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0": "cpu_native_authority",
     GPU_IMPLICIT_PURE_RL_TASK_ID: "gpu_implicit_candidate",
     GPU_IMPLICIT_PURE_RL_C2A_TASK_ID: "gpu_implicit_candidate",
     GPU_PHASE_MATCHED_PURE_RL_TASK_ID: "gpu_implicit_candidate",
@@ -70,6 +78,18 @@ def longitudinal_stage_for_task(task: str) -> str | None:
     """Return the C2 stage selected by a measured task, or ``None`` for C1."""
 
     return MEASURED_PURE_RL_LONGITUDINAL_TASK_STAGES.get(str(task))
+
+
+def spatial_stage_for_task(task: str) -> str | None:
+    """Return the C3 stage selected by a measured task, or ``None`` otherwise."""
+
+    return MEASURED_PURE_RL_SPATIAL_TASK_STAGES.get(str(task))
+
+
+def curriculum_stage_for_task(task: str) -> str | None:
+    """Return the active C2/C3 curriculum stage, or ``None`` for C1."""
+
+    return longitudinal_stage_for_task(task) or spatial_stage_for_task(task)
 
 
 def pure_rl_backend_for_task(task: str) -> str:

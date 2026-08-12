@@ -51,6 +51,7 @@ from pure_rl_eval_common import (
     MEASURED_PURE_RL_TASK_ID,
     PURE_RL_CURRICULUM1_EVAL_CONTRACT,
     PURE_RL_CURRICULUM1_EVAL_SUITE,
+    curriculum_stage_for_task,
     is_measured_pure_rl_task,
     longitudinal_stage_for_task,
 )
@@ -595,12 +596,19 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
 def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str] | None:
     """Validate cross-stage warm-start provenance; same-stage resumes keep their run metadata."""
 
-    target_stage = longitudinal_stage_for_task(str(getattr(args, "task", "")))
+    target_stage = curriculum_stage_for_task(str(getattr(args, "task", "")))
     if target_stage is None:
         return None
     if bool(getattr(args, "resume", False)):
         return None
-    expected_source_stage = {"c2a": "c1_straight", "c2b": "c2a", "c2c": "c2b"}[target_stage]
+    expected_source_stage = {
+        "c2a": "c1_straight",
+        "c2b": "c2a",
+        "c2c": "c2b",
+        "c3a": "c2c",
+        "c3b": "c3a",
+        "c3c": "c3b",
+    }[target_stage]
     source_stage = str(getattr(args, "source_stage", "") or "").strip()
     if source_stage != expected_source_stage:
         raise ValueError(
@@ -609,7 +617,7 @@ def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str
         )
     configured_path = getattr(args, "source_checkpoint_path", None)
     if configured_path is None:
-        raise ValueError("C2 training requires --source-checkpoint-path for provenance.")
+        raise ValueError("Curriculum training requires --source-checkpoint-path for provenance.")
     checkpoint_path = Path(configured_path).expanduser().resolve()
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"Source checkpoint does not exist: {checkpoint_path}")
