@@ -238,6 +238,10 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_eval_longitudinal_slope_deg_schedule: tuple[float, ...] | None = None
     pure_rl_eval_entry_length_m_schedule: tuple[float, ...] | None = None
     pure_rl_eval_slope_length_m_schedule: tuple[float, ...] | None = None
+    pure_rl_eval_spatial_template_schedule: tuple[int, ...] | None = None
+    pure_rl_eval_spatial_geometry_roll_deg_schedule: tuple[float, ...] | None = None
+    pure_rl_eval_spatial_slope_deg_schedule: tuple[float, ...] | None = None
+    pure_rl_eval_spatial_turn_sign_schedule: tuple[int, ...] | None = None
     pure_rl_longitudinal_stage_id: str | None = None
     pure_rl_spatial_stage_id: str | None = None
     pure_rl_preview_minimum_speed_mps: float = 1.0
@@ -1095,6 +1099,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             cfg.pure_rl_eval_entry_length_m_schedule,
             cfg.pure_rl_eval_slope_length_m_schedule,
         )
+        eval_spatial_schedules = (
+            cfg.pure_rl_eval_spatial_template_schedule,
+            cfg.pure_rl_eval_spatial_geometry_roll_deg_schedule,
+            cfg.pure_rl_eval_spatial_slope_deg_schedule,
+            cfg.pure_rl_eval_spatial_turn_sign_schedule,
+        )
         if (eval_heading_schedule is None) != (eval_phase_schedule is None):
             raise ValueError("PureRL evaluation heading and flap-phase schedules must be configured together.")
         if eval_heading_schedule is not None:
@@ -1134,6 +1144,15 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError("Longitudinal evaluation entry lengths must be finite and positive.")
             if any((not math.isfinite(float(value))) or float(value) <= 0.0 for value in length_schedule):
                 raise ValueError("Longitudinal evaluation slope lengths must be finite and positive.")
+        configured_spatial_schedules = tuple(value is not None for value in eval_spatial_schedules)
+        if any(configured_spatial_schedules) and not all(configured_spatial_schedules):
+            raise ValueError("PureRL spatial evaluation schedules must be configured together.")
+        if all(configured_spatial_schedules):
+            if spatial_stage is None or eval_heading_schedule is None:
+                raise ValueError("Spatial evaluation schedules require a C3 stage and heading/phase schedules.")
+            schedule_length = len(eval_heading_schedule)
+            if any(len(value) != schedule_length for value in eval_spatial_schedules if value is not None):
+                raise ValueError("All PureRL evaluation schedules must have equal lengths.")
         if bool(cfg.use_pure_rl_curriculum1_reward):
             if action_interface != DIRECT_TAIL_SURFACE_ACTION:
                 raise ValueError("PureRL curriculum-1 reward requires the direct-tail-surface action interface.")
@@ -1691,6 +1710,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 initial_altitude_m=float(self.cfg.height_cmd),
             )
             self._pure_rl_spatial_progress_m = torch.zeros(N, device=self.device)
+            self._pure_rl_spatial_query_cache: PureRLSpatialPathQuery | None = None
+            self._pure_rl_spatial_query_step = -1
         if bool(self.cfg.use_pure_rl_actor_observation):
             self._pure_rl_history_valid = torch.zeros(N, dtype=torch.bool, device=self.device)
             self._pure_rl_previous_orientation_wxyz = torch.zeros(N, 4, device=self.device)
@@ -3924,12 +3945,54 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if self._pure_rl_spatial_stage is not None:
             assert self._pure_rl_spatial_path is not None
             assert self._pure_rl_spatial_progress_m is not None
+            evaluation_template_id = None
+            evaluation_geometry_roll_deg = None
+            evaluation_slope_deg = None
+            evaluation_turn_sign = None
+            evaluation_heading_rad = None
+            if self.cfg.pure_rl_eval_spatial_template_schedule is not None:
+                assert self.cfg.pure_rl_eval_spatial_geometry_roll_deg_schedule is not None
+                assert self.cfg.pure_rl_eval_spatial_slope_deg_schedule is not None
+                assert self.cfg.pure_rl_eval_spatial_turn_sign_schedule is not None
+                assert self.cfg.pure_rl_eval_heading_schedule_rad is not None
+                schedule_length = len(self.cfg.pure_rl_eval_heading_schedule_rad)
+                schedule_indices = env_ids.to(dtype=torch.long) % schedule_length
+                evaluation_template_id = torch.as_tensor(
+                    self.cfg.pure_rl_eval_spatial_template_schedule,
+                    dtype=torch.int64,
+                    device=self.device,
+                )[schedule_indices]
+                evaluation_geometry_roll_deg = torch.as_tensor(
+                    self.cfg.pure_rl_eval_spatial_geometry_roll_deg_schedule,
+                    dtype=self._height_cmd.dtype,
+                    device=self.device,
+                )[schedule_indices]
+                evaluation_slope_deg = torch.as_tensor(
+                    self.cfg.pure_rl_eval_spatial_slope_deg_schedule,
+                    dtype=self._height_cmd.dtype,
+                    device=self.device,
+                )[schedule_indices]
+                evaluation_turn_sign = torch.as_tensor(
+                    self.cfg.pure_rl_eval_spatial_turn_sign_schedule,
+                    dtype=self._height_cmd.dtype,
+                    device=self.device,
+                )[schedule_indices]
+                evaluation_heading_rad = torch.as_tensor(
+                    self.cfg.pure_rl_eval_heading_schedule_rad,
+                    dtype=self._height_cmd.dtype,
+                    device=self.device,
+                )[schedule_indices]
             sampled_path = sample_spatial_path_batch(
                 num_paths=n,
                 stage=self._pure_rl_spatial_stage,
                 device=self.device,
                 dtype=self._height_cmd.dtype,
                 initial_altitude_m=self._height_cmd[env_ids],
+                evaluation_template_id=evaluation_template_id,
+                evaluation_geometry_roll_deg=evaluation_geometry_roll_deg,
+                evaluation_slope_deg=evaluation_slope_deg,
+                evaluation_turn_sign=evaluation_turn_sign,
+                evaluation_heading_rad=evaluation_heading_rad,
             )
             write_spatial_path_batch_rows_(
                 destination=self._pure_rl_spatial_path,
@@ -4265,6 +4328,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._pure_rl_previous_orientation_wxyz[env_ids, 0] = 1.0
         if self._pure_rl_previous_reward_action is not None:
             self._pure_rl_previous_reward_action[env_ids] = self._act_cmd[env_ids]
+        if self._pure_rl_spatial_stage is not None:
+            self._pure_rl_spatial_query_cache = None
+            self._pure_rl_spatial_query_step = -1
         for buffer in (
             self._eval_pure_rl_cross_track_error_m,
             self._eval_pure_rl_height_error_m,
@@ -4312,6 +4378,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         assert self._pure_rl_spatial_path is not None
         assert self._pure_rl_spatial_progress_m is not None
+        if (
+            self._pure_rl_spatial_query_cache is not None
+            and self._pure_rl_spatial_query_step == int(self.common_step_counter)
+        ):
+            return self._pure_rl_spatial_query_cache
         query = query_spatial_path(
             path=self._pure_rl_spatial_path,
             previous_progress_m=self._pure_rl_spatial_progress_m,
@@ -4321,6 +4392,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             maximum_preview_speed_mps=float(self.cfg.pure_rl_preview_maximum_speed_mps),
         )
         self._pure_rl_spatial_progress_m.copy_(query.progress_m)
+        self._pure_rl_spatial_query_cache = query
+        self._pure_rl_spatial_query_step = int(self.common_step_counter)
         return query
 
     def _get_pure_rl_observations(self) -> dict[str, Tensor]:

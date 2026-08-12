@@ -66,6 +66,13 @@ def test_c3_configs_add_only_spatial_stage_and_twenty_second_episode() -> None:
 
     assert ast.literal_eval(_ann_assign(base, "pure_rl_spatial_stage_id").value) is None
     assert ast.literal_eval(_ann_assign(measured_c1, "pure_rl_spatial_stage_id").value) is None
+    for schedule_name in (
+        "pure_rl_eval_spatial_template_schedule",
+        "pure_rl_eval_spatial_geometry_roll_deg_schedule",
+        "pure_rl_eval_spatial_slope_deg_schedule",
+        "pure_rl_eval_spatial_turn_sign_schedule",
+    ):
+        assert ast.literal_eval(_ann_assign(base, schedule_name).value) is None
     for suffix in ("C2a", "C2b", "C2c"):
         c2 = _class(module, f"FlappingBotStraightFlightDeLaurierMeasuredPureRL{suffix}EnvCfg")
         assert "pure_rl_spatial_stage_id" not in _assigned_names(c2)
@@ -115,6 +122,11 @@ def test_c3_reset_samples_selected_rows_and_aligns_heading_to_first_tangent() ->
     assert "sample_spatial_path_batch" in calls
     assert "write_spatial_path_batch_rows_" in calls
     assert "initial_altitude_m=self._height_cmd[env_ids]" in source
+    assert "evaluation_template_id" in source
+    assert "evaluation_geometry_roll_deg" in source
+    assert "evaluation_slope_deg" in source
+    assert "evaluation_turn_sign" in source
+    assert "evaluation_heading_rad" in source
     assert "self._pure_rl_spatial_progress_m[env_ids] = 0.0" in source
     assert "sampled_path.tangent_world[:, 0, 1]" in source
     assert "sampled_path.tangent_world[:, 0, 0]" in source
@@ -158,6 +170,24 @@ def test_spatial_query_is_explicit_stable_state_and_c3_observation_keeps_555_con
     assert "PURE_RL_SHARED_CONTRACT.observation_dim" in _source(
         _ann_assign(measured, "observation_space").value
     )
+
+
+def test_spatial_query_is_cached_once_per_policy_step_and_reset_invalidates_it() -> None:
+    env = _class(_module(), "FlappingBotStraightFlightEnv")
+    constructor = _method(env, "__init__")
+    query = _method(env, "_query_pure_rl_spatial_path")
+    reset = _method(env, "_reset_idx")
+    constructor_source = _source(constructor)
+    query_source = _source(query)
+    reset_source = _source(reset)
+
+    assert "self._pure_rl_spatial_query_cache" in constructor_source
+    assert "self._pure_rl_spatial_query_step" in constructor_source
+    assert "self.common_step_counter" in query_source
+    assert "self._pure_rl_spatial_query_step == int(self.common_step_counter)" in query_source
+    assert "return self._pure_rl_spatial_query_cache" in query_source
+    assert "self._pure_rl_spatial_query_cache = None" in reset_source
+    assert "self._pure_rl_spatial_query_step = -1" in reset_source
 
 
 def test_c3_reward_precedes_c2_and_copies_spatial_path_telemetry() -> None:

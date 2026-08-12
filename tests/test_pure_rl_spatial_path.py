@@ -273,6 +273,47 @@ def test_sampling_is_seed_deterministic_and_different_seeds_change_paths() -> No
     assert not torch.equal(first.points_world_m, different.points_world_m)
 
 
+def test_fixed_evaluation_overrides_are_applied_row_by_row() -> None:
+    batch = pure_rl_spatial_path.sample_spatial_path_batch(
+        num_paths=2,
+        stage="c3c",
+        device="cpu",
+        dtype=torch.float64,
+        generator=torch.Generator().manual_seed(43),
+        evaluation_template_id=torch.tensor(
+            [
+                pure_rl_spatial_path.C3C_COUPLED_TEMPLATE_ID,
+                pure_rl_spatial_path.C3C_COUPLED_TEMPLATE_ID,
+            ],
+            dtype=torch.int64,
+        ),
+        evaluation_geometry_roll_deg=torch.tensor([8.0, 12.0], dtype=torch.float64),
+        evaluation_slope_deg=torch.tensor([3.0, -4.0], dtype=torch.float64),
+        evaluation_turn_sign=torch.tensor([-1.0, 1.0], dtype=torch.float64),
+        evaluation_heading_rad=torch.tensor([0.0, math.pi / 2.0], dtype=torch.float64),
+    )
+
+    torch.testing.assert_close(
+        batch.template_id,
+        torch.full((2,), pure_rl_spatial_path.C3C_COUPLED_TEMPLATE_ID, dtype=torch.int64),
+    )
+    torch.testing.assert_close(
+        batch.peak_geometry_roll_rad,
+        torch.deg2rad(torch.tensor([8.0, 12.0], dtype=torch.float64)),
+    )
+    torch.testing.assert_close(
+        batch.peak_slope_rad,
+        torch.deg2rad(torch.tensor([3.0, -4.0], dtype=torch.float64)),
+    )
+    torch.testing.assert_close(batch.turn_sign, torch.tensor([-1.0, 1.0], dtype=torch.float64))
+    torch.testing.assert_close(
+        batch.tangent_world[:, 0],
+        torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=torch.float64),
+        atol=1.0e-12,
+        rtol=0.0,
+    )
+
+
 def test_dtype_device_and_scalar_or_batched_altitude_are_preserved() -> None:
     scalar = pure_rl_spatial_path.sample_spatial_path_batch(
         num_paths=4,

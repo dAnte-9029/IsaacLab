@@ -158,6 +158,11 @@ def sample_spatial_path_batch(
     dtype: torch.dtype,
     generator: torch.Generator | None = None,
     initial_altitude_m: float | Tensor = 10.0,
+    evaluation_template_id: Tensor | None = None,
+    evaluation_geometry_roll_deg: Tensor | None = None,
+    evaluation_slope_deg: Tensor | None = None,
+    evaluation_turn_sign: Tensor | None = None,
+    evaluation_heading_rad: Tensor | None = None,
 ) -> PureRLSpatialPathBatch:
     """Sample dense paths, replacing invalid rows in one bounded resampling pass."""
 
@@ -173,6 +178,17 @@ def sample_spatial_path_batch(
         device=resolved_device,
         dtype=dtype,
     )
+    evaluation_overrides = _resolve_evaluation_overrides(
+        count=num_paths,
+        config=config,
+        device=resolved_device,
+        dtype=dtype,
+        template_id=evaluation_template_id,
+        geometry_roll_deg=evaluation_geometry_roll_deg,
+        slope_deg=evaluation_slope_deg,
+        turn_sign=evaluation_turn_sign,
+        heading_rad=evaluation_heading_rad,
+    )
     batch = _sample_spatial_path_batch_once(
         num_paths=num_paths,
         config=config,
@@ -180,6 +196,7 @@ def sample_spatial_path_batch(
         dtype=dtype,
         generator=generator,
         initial_altitude_m=altitude,
+        evaluation_overrides=evaluation_overrides,
     )
     invalid_rows = _resampleable_invalid_rows(batch, config=config)
     if bool(torch.any(invalid_rows)):
@@ -191,6 +208,11 @@ def sample_spatial_path_batch(
             dtype=dtype,
             generator=generator,
             initial_altitude_m=altitude.index_select(0, invalid_ids),
+            evaluation_overrides=(
+                None
+                if evaluation_overrides is None
+                else tuple(value.index_select(0, invalid_ids) for value in evaluation_overrides)
+            ),
         )
         replacement_invalid = _resampleable_invalid_rows(replacement, config=config)
         if bool(torch.any(replacement_invalid)):
@@ -353,6 +375,126 @@ def write_spatial_path_batch_rows_(
         getattr(destination, name).index_copy_(0, env_ids, getattr(source, name))
 
 
+def _resolve_evaluation_overrides(
+    *,
+    count: int,
+    config: PureRLSpatialStageConfig,
+    device: torch.device,
+    dtype: torch.dtype,
+    template_id: Tensor | None,
+    geometry_roll_deg: Tensor | None,
+    slope_deg: Tensor | None,
+    turn_sign: Tensor | None,
+    heading_rad: Tensor | None,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor] | None:
+    values = (template_id, geometry_roll_deg, slope_deg, turn_sign, heading_rad)
+    configured = tuple(value is not None for value in values)
+    if any(configured) and not all(configured):
+        raise ValueError("Spatial evaluation overrides must be configured together.")
+    if not any(configured):
+        return None
+    assert all(value is not None for value in values)
+    resolved = tuple(value for value in values if value is not None)
+    for name, value in zip(
+        ("template_id", "geometry_roll_deg", "slope_deg", "turn_sign", "heading_rad"),
+        resolved,
+    ):
+        if not isinstance(value, torch.Tensor) or value.shape != (count,):
+            raise ValueError(f"evaluation_{name} must be a tensor with shape ({count},).")
+        if value.device != device:
+            raise ValueError(f"evaluation_{name} must be on the requested device.")
+    resolved_template, resolved_roll, resolved_slope, resolved_turn, resolved_heading = resolved
+    if resolved_template.dtype != torch.int64:
+        raise ValueError("evaluation_template_id must use dtype int64.")
+    for name, value in (
+        ("geometry_roll_deg", resolved_roll),
+        ("slope_deg", resolved_slope),
+        ("turn_sign", resolved_turn),
+        ("heading_rad", resolved_heading),
+    ):
+        if value.dtype != dtype:
+            raise ValueError(f"evaluation_{name} must use the requested floating dtype.")
+        if not bool(torch.all(torch.isfinite(value))):
+            raise ValueError(f"evaluation_{name} must contain finite values.")
+
+    allowed_templates = {
+        "c3a": (ISOLATED_TURN_TEMPLATE_ID,),
+        "c3b": tuple(range(C3B_SAME_DIRECTION_TURNS_TEMPLATE_ID, C3B_LOITER_TEMPLATE_ID + 1)),
+        "c3c": (C3C_COUPLED_TEMPLATE_ID,),
+    }[config.stage_id]
+    allowed = torch.zeros_like(resolved_template, dtype=torch.bool)
+    for allowed_template in allowed_templates:
+        allowed |= resolved_template == allowed_template
+    if not bool(torch.all(allowed)):
+        raise ValueError(f"evaluation_template_id contains a template not valid for {config.stage_id}.")
+    if not bool(torch.all((resolved_turn == -1.0) | (resolved_turn == 1.0))):
+        raise ValueError("evaluation_turn_sign values must be -1 or 1.")
+    if not bool(
+        torch.all(
+            (resolved_roll >= config.geometry_roll_deg_range[0])
+            & (resolved_roll <= config.geometry_roll_deg_range[1])
+        )
+    ):
+        raise ValueError("evaluation_geometry_roll_deg is outside the active stage range.")
+    if config.stage_id == "c3a" and not bool(torch.all(resolved_slope == 0.0)):
+        raise ValueError("C3a evaluation paths require zero slope.")
+    if config.stage_id == "c3b" and not bool(torch.all(torch.abs(resolved_slope) <= 8.0)):
+        raise ValueError("C3b evaluation slopes must not exceed 8 degrees.")
+    if config.stage_id == "c3c":
+        slope_magnitude = torch.abs(resolved_slope)
+        if not bool(
+            torch.all(
+                (slope_magnitude >= config.coupled_slope_deg_range[0])
+                & (slope_magnitude <= config.coupled_slope_deg_range[1])
+            )
+        ):
+            raise ValueError("C3c evaluation slope magnitude is outside the coupled stage range.")
+        coupled_demand = torch.square(resolved_roll / 20.0) + torch.square(slope_magnitude / 6.0)
+        if not bool(torch.all(coupled_demand <= 1.0)):
+            raise ValueError("C3c evaluation severity violates the coupled demand bound.")
+    return resolved_template, resolved_roll, resolved_slope, resolved_turn, resolved_heading
+
+
+def _apply_evaluation_event_contracts(
+    *,
+    event_type: Tensor,
+    event_count: Tensor,
+    template_id: Tensor,
+    event_turn_sign: Tensor,
+    event_vertical_sign: Tensor,
+    evaluation_template_id: Tensor,
+    evaluation_slope_deg: Tensor,
+    evaluation_turn_sign: Tensor,
+    config: PureRLSpatialStageConfig,
+) -> None:
+    event_type.zero_()
+    event_count.zero_()
+    template_id.copy_(evaluation_template_id)
+    event_turn_sign.copy_(evaluation_turn_sign.unsqueeze(1).expand_as(event_turn_sign))
+    vertical_sign = torch.sign(evaluation_slope_deg)
+    event_vertical_sign.copy_(vertical_sign.unsqueeze(1).expand_as(event_vertical_sign))
+    if config.stage_id == "c3a":
+        event_count.fill_(1)
+        event_type[:, 0] = _EVENT_TURN
+        return
+    if config.stage_id == "c3c":
+        event_count.fill_(2)
+        event_type[:, 0:2] = _EVENT_COUPLED
+        return
+
+    event_count.fill_(2)
+    rows = torch.ones_like(template_id, dtype=torch.bool)
+    _apply_c3b_template_contracts(
+        event_type=event_type,
+        turn_sign=event_turn_sign,
+        vertical_sign=event_vertical_sign,
+        template_id=template_id,
+        current_rows=rows,
+    )
+    active = torch.arange(_MAX_EVENTS, device=event_type.device).unsqueeze(0) < event_count.unsqueeze(1)
+    event_type.copy_(torch.where(active, event_type, torch.zeros_like(event_type)))
+
+
 def _sample_spatial_path_batch_once(
     *,
     num_paths: int,
@@ -361,6 +503,7 @@ def _sample_spatial_path_batch_once(
     dtype: torch.dtype,
     generator: torch.Generator | None,
     initial_altitude_m: Tensor,
+    evaluation_overrides: tuple[Tensor, Tensor, Tensor, Tensor, Tensor] | None,
 ) -> PureRLSpatialPathBatch:
     """Sample one unchecked batch with fixed-size batched Torch operations."""
 
@@ -381,6 +524,24 @@ def _sample_spatial_path_batch_once(
         dtype=dtype,
         generator=generator,
     )
+    if evaluation_overrides is not None:
+        evaluation_template_id, _, evaluation_slope_deg, evaluation_turn_sign, _ = evaluation_overrides
+        task_family_id.fill_(
+            CURRENT_SPATIAL_TASK_FAMILY_ID_C3A
+            if config.stage_id == "c3a"
+            else CURRENT_SPATIAL_TASK_FAMILY_ID
+        )
+        _apply_evaluation_event_contracts(
+            event_type=event_type,
+            event_count=event_count,
+            template_id=template_id,
+            event_turn_sign=event_turn_sign,
+            event_vertical_sign=event_vertical_sign,
+            evaluation_template_id=evaluation_template_id,
+            evaluation_slope_deg=evaluation_slope_deg,
+            evaluation_turn_sign=evaluation_turn_sign,
+            config=config,
+        )
     event_roll_rad, event_slope_rad = _sample_event_amplitudes(
         task_family_id=task_family_id,
         event_type=event_type,
@@ -391,6 +552,12 @@ def _sample_spatial_path_batch_once(
         dtype=dtype,
         generator=generator,
     )
+    if evaluation_overrides is not None:
+        _, evaluation_roll_deg, evaluation_slope_deg, _, _ = evaluation_overrides
+        turn_mask = (event_type == _EVENT_TURN) | (event_type == _EVENT_COUPLED)
+        vertical_mask = (event_type == _EVENT_VERTICAL) | (event_type == _EVENT_COUPLED)
+        event_roll_rad = torch.deg2rad(evaluation_roll_deg).unsqueeze(1) * turn_mask
+        event_slope_rad = torch.deg2rad(evaluation_slope_deg).unsqueeze(1) * vertical_mask
     event_start_m, transition_length_m, plateau_length_m, event_end_m = _sample_event_layout(
         event_type=event_type,
         event_count=event_count,
@@ -400,6 +567,7 @@ def _sample_spatial_path_batch_once(
         device=resolved_device,
         dtype=dtype,
         generator=generator,
+        deterministic=evaluation_overrides is not None,
     )
 
     point_count = int(round(config.path_length_m / config.sample_spacing_m)) + 1
@@ -422,12 +590,15 @@ def _sample_spatial_path_batch_once(
     turn_event = (event_type == _EVENT_TURN) | (event_type == _EVENT_COUPLED)
     turn_activity = torch.amax(event_profile * turn_event.unsqueeze(2), dim=1).clamp(0.0, 1.0)
 
-    initial_heading_rad = 2.0 * math.pi * torch.rand(
-        num_paths,
-        device=resolved_device,
-        dtype=dtype,
-        generator=generator,
-    )
+    if evaluation_overrides is None:
+        initial_heading_rad = 2.0 * math.pi * torch.rand(
+            num_paths,
+            device=resolved_device,
+            dtype=dtype,
+            generator=generator,
+        )
+    else:
+        initial_heading_rad = evaluation_overrides[4]
     heading_delta_rad = (
         0.5
         * (curvature_rad_per_m[:, :-1] + curvature_rad_per_m[:, 1:])
@@ -742,6 +913,7 @@ def _sample_event_layout(
     device: torch.device,
     dtype: torch.dtype,
     generator: torch.Generator | None,
+    deterministic: bool = False,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     count = event_type.shape[0]
     active = event_type != _EVENT_NONE
@@ -752,6 +924,8 @@ def _sample_event_layout(
         dtype=dtype,
         generator=generator,
     )
+    if deterministic:
+        transition_length_m.fill_(sum(config.transition_length_m_range) / 2.0)
     turn_mask = (event_type == _EVENT_TURN) | (event_type == _EVENT_COUPLED)
     curvature_magnitude = _GRAVITY_MPS2 * torch.tan(event_roll_rad) / config.guard_speed_mps**2
 
@@ -768,6 +942,10 @@ def _sample_event_layout(
     heading_change_deg = lower_by_row.unsqueeze(1) + (
         upper_by_row.unsqueeze(1) - lower_by_row.unsqueeze(1)
     ) * torch.rand((count, _MAX_EVENTS), device=device, dtype=dtype, generator=generator)
+    if deterministic:
+        heading_change_deg = 0.5 * (lower_by_row + upper_by_row).unsqueeze(1).expand_as(
+            heading_change_deg
+        )
     safe_curvature = torch.where(turn_mask, curvature_magnitude, torch.ones_like(curvature_magnitude))
     turn_plateau_length_m = torch.deg2rad(heading_change_deg) / safe_curvature - transition_length_m
     vertical_plateau_length_m = _sample_uniform(
@@ -777,6 +955,8 @@ def _sample_event_layout(
         dtype=dtype,
         generator=generator,
     )
+    if deterministic:
+        vertical_plateau_length_m.fill_(25.0)
     plateau_length_m = torch.where(turn_mask, turn_plateau_length_m, vertical_plateau_length_m)
     plateau_length_m = torch.where(active, plateau_length_m, torch.zeros_like(plateau_length_m))
 
@@ -798,6 +978,8 @@ def _sample_event_layout(
         dtype=dtype,
         generator=generator,
     )
+    if deterministic:
+        gap_length_m.fill_(10.0)
     initial_entry_m = _sample_uniform(
         (count,),
         (15.0, 20.0),
@@ -805,6 +987,8 @@ def _sample_event_layout(
         dtype=dtype,
         generator=generator,
     )
+    if deterministic:
+        initial_entry_m.fill_(17.5)
     preceding_extent_m = total_event_length_m + gap_length_m
     event_start_m = initial_entry_m.unsqueeze(1) + torch.cumsum(preceding_extent_m, dim=1) - preceding_extent_m
     event_start_m = torch.where(active, event_start_m, torch.zeros_like(event_start_m))
