@@ -249,6 +249,22 @@ def row_meets_spatial_promotion_gate(
         slice_rates = row["slice_success_rates"]
         if not isinstance(slice_rates, Mapping) or not slice_rates:
             return False
+        required_slice_names = {
+            "c3a": {"left", "right"},
+            "c3b": {f"template_{template_id}" for template_id in _C3B_TEMPLATE_IDS},
+            "c3c": {
+                "left",
+                "right",
+                "climb",
+                "descent",
+                "sign_-1_-1",
+                "sign_-1_+1",
+                "sign_+1_-1",
+                "sign_+1_+1",
+            },
+        }[stage_id]
+        if set(slice_rates) != required_slice_names:
+            return False
         slice_minimum = {
             "c3a": gate.minimum_c3a_direction_success_rate,
             "c3b": gate.minimum_c3b_template_success_rate,

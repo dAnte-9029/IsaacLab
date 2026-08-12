@@ -103,3 +103,20 @@ def test_spatial_summary_fails_closed_on_incomplete_or_bad_slice() -> None:
     assert summary["overall_success_rate"] >= 0.90
     assert summary["slice_success_rates"]["template_3"] < 0.875
     assert not pure_rl_spatial_eval.row_meets_spatial_promotion_gate(summary)
+
+
+def test_spatial_gate_rejects_missing_or_unexpected_slice_names() -> None:
+    cases = pure_rl_spatial_eval.build_spatial_evaluation_grid("c3c")
+    summary = pure_rl_spatial_eval.summarize_spatial_evaluation(
+        [_row(case) for case in cases],
+        expected_cases=cases,
+        checkpoint="model.pt",
+        ppo_iteration=50,
+    )
+    incomplete = dict(summary)
+    incomplete["slice_success_rates"] = {"left": 1.0}
+    assert not pure_rl_spatial_eval.row_meets_spatial_promotion_gate(incomplete)
+
+    unexpected = dict(summary)
+    unexpected["slice_success_rates"] = {**summary["slice_success_rates"], "unknown": 1.0}
+    assert not pure_rl_spatial_eval.row_meets_spatial_promotion_gate(unexpected)

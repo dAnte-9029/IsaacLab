@@ -80,6 +80,19 @@ def test_retention_matrix_exposes_old_task_failure_at_new_stage() -> None:
     assert result["checkpoint_rows"][1]["failed_evaluation_stages"] == ["straight"]
 
 
+def test_spatial_retention_matrix_uses_frozen_curriculum_order() -> None:
+    stage_order = ("c1_straight", "c2c", "c3a", "c3b", "c3c")
+    records = [
+        _record(training_stage, evaluation_stage, score=10.0 + training_index)
+        for training_index, training_stage in enumerate(stage_order)
+        for evaluation_stage in stage_order[: training_index + 1]
+    ]
+    result = pure_rl_retention.build_spatial_retention_matrix(records)
+    assert result["stage_order"] == list(stage_order)
+    assert len(result["cells"]) == 15
+    assert result["all_retained"] is True
+
+
 def test_retention_matrix_preserves_optional_detailed_metrics() -> None:
     records = [_record("straight", "straight", score=10.0)]
     records[0].update(

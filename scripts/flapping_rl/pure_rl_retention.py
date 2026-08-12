@@ -38,6 +38,14 @@ RETENTION_OPTIONAL_DETAIL_FIELDS: tuple[str, ...] = (
     "finite_metrics",
 )
 
+PURE_RL_SPATIAL_RETENTION_STAGE_ORDER: tuple[str, ...] = (
+    "c1_straight",
+    "c2c",
+    "c3a",
+    "c3b",
+    "c3c",
+)
+
 
 def build_retention_matrix(
     records: Sequence[Mapping[str, object]],
@@ -169,6 +177,12 @@ def build_retention_matrix(
     }
 
 
+def build_spatial_retention_matrix(records: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    """Build the frozen C1/C2c/C3 lower-triangular retention matrix."""
+
+    return build_retention_matrix(records, stage_order=PURE_RL_SPATIAL_RETENTION_STAGE_ORDER)
+
+
 def _validate_stage_order(stage_order: Sequence[str]) -> tuple[str, ...]:
     stages = tuple(str(stage).strip() for stage in stage_order)
     if not stages or any(not stage for stage in stages):
@@ -213,5 +227,7 @@ __all__ = [
     "RETENTION_CELL_FIELDS",
     "RETENTION_OPTIONAL_DETAIL_FIELDS",
     "RETENTION_ROW_FIELDS",
+    "PURE_RL_SPATIAL_RETENTION_STAGE_ORDER",
     "build_retention_matrix",
+    "build_spatial_retention_matrix",
 ]
