@@ -27,7 +27,7 @@ def test_stage_configs_freeze_geometry_and_task_weights() -> None:
     assert configs["c2a"].task_probabilities == (0.50, 0.25, 0.25)
     assert configs["c2b"].absolute_slope_deg_range == (2.0, 6.0)
     assert configs["c2b"].task_probabilities == (0.30, 0.35, 0.35)
-    assert configs["c2c"].absolute_slope_deg_range == (2.0, 8.0)
+    assert configs["c2c"].absolute_slope_deg_range == (4.0, 12.0)
     assert configs["c2c"].task_probabilities == (0.25, 0.375, 0.375)
 
     for stage_id, config in configs.items():
@@ -128,6 +128,55 @@ def test_sampling_is_reproducible_and_validates_batch_inputs() -> None:
             device="cpu",
             dtype=torch.int64,
         )
+
+
+def test_custom_rehearsal_stage_may_weight_climb_and_descent_asymmetrically() -> None:
+    config = pure_rl_longitudinal_path.PureRLLongitudinalStageConfig(
+        stage_id="c2c",
+        absolute_slope_deg_range=(4.0, 12.0),
+        task_probabilities=(0.0, 2.0 / 3.0, 1.0 / 3.0),
+    )
+
+    batch = pure_rl_longitudinal_path.sample_longitudinal_path_batch(
+        num_paths=4096,
+        stage=config,
+        device="cpu",
+        dtype=torch.float64,
+        generator=torch.Generator().manual_seed(17),
+    )
+
+    assert not bool(torch.any(batch.task_id == pure_rl_longitudinal_path.LEVEL_TASK_ID))
+    climb_fraction = float(
+        torch.mean((batch.task_id == pure_rl_longitudinal_path.CLIMB_TASK_ID).to(torch.float64))
+    )
+    assert climb_fraction == pytest.approx(2.0 / 3.0, abs=0.03)
+    assert float(torch.rad2deg(batch.signed_slope_rad.abs()).min()) >= 4.0
+    assert float(torch.rad2deg(batch.signed_slope_rad.abs()).max()) <= 12.0
+
+
+def test_c2c_rehearsal_may_stratify_half_of_climbs_into_strong_band() -> None:
+    config = pure_rl_longitudinal_path.PureRLLongitudinalStageConfig(
+        stage_id="c2c",
+        absolute_slope_deg_range=(4.0, 12.0),
+        task_probabilities=(0.0, 2.0 / 3.0, 1.0 / 3.0),
+    )
+
+    batch = pure_rl_longitudinal_path.sample_longitudinal_path_batch(
+        num_paths=16_384,
+        stage=config,
+        device="cpu",
+        dtype=torch.float64,
+        generator=torch.Generator().manual_seed(29),
+        climb_strong_slope_probability=0.5,
+        climb_strong_slope_minimum_deg=10.0,
+    )
+
+    climb = batch.task_id == pure_rl_longitudinal_path.CLIMB_TASK_ID
+    climb_slope_deg = torch.rad2deg(batch.signed_slope_rad[climb])
+    strong_fraction = float(torch.mean((climb_slope_deg >= 10.0).to(torch.float64)))
+    assert strong_fraction == pytest.approx(0.5, abs=0.02)
+    assert float(climb_slope_deg.min()) >= 4.0
+    assert float(climb_slope_deg.max()) <= 12.0
 
 
 def _path_batch(

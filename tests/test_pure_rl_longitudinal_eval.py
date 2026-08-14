@@ -21,7 +21,7 @@ SPEC.loader.exec_module(pure_rl_longitudinal_eval)
     (
         ("c2a", {0.0, -2.0, 2.0, -4.0, 4.0}, 80),
         ("c2b", {0.0, -2.0, 2.0, -4.0, 4.0, -6.0, 6.0}, 112),
-        ("c2c", {0.0, -2.0, 2.0, -4.0, 4.0, -6.0, 6.0, -8.0, 8.0}, 144),
+        ("c2c", {0.0, -4.0, 4.0, -8.0, 8.0, -12.0, 12.0}, 112),
     ),
 )
 def test_promotion_grid_is_exact_cartesian_product(
@@ -42,12 +42,27 @@ def test_promotion_grid_is_exact_cartesian_product(
     assert all(case.promotion_eligible for case in cases)
 
 
-def test_signed_ten_degree_grid_is_separate_and_diagnostic_only() -> None:
+def test_stage_specific_diagnostic_grid_is_separate_and_not_promotion_eligible() -> None:
+    legacy_cases = pure_rl_longitudinal_eval.build_longitudinal_diagnostic_grid("c2b")
+    assert {case.signed_slope_deg for case in legacy_cases} == {-10.0, 10.0}
+
     cases = pure_rl_longitudinal_eval.build_longitudinal_diagnostic_grid("c2c")
 
     assert len(cases) == 32
-    assert {case.signed_slope_deg for case in cases} == {-10.0, 10.0}
+    assert {case.signed_slope_deg for case in cases} == {-15.0, 15.0}
     assert all(not case.promotion_eligible for case in cases)
+
+
+def test_c2c_uses_version_two_evaluation_contract() -> None:
+    cases = pure_rl_longitudinal_eval.build_longitudinal_evaluation_grid("c2c")
+    summary = pure_rl_longitudinal_eval.summarize_longitudinal_evaluation(
+        [_episode_row(case) for case in cases],
+        expected_cases=cases,
+        checkpoint="model_50.pt",
+        ppo_iteration=50,
+    )
+
+    assert summary["evaluation_contract"] == "pure_rl_longitudinal_c2c_v2"
 
 
 def _episode_row(case, *, success: bool = True, error_m: float = 0.2) -> dict[str, object]:
@@ -63,6 +78,12 @@ def _episode_row(case, *, success: bool = True, error_m: float = 0.2) -> dict[st
         "height_error_m": [error_m, -error_m],
         "tangent_velocity_mps": [6.0, 6.5],
         "finite_metrics": True,
+        "termination_causes": {
+            "ground": False,
+            "tilt": False,
+            "cross_track": False,
+            "height_error": not success,
+        },
     }
 
 
@@ -88,6 +109,62 @@ def test_summary_reports_directions_and_passes_approved_gate() -> None:
     assert pure_rl_longitudinal_eval.row_meets_longitudinal_promotion_gate(summary)
 
 
+def test_summary_reports_signed_slope_success_and_termination_breakdown() -> None:
+    cases = pure_rl_longitudinal_eval.build_longitudinal_evaluation_grid("c2c")
+    rows = [_episode_row(case) for case in cases]
+    climb_12 = [index for index, case in enumerate(cases) if case.signed_slope_deg == 12.0]
+    for offset, row_index in enumerate(climb_12[:3]):
+        rows[row_index]["terminated"] = True
+        rows[row_index]["success"] = False
+        rows[row_index]["recovery_reached"] = offset != 0
+        rows[row_index]["termination_causes"] = {
+            "ground": offset == 0,
+            "tilt": offset == 1,
+            "cross_track": False,
+            "height_error": offset >= 1,
+        }
+
+    summary = pure_rl_longitudinal_eval.summarize_longitudinal_evaluation(
+        rows,
+        expected_cases=cases,
+        checkpoint="model_500.pt",
+        ppo_iteration=500,
+    )
+
+    by_slope = {row["signed_slope_deg"]: row for row in summary["slope_breakdown"]}
+    assert list(by_slope) == [-12.0, -8.0, -4.0, 0.0, 4.0, 8.0, 12.0]
+    assert by_slope[8.0]["case_count"] == 16
+    assert by_slope[8.0]["success_rate"] == pytest.approx(1.0)
+    assert by_slope[12.0] == {
+        "signed_slope_deg": 12.0,
+        "task": "climb",
+        "case_count": 16,
+        "survival_rate": pytest.approx(13.0 / 16.0),
+        "success_rate": pytest.approx(13.0 / 16.0),
+        "recovery_reached_rate": pytest.approx(15.0 / 16.0),
+        "termination_counts": {
+            "ground": 1,
+            "tilt": 1,
+            "cross_track": 0,
+            "height_error": 2,
+        },
+    }
+
+
+def test_summary_requires_complete_termination_cause_mapping() -> None:
+    cases = pure_rl_longitudinal_eval.build_longitudinal_evaluation_grid("c2a")
+    rows = [_episode_row(case) for case in cases]
+    del rows[0]["termination_causes"]
+
+    with pytest.raises(ValueError, match="termination_causes"):
+        pure_rl_longitudinal_eval.summarize_longitudinal_evaluation(
+            rows,
+            expected_cases=cases,
+            checkpoint="model.pt",
+            ppo_iteration=50,
+        )
+
+
 def test_diagnostic_summary_marks_missing_level_cases_not_applicable() -> None:
     cases = pure_rl_longitudinal_eval.build_longitudinal_diagnostic_grid("c2a")
 
@@ -107,7 +184,7 @@ def test_diagnostic_summary_marks_missing_level_cases_not_applicable() -> None:
 
 def test_direction_failure_blocks_promotion_even_when_overall_rate_is_high() -> None:
     cases = pure_rl_longitudinal_eval.build_longitudinal_evaluation_grid("c2c")
-    failed_descent_ids = {case.case_id for case in [item for item in cases if item.task == "descent"][:7]}
+    failed_descent_ids = {case.case_id for case in [item for item in cases if item.task == "descent"][:5]}
     rows = [_episode_row(case, success=case.case_id not in failed_descent_ids) for case in cases]
     summary = pure_rl_longitudinal_eval.summarize_longitudinal_evaluation(
         rows,

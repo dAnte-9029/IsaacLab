@@ -6,6 +6,7 @@
 - Extends: `ADR-2026-08-11-pure-rl-sample-equivalent-promotion-cadence.md`
 - Supersedes: measured PureRL launcher defaults 64 environments, 4 minibatches, 2,000 iterations, and a
   100-iteration save interval
+- Extended by: `ADR-2026-08-12-pure-rl-sequential-evaluation-default.md`
 
 ## Context
 

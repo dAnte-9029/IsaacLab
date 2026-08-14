@@ -66,6 +66,33 @@ def test_resolve_successful_checkpoint_rejects_path_outside_run(tmp_path: Path) 
         playback.resolve_successful_checkpoint(run_dir)
 
 
+def test_resolve_explicit_checkpoint_inside_run(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_475.pt"
+    checkpoint.write_bytes(b"weights")
+
+    selected = playback.resolve_explicit_checkpoint(run_dir, checkpoint)
+
+    assert selected.run_dir == run_dir.resolve()
+    assert selected.checkpoint == checkpoint.resolve()
+    assert selected.selection_row == {
+        "checkpoint": str(checkpoint.resolve()),
+        "ckpt_index": 475,
+        "selection_source": "explicit_promoted_checkpoint",
+    }
+
+
+def test_resolve_explicit_checkpoint_rejects_path_outside_run(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = tmp_path / "model_475.pt"
+    checkpoint.write_bytes(b"weights")
+
+    with pytest.raises(ValueError, match="outside its run directory"):
+        playback.resolve_explicit_checkpoint(run_dir, checkpoint)
+
+
 def test_route_visual_geometry_rotates_and_offsets_segment() -> None:
     geometry = playback.compute_route_visual_geometry(
         env_origin_w=(10.0, 20.0, 0.0),
@@ -112,3 +139,47 @@ def test_output_contract_refuses_overwrite_and_hashes_checkpoint(tmp_path: Path)
     with pytest.raises(FileExistsError, match="already exist"):
         playback.validate_new_playback_outputs(tmp_path, "example")
     assert playback.sha256_file(mp4) == "0cab1c9617404faf2b24e221e189ca5945813e14d3f766345b09ca13bbe28ffc"
+
+
+def test_resolve_c2b_climb_playback_case() -> None:
+    case = playback.resolve_playback_case(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0",
+        heading_deg=0.0,
+        flap_phase_deg=0.0,
+        longitudinal_slope_deg=6.0,
+        longitudinal_entry_length_m=17.5,
+        longitudinal_slope_length_m=25.0,
+    )
+
+    assert case.stage_id == "c2b"
+    assert case.longitudinal_task_id == 1
+    assert case.longitudinal_task == "climb"
+    assert case.longitudinal_slope_deg == 6.0
+    assert case.longitudinal_entry_length_m == 17.5
+    assert case.longitudinal_slope_length_m == 25.0
+
+
+@pytest.mark.parametrize(
+    ("terminated", "recovery_reached", "expected"),
+    ((False, True, True), (True, True, False), (False, False, False)),
+)
+def test_c2_playback_success_requires_survival_and_recovery(
+    terminated: bool,
+    recovery_reached: bool,
+    expected: bool,
+) -> None:
+    assert playback.playback_case_succeeded(
+        stage_id="c2b",
+        terminated=terminated,
+        c1_success_gate_passed=False,
+        recovery_reached=recovery_reached,
+    ) is expected
+
+
+def test_c1_playback_success_preserves_existing_gate() -> None:
+    assert playback.playback_case_succeeded(
+        stage_id=None,
+        terminated=False,
+        c1_success_gate_passed=True,
+        recovery_reached=False,
+    ) is True

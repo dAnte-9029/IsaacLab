@@ -1,6 +1,6 @@
 # PureRL Curriculum 2 Longitudinal Design
 
-- Status: Approved
+- Status: Approved; C2c envelope amended by `ADR-2026-08-12-pure-rl-maneuver-envelope-v2.md`
 - Date: 2026-08-10
 - Scope: no-wind longitudinal climb/descent curriculum on the measured CPU-native PureRL plant
 
@@ -42,9 +42,9 @@ The initial path heading remains uniform over `[0, 2*pi)`. Initial flap phase re
 | --- | --- | --- |
 | C2a | uniform from 1.5 to 4 degrees | 0.17--0.51 m/s |
 | C2b | uniform from 2 to 6 degrees | 0.23--0.77 m/s |
-| C2c | uniform from 2 to 8 degrees | 0.23--1.03 m/s |
+| C2c | uniform from 4 to 12 degrees | 0.45--1.55 m/s |
 
-Climb and descent signs are sampled with equal probability. Near-zero slope is excluded from non-rehearsal tasks because level flight is supplied explicitly by C1 rehearsal. Signed 10-degree paths are held out as extrapolation diagnostics and never drive promotion.
+Climb and descent signs are sampled with equal probability. Near-zero slope is excluded from non-rehearsal tasks because level flight is supplied explicitly by C1 rehearsal. C2a/C2b retain their signed 10-degree historical diagnostics. C2c uses signed 15-degree extrapolation diagnostics that never drive promotion.
 
 ## Episode sampling
 
@@ -104,7 +104,9 @@ Required telemetry adds:
 
 Evaluation is deterministic and separate from the randomized training sampler:
 
-- flight-path angles: `0, +/-2, +/-4, +/-6, +/-8` degrees;
+- C2a flight-path angles: `0, +/-2, +/-4` degrees;
+- C2b flight-path angles: `0, +/-2, +/-4, +/-6` degrees;
+- C2c flight-path angles: `0, +/-4, +/-8, +/-12` degrees;
 - headings: `0, 90, 180, 270` degrees;
 - flap phases: `0, 90, 180, 270` degrees;
 - level entry: 17.5 m;
@@ -112,7 +114,7 @@ Evaluation is deterministic and separate from the randomized training sampler:
 - episode duration: 12 s;
 - no wind or dynamics randomization.
 
-C2a evaluates `0, +/-2, +/-4` for 80 cases. C2b adds `+/-6` for 112 cases. C2c adds `+/-8` for 144 cases. Climb and descent metrics are always reported separately. Signed 10-degree cases are diagnostic-only.
+C2a evaluates `0, +/-2, +/-4` for 80 cases. C2b evaluates through `+/-6` for 112 cases. C2c evaluates `0, +/-4, +/-8, +/-12` for 112 cases. Climb and descent metrics are always reported separately. C2c signed 15-degree cases are diagnostic-only.
 
 ## Promotion gates
 
@@ -141,7 +143,7 @@ Every C2 candidate checkpoint also runs the frozen C1 suite. Promotion requires:
 
 A checkpoint that passes C2 but fails C1 retention is labeled as a forgetting failure and is not promoted. Rehearsal probability is not automatically changed within the run.
 
-The retention matrix has checkpoint rows and C1, C2a, C2b, C2c, and signed-10-degree diagnostic columns. Each cell retains direction-specific and worst-heading/flap-phase metrics.
+The retention matrix has checkpoint rows and C1, C2a, C2b, C2c, and stage-specific diagnostic columns. Each cell retains direction-specific and worst-heading/flap-phase metrics.
 
 ## Non-goals
 

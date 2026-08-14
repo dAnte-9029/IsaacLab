@@ -216,9 +216,63 @@ def test_build_train_cmd_rejects_conflicting_resume_and_weights_only_flags() -> 
         train_and_watch._build_train_cmd(args)
 
 
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0",
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0",
+    ],
+)
+def test_measured_pure_rl_defaults_to_sequential_evaluation(task: str) -> None:
+    args = train_and_watch.argparse.Namespace(
+        task=task,
+        train_only=False,
+        concurrent_eval=False,
+    )
+
+    assert train_and_watch._watcher_enabled(args) is False
+
+
+def test_measured_pure_rl_allows_explicit_concurrent_evaluation() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0",
+        train_only=False,
+        concurrent_eval=True,
+    )
+
+    assert train_and_watch._watcher_enabled(args) is True
+
+
+def test_non_measured_task_keeps_concurrent_evaluation_default() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-TeacherRL-Direct-v0",
+        train_only=False,
+        concurrent_eval=False,
+    )
+
+    assert train_and_watch._watcher_enabled(args) is True
+
+
 def test_train_only_disables_watcher() -> None:
-    assert train_and_watch._watcher_enabled(train_and_watch.argparse.Namespace(train_only=False)) is True
-    assert train_and_watch._watcher_enabled(train_and_watch.argparse.Namespace(train_only=True)) is False
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-TeacherRL-Direct-v0",
+        train_only=True,
+        concurrent_eval=False,
+    )
+
+    assert train_and_watch._watcher_enabled(args) is False
+
+
+def test_watcher_flags_are_mutually_exclusive() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0",
+        train_only=True,
+        concurrent_eval=True,
+    )
+
+    with pytest.raises(ValueError, match="cannot both be enabled"):
+        train_and_watch._watcher_enabled(args)
 
 
 def test_kit_args_can_disable_extension_fs_watcher() -> None:
@@ -533,6 +587,79 @@ def test_build_train_cmd_native_cpu_adds_extension_and_p0_overrides(tmp_path: Pa
     assert f"env.robot.spawn.usd_dir={expected_usd_dir}" in cmd
 
 
+def test_build_train_cmd_forwards_c2c_event_balancing_overrides(tmp_path: Path) -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+        run_name="c3a_event_balanced",
+        num_envs=256,
+        max_iterations=100,
+        save_interval=25,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        resume=False,
+        load_weights_only=True,
+        load_run="source",
+        checkpoint="model_550.pt",
+        portable_root_base=tmp_path / "portable",
+        native_cpu=True,
+        native_extension_parent=tmp_path / "extensions",
+        agent_device="cpu",
+        agent_num_mini_batches=16,
+        freeze_steps_after_reset=None,
+        c2c_strong_climb_probability=0.5,
+        c2c_recycle_on_recovery=True,
+        adaptive_task_sampling=True,
+    )
+
+    cmd = train_and_watch._build_train_cmd(args)
+
+    assert "env.pure_rl_c2c_strong_climb_probability=0.5" in cmd
+    assert "env.pure_rl_c2c_recycle_on_recovery=true" in cmd
+    assert "env.pure_rl_adaptive_task_sampling_enabled=true" in cmd
+
+    args.task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
+    with pytest.raises(ValueError, match="only for C3a"):
+        train_and_watch._build_train_cmd(args)
+
+
+def test_build_train_cmd_enables_actor_distillation_only_for_c3a_warm_start(tmp_path: Path) -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+        run_name="c3a_actor_distillation",
+        num_envs=256,
+        max_iterations=2,
+        save_interval=1,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        resume=False,
+        load_weights_only=True,
+        load_run="source",
+        checkpoint="model_550.pt",
+        portable_root_base=tmp_path / "portable",
+        native_cpu=True,
+        native_extension_parent=tmp_path / "extensions",
+        agent_device="cpu",
+        agent_num_mini_batches=16,
+        freeze_steps_after_reset=None,
+        actor_distillation_coefficient=0.05,
+    )
+
+    cmd = train_and_watch._build_train_cmd(args)
+
+    assert "env.pure_rl_actor_distillation_coefficient=0.05" in cmd
+
+    args.load_weights_only = False
+    with pytest.raises(ValueError, match="requires --load_weights_only"):
+        train_and_watch._build_train_cmd(args)
+
+    args.load_weights_only = True
+    args.task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
+    with pytest.raises(ValueError, match="only for C3a"):
+        train_and_watch._build_train_cmd(args)
+
+
 def test_measured_pure_rl_defaults_to_accelerated_cpu_training(tmp_path: Path) -> None:
     extension_parent = tmp_path / "native_extensions"
     args = train_and_watch.argparse.Namespace(
@@ -582,6 +709,14 @@ def test_measured_pure_rl_defaults_to_accelerated_cpu_training(tmp_path: Path) -
     assert watch_cmd[watch_cmd.index("--eval_suite") + 1] == "pure_rl_curriculum1_nowind_v2"
     assert watch_cmd[watch_cmd.index("--num_envs") + 1] == "16"
     assert watch_cmd[watch_cmd.index("--episodes") + 1] == "16"
+    assert "--no_saved_cfg" in watch_cmd
+    expected_asset = (
+        Path(train_and_watch.__file__).resolve().parents[2]
+        / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf"
+    )
+    assert watch_cmd[watch_cmd.index("--robot-asset-path") + 1] == str(expected_asset)
+    expected_watch_usd_dir = (tmp_path / "portable/watch/generated_assets/flap_robot_552").resolve()
+    assert watch_cmd[watch_cmd.index("--robot-usd-dir") + 1] == str(expected_watch_usd_dir)
     assert f"--ext-folder {extension_parent.resolve()}" in watch_kit_args
 
 
@@ -638,8 +773,21 @@ def test_spatial_task_uses_stage_specific_eval_suite_and_shape() -> None:
         eval_num_envs=None,
         episodes=None,
     )
-    assert train_and_watch._resolve_eval_suite(task, "straight_standard") == "pure_rl_spatial_c3c_v1"
+    assert train_and_watch._resolve_eval_suite(task, "straight_standard") == "pure_rl_spatial_c3c_v2"
     assert train_and_watch._resolve_eval_shape(args) == (96, 96)
+
+
+def test_c2c_task_uses_version_two_eval_suite_and_shape() -> None:
+    task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0"
+    args = train_and_watch.argparse.Namespace(
+        task=task,
+        eval_suite="straight_standard",
+        eval_num_envs=None,
+        episodes=None,
+    )
+
+    assert train_and_watch._resolve_eval_suite(task, "straight_standard") == "pure_rl_longitudinal_c2c_v2"
+    assert train_and_watch._resolve_eval_shape(args) == (112, 112)
 
 
 def test_longitudinal_task_uses_native_cpu_and_stage_specific_eval_suite(tmp_path: Path) -> None:

@@ -166,12 +166,17 @@ from .pure_rl_longitudinal_path import (
     write_longitudinal_path_batch_rows_,
 )
 from .pure_rl_spatial_path import (
+    CURRENT_SPATIAL_TASK_FAMILY_ID_C3A,
+    REHEARSAL_C1_TASK_FAMILY_ID,
+    REHEARSAL_C2C_TASK_FAMILY_ID,
     PureRLSpatialPathBatch,
     PureRLSpatialPathQuery,
     PureRLSpatialStageConfig,
+    move_probability_toward,
     query_spatial_path,
     resolve_spatial_stage,
     sample_spatial_path_batch,
+    update_retention_aware_task_probabilities,
     write_spatial_path_batch_rows_,
 )
 from .pure_rl_reward import (
@@ -244,6 +249,20 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_eval_spatial_turn_sign_schedule: tuple[int, ...] | None = None
     pure_rl_longitudinal_stage_id: str | None = None
     pure_rl_spatial_stage_id: str | None = None
+    pure_rl_actor_distillation_coefficient: float = 0.0
+    pure_rl_c2c_strong_climb_probability: float = 0.0
+    pure_rl_c2c_strong_climb_minimum_deg: float = 10.0
+    pure_rl_c2c_recycle_on_recovery: bool = False
+    pure_rl_adaptive_task_sampling_enabled: bool = False
+    pure_rl_adaptive_sampling_interval_steps: int = 1200
+    pure_rl_adaptive_sampling_ema_alpha: float = 0.3
+    pure_rl_adaptive_sampling_minimum_episodes: int = 16
+    pure_rl_adaptive_sampling_max_probability_change: float = 0.05
+    pure_rl_adaptive_sampling_minimum_probabilities: tuple[float, float, float] = (0.10, 0.25, 0.30)
+    pure_rl_adaptive_sampling_target_success_rates: tuple[float, float, float] = (0.98, 0.95, 0.95)
+    pure_rl_adaptive_sampling_c1_tail_limit_target: float = 0.10
+    pure_rl_adaptive_strong_climb_probability_bounds: tuple[float, float] = (0.50, 0.85)
+    pure_rl_adaptive_strong_climb_max_probability_change: float = 0.10
     pure_rl_preview_minimum_speed_mps: float = 1.0
     pure_rl_preview_maximum_speed_mps: float = 12.0
     use_pure_rl_curriculum1_reward: bool = False
@@ -1075,6 +1094,60 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError("PureRL spatial stages require the PureRL observation and reward contracts.")
             if bool(cfg.wind_enabled) or bool(cfg.randomize_wind) or bool(cfg.wind_ou_enabled):
                 raise ValueError("PureRL C3 spatial stages require wind to remain disabled.")
+        actor_distillation_coefficient = float(cfg.pure_rl_actor_distillation_coefficient)
+        if not math.isfinite(actor_distillation_coefficient) or actor_distillation_coefficient < 0.0:
+            raise ValueError("PureRL actor distillation coefficient must be finite and non-negative.")
+        if actor_distillation_coefficient > 0.0 and (
+            spatial_stage is None or spatial_stage.stage_id != "c3a"
+        ):
+            raise ValueError("PureRL actor distillation is currently defined only for C3a training.")
+        adaptive_sampling_enabled = bool(cfg.pure_rl_adaptive_task_sampling_enabled)
+        if adaptive_sampling_enabled:
+            if spatial_stage is None or spatial_stage.stage_id != "c3a":
+                raise ValueError("PureRL adaptive task sampling is currently defined only for C3a training.")
+            update_retention_aware_task_probabilities(
+                spatial_stage.task_probabilities,
+                (0.0, 0.0, 0.0),
+                baseline_probabilities=spatial_stage.task_probabilities,
+                minimum_probabilities=cfg.pure_rl_adaptive_sampling_minimum_probabilities,
+                maximum_probability_change=float(
+                    cfg.pure_rl_adaptive_sampling_max_probability_change
+                ),
+            )
+            interval_steps = cfg.pure_rl_adaptive_sampling_interval_steps
+            minimum_episodes = cfg.pure_rl_adaptive_sampling_minimum_episodes
+            if isinstance(interval_steps, bool) or int(interval_steps) != interval_steps or interval_steps <= 0:
+                raise ValueError("PureRL adaptive sampling interval must be a positive integer.")
+            if (
+                isinstance(minimum_episodes, bool)
+                or int(minimum_episodes) != minimum_episodes
+                or minimum_episodes <= 0
+            ):
+                raise ValueError("PureRL adaptive sampling minimum episodes must be a positive integer.")
+            ema_alpha = float(cfg.pure_rl_adaptive_sampling_ema_alpha)
+            if not math.isfinite(ema_alpha) or not 0.0 < ema_alpha <= 1.0:
+                raise ValueError("PureRL adaptive sampling EMA alpha must lie in (0, 1].")
+            target_success_rates = cfg.pure_rl_adaptive_sampling_target_success_rates
+            if len(target_success_rates) != 3 or any(
+                not math.isfinite(value) or not 0.0 <= value <= 1.0
+                for value in target_success_rates
+            ):
+                raise ValueError("PureRL adaptive target success rates must contain three values in [0, 1].")
+            tail_limit_target = float(cfg.pure_rl_adaptive_sampling_c1_tail_limit_target)
+            if not math.isfinite(tail_limit_target) or not 0.0 <= tail_limit_target <= 1.0:
+                raise ValueError("PureRL adaptive C1 tail-limit target must lie in [0, 1].")
+            strong_bounds = cfg.pure_rl_adaptive_strong_climb_probability_bounds
+            if len(strong_bounds) != 2:
+                raise ValueError("PureRL adaptive strong-climb bounds must contain two values.")
+            move_probability_toward(
+                float(cfg.pure_rl_c2c_strong_climb_probability),
+                float(strong_bounds[0]),
+                lower_bound=float(strong_bounds[0]),
+                upper_bound=float(strong_bounds[1]),
+                maximum_probability_change=float(
+                    cfg.pure_rl_adaptive_strong_climb_max_probability_change
+                ),
+            )
         if bool(cfg.use_pure_rl_actor_observation):
             if action_interface != DIRECT_TAIL_SURFACE_ACTION:
                 raise ValueError("PureRL actor observations require the direct-tail-surface action interface.")
@@ -1475,7 +1548,28 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._pure_rl_longitudinal_path: PureRLLongitudinalPathBatch | None = None
         self._pure_rl_spatial_stage: PureRLSpatialStageConfig | None = spatial_stage
         self._pure_rl_spatial_path: PureRLSpatialPathBatch | None = None
+        self._pure_rl_c2c_rehearsal_path: PureRLLongitudinalPathBatch | None = None
         self._pure_rl_spatial_progress_m: Tensor | None = None
+        self._pure_rl_adaptive_sampling_enabled = adaptive_sampling_enabled
+        self._pure_rl_adaptive_task_probabilities = (
+            tuple(spatial_stage.task_probabilities)
+            if adaptive_sampling_enabled and spatial_stage is not None
+            else ()
+        )
+        self._pure_rl_adaptive_strong_climb_probability = float(
+            cfg.pure_rl_c2c_strong_climb_probability
+        )
+        self._pure_rl_adaptive_next_update_step = int(
+            cfg.pure_rl_adaptive_sampling_interval_steps
+        )
+        self._pure_rl_adaptive_success_ema: tuple[float, float, float] | None = None
+        self._pure_rl_adaptive_c1_tail_limit_ema: float | None = None
+        self._pure_rl_adaptive_update_count = 0
+        self._pure_rl_adaptive_episode_steps: Tensor | None = None
+        self._pure_rl_adaptive_episode_tail_limit_steps: Tensor | None = None
+        self._pure_rl_adaptive_completed_counts: Tensor | None = None
+        self._pure_rl_adaptive_success_counts: Tensor | None = None
+        self._pure_rl_adaptive_c1_tail_limit_fraction_sum: Tensor | None = None
 
         # wing phase and frequency
         self._phase: Tensor | None = None  # (N,)
@@ -1711,8 +1805,26 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 initial_altitude_m=float(self.cfg.height_cmd),
             )
             self._pure_rl_spatial_progress_m = torch.zeros(N, device=self.device)
+            self._pure_rl_c2c_rehearsal_path = PureRLLongitudinalPathBatch(
+                task_id=torch.zeros(N, dtype=torch.int64, device=self.device),
+                heading_rad=torch.zeros(N, device=self.device),
+                signed_slope_rad=torch.zeros(N, device=self.device),
+                entry_length_m=torch.zeros(N, device=self.device),
+                slope_length_m=torch.zeros(N, device=self.device),
+                initial_altitude_m=torch.zeros(N, device=self.device),
+            )
             self._pure_rl_spatial_query_cache: PureRLSpatialPathQuery | None = None
             self._pure_rl_spatial_query_step = -1
+            if self._pure_rl_adaptive_sampling_enabled:
+                self._pure_rl_adaptive_episode_steps = torch.zeros(N, device=self.device)
+                self._pure_rl_adaptive_episode_tail_limit_steps = torch.zeros(
+                    N, device=self.device
+                )
+                self._pure_rl_adaptive_completed_counts = torch.zeros(3, device=self.device)
+                self._pure_rl_adaptive_success_counts = torch.zeros(3, device=self.device)
+                self._pure_rl_adaptive_c1_tail_limit_fraction_sum = torch.zeros(
+                    (), device=self.device
+                )
         if bool(self.cfg.use_pure_rl_actor_observation):
             self._pure_rl_history_valid = torch.zeros(N, dtype=torch.bool, device=self.device)
             self._pure_rl_previous_orientation_wxyz = torch.zeros(N, 4, device=self.device)
@@ -3984,9 +4096,18 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     dtype=self._height_cmd.dtype,
                     device=self.device,
                 )[schedule_indices]
+            sampling_stage = self._pure_rl_spatial_stage
+            if (
+                self._pure_rl_adaptive_sampling_enabled
+                and self.cfg.pure_rl_eval_spatial_template_schedule is None
+            ):
+                sampling_stage = replace(
+                    sampling_stage,
+                    task_probabilities=self._pure_rl_adaptive_task_probabilities,
+                )
             sampled_path = sample_spatial_path_batch(
                 num_paths=n,
-                stage=self._pure_rl_spatial_stage,
+                stage=sampling_stage,
                 device=self.device,
                 dtype=self._height_cmd.dtype,
                 initial_altitude_m=self._height_cmd[env_ids],
@@ -4001,11 +4122,45 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 env_ids=env_ids.to(dtype=torch.int64),
                 source=sampled_path,
             )
+            assert self._pure_rl_c2c_rehearsal_path is not None
+            c2c_stage = replace(
+                resolve_longitudinal_stage("c2c"),
+                task_probabilities=self._pure_rl_spatial_stage.c2c_rehearsal_task_probabilities,
+            )
+            sampled_c2c_path = sample_longitudinal_path_batch(
+                num_paths=n,
+                stage=c2c_stage,
+                device=self.device,
+                dtype=self._height_cmd.dtype,
+                initial_altitude_m=self._height_cmd[env_ids],
+                climb_strong_slope_probability=(
+                    self._pure_rl_adaptive_strong_climb_probability
+                    if self._pure_rl_adaptive_sampling_enabled
+                    else float(self.cfg.pure_rl_c2c_strong_climb_probability)
+                ),
+                climb_strong_slope_minimum_deg=float(
+                    self.cfg.pure_rl_c2c_strong_climb_minimum_deg
+                ),
+            )
+            write_longitudinal_path_batch_rows_(
+                destination=self._pure_rl_c2c_rehearsal_path,
+                env_ids=env_ids.to(dtype=torch.int64),
+                source=sampled_c2c_path,
+            )
             self._pure_rl_spatial_progress_m[env_ids] = 0.0
-            heading = torch.atan2(
+            spatial_heading = torch.atan2(
                 sampled_path.tangent_world[:, 0, 1],
                 sampled_path.tangent_world[:, 0, 0],
             )
+            c2c_rehearsal = sampled_path.task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
+            c2c_env_ids = env_ids[c2c_rehearsal]
+            self._pure_rl_spatial_path.peak_slope_rad[c2c_env_ids] = (
+                sampled_c2c_path.signed_slope_rad[c2c_rehearsal]
+            )
+            self._pure_rl_spatial_path.vertical_sign[c2c_env_ids] = torch.sign(
+                sampled_c2c_path.signed_slope_rad[c2c_rehearsal]
+            )
+            heading = torch.where(c2c_rehearsal, sampled_c2c_path.heading_rad, spatial_heading)
         elif self._pure_rl_longitudinal_stage is not None:
             assert self._pure_rl_longitudinal_path is not None
             if self.cfg.pure_rl_eval_longitudinal_task_schedule is not None:
@@ -4099,7 +4254,18 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 device=self.device,
             )
         if self._pure_rl_spatial_stage is not None:
-            lin_vel[:] = reset_forward_speed.unsqueeze(1) * sampled_path.tangent_world[:, 0, :]
+            reset_tangent = sampled_path.tangent_world[:, 0, :]
+            if self._pure_rl_c2c_rehearsal_path is not None:
+                c2c_tangent = torch.stack(
+                    (
+                        torch.cos(sampled_c2c_path.heading_rad),
+                        torch.sin(sampled_c2c_path.heading_rad),
+                        torch.zeros_like(sampled_c2c_path.heading_rad),
+                    ),
+                    dim=1,
+                )
+                reset_tangent = torch.where(c2c_rehearsal.unsqueeze(1), c2c_tangent, reset_tangent)
+            lin_vel[:] = reset_forward_speed.unsqueeze(1) * reset_tangent
         else:
             lin_vel[:, 0:2] = (
                 reset_forward_speed.unsqueeze(1) * self._straight_line_tangent_w[env_ids, 0:2]
@@ -4333,6 +4499,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if self._pure_rl_spatial_stage is not None:
             self._pure_rl_spatial_query_cache = None
             self._pure_rl_spatial_query_step = -1
+        if self._pure_rl_adaptive_sampling_enabled:
+            assert self._pure_rl_adaptive_episode_steps is not None
+            assert self._pure_rl_adaptive_episode_tail_limit_steps is not None
+            self._pure_rl_adaptive_episode_steps[env_ids] = 0.0
+            self._pure_rl_adaptive_episode_tail_limit_steps[env_ids] = 0.0
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
     def _query_pure_rl_longitudinal_path(self) -> PureRLLongitudinalPathQuery:
@@ -4366,9 +4537,242 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             maximum_preview_speed_mps=float(self.cfg.pure_rl_preview_maximum_speed_mps),
         )
         self._pure_rl_spatial_progress_m.copy_(query.progress_m)
+        assert self._pure_rl_c2c_rehearsal_path is not None
+        c2c_query = query_longitudinal_path(
+            path=self._pure_rl_c2c_rehearsal_path,
+            position_world_m=self._robot.data.root_pos_w - self.scene.env_origins,
+            ground_velocity_world_mps=self._robot.data.root_lin_vel_w,
+            minimum_preview_speed_mps=float(self.cfg.pure_rl_preview_minimum_speed_mps),
+            maximum_preview_speed_mps=float(self.cfg.pure_rl_preview_maximum_speed_mps),
+        )
+        c2c_rehearsal = self._pure_rl_spatial_path.task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
+        scalar_mask = c2c_rehearsal
+        vector_mask = c2c_rehearsal.unsqueeze(1)
+        preview_mask = c2c_rehearsal.reshape(-1, 1, 1)
+        horizontal_tangent = torch.stack(
+            (
+                torch.cos(self._pure_rl_c2c_rehearsal_path.heading_rad),
+                torch.sin(self._pure_rl_c2c_rehearsal_path.heading_rad),
+                torch.zeros_like(self._pure_rl_c2c_rehearsal_path.heading_rad),
+            ),
+            dim=1,
+        )
+        c2c_reference_position = c2c_query.horizontal_progress_m.unsqueeze(1) * horizontal_tangent
+        c2c_reference_position[:, 2] = c2c_query.reference_altitude_m
+        query = PureRLSpatialPathQuery(
+            progress_m=torch.where(scalar_mask, c2c_query.horizontal_progress_m, query.progress_m),
+            reference_position_world_m=torch.where(
+                vector_mask, c2c_reference_position, query.reference_position_world_m
+            ),
+            horizontal_normal_error_m=torch.where(
+                scalar_mask, c2c_query.cross_track_error_m, query.horizontal_normal_error_m
+            ),
+            vertical_normal_error_m=torch.where(
+                scalar_mask, c2c_query.height_error_m, query.vertical_normal_error_m
+            ),
+            tangent_world=torch.where(vector_mask, c2c_query.tangent_world, query.tangent_world),
+            lateral_normal_world=torch.where(
+                vector_mask, c2c_query.lateral_normal_world, query.lateral_normal_world
+            ),
+            vertical_normal_world=torch.where(
+                vector_mask, c2c_query.vertical_normal_world, query.vertical_normal_world
+            ),
+            active_curvature_rad_per_m=torch.where(
+                scalar_mask,
+                torch.zeros_like(query.active_curvature_rad_per_m),
+                query.active_curvature_rad_per_m,
+            ),
+            active_slope_rad=torch.where(scalar_mask, c2c_query.active_slope_rad, query.active_slope_rad),
+            turn_activity=torch.where(
+                scalar_mask, torch.zeros_like(query.turn_activity), query.turn_activity
+            ),
+            preview_points_world_m=torch.where(
+                preview_mask, c2c_query.preview_points_world_m, query.preview_points_world_m
+            ),
+            reached_all_events=torch.where(
+                scalar_mask, c2c_query.reached_recovery, query.reached_all_events
+            ),
+        )
         self._pure_rl_spatial_query_cache = query
         self._pure_rl_spatial_query_step = int(self.common_step_counter)
         return query
+
+    def _update_pure_rl_adaptive_task_sampling(
+        self,
+        *,
+        terminated: Tensor,
+        timed_out: Tensor,
+        query: PureRLSpatialPathQuery,
+        successful_c2c_recovery: Tensor,
+    ) -> None:
+        """Update C3a task probabilities from completed on-policy episodes."""
+
+        if not self._pure_rl_adaptive_sampling_enabled:
+            return
+        assert self._act_cmd is not None
+        assert self._pure_rl_spatial_path is not None
+        assert self._pure_rl_c2c_rehearsal_path is not None
+        assert self._pure_rl_spatial_stage is not None
+        assert self._pure_rl_adaptive_episode_steps is not None
+        assert self._pure_rl_adaptive_episode_tail_limit_steps is not None
+        assert self._pure_rl_adaptive_completed_counts is not None
+        assert self._pure_rl_adaptive_success_counts is not None
+        assert self._pure_rl_adaptive_c1_tail_limit_fraction_sum is not None
+
+        tail_limit_active = torch.any(
+            torch.abs(self._act_cmd[:, 1:4])
+            >= float(self.cfg.pure_rl_reward_cfg.tail_action_limit_threshold),
+            dim=1,
+        )
+        self._pure_rl_adaptive_episode_steps.add_(1.0)
+        self._pure_rl_adaptive_episode_tail_limit_steps.add_(tail_limit_active)
+
+        completed = terminated | timed_out
+        task_family_id = self._pure_rl_spatial_path.task_family_id
+        c1_completed = completed & (task_family_id == REHEARSAL_C1_TASK_FAMILY_ID)
+        strong_c2c_completed = (
+            completed
+            & (task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID)
+            & (self._pure_rl_c2c_rehearsal_path.task_id == CLIMB_TASK_ID)
+            & (
+                self._pure_rl_c2c_rehearsal_path.signed_slope_rad
+                >= math.radians(float(self.cfg.pure_rl_c2c_strong_climb_minimum_deg))
+            )
+        )
+        c3a_completed = completed & (
+            task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID_C3A
+        )
+        completed_masks = (c1_completed, strong_c2c_completed, c3a_completed)
+        success_masks = (
+            c1_completed & ~terminated,
+            strong_c2c_completed & successful_c2c_recovery,
+            c3a_completed & query.reached_all_events & ~terminated,
+        )
+        for index, (completed_mask, success_mask) in enumerate(
+            zip(completed_masks, success_masks)
+        ):
+            self._pure_rl_adaptive_completed_counts[index].add_(completed_mask.sum())
+            self._pure_rl_adaptive_success_counts[index].add_(success_mask.sum())
+        c1_tail_limit_fraction = self._pure_rl_adaptive_episode_tail_limit_steps / torch.clamp(
+            self._pure_rl_adaptive_episode_steps,
+            min=1.0,
+        )
+        self._pure_rl_adaptive_c1_tail_limit_fraction_sum.add_(
+            c1_tail_limit_fraction[c1_completed].sum()
+        )
+
+        if int(self.common_step_counter) >= self._pure_rl_adaptive_next_update_step - 1:
+            minimum_episodes = int(self.cfg.pure_rl_adaptive_sampling_minimum_episodes)
+            if bool(torch.all(self._pure_rl_adaptive_completed_counts >= minimum_episodes).item()):
+                completed_counts = self._pure_rl_adaptive_completed_counts.tolist()
+                success_counts = self._pure_rl_adaptive_success_counts.tolist()
+                raw_success_rates = tuple(
+                    success / completed_count
+                    for success, completed_count in zip(success_counts, completed_counts)
+                )
+                raw_c1_tail_limit_fraction = float(
+                    self._pure_rl_adaptive_c1_tail_limit_fraction_sum.item()
+                    / completed_counts[0]
+                )
+                alpha = float(self.cfg.pure_rl_adaptive_sampling_ema_alpha)
+                if self._pure_rl_adaptive_success_ema is None:
+                    self._pure_rl_adaptive_success_ema = raw_success_rates
+                    self._pure_rl_adaptive_c1_tail_limit_ema = raw_c1_tail_limit_fraction
+                else:
+                    self._pure_rl_adaptive_success_ema = tuple(
+                        (1.0 - alpha) * previous + alpha * current
+                        for previous, current in zip(
+                            self._pure_rl_adaptive_success_ema,
+                            raw_success_rates,
+                        )
+                    )
+                    assert self._pure_rl_adaptive_c1_tail_limit_ema is not None
+                    self._pure_rl_adaptive_c1_tail_limit_ema = (
+                        (1.0 - alpha) * self._pure_rl_adaptive_c1_tail_limit_ema
+                        + alpha * raw_c1_tail_limit_fraction
+                    )
+                assert self._pure_rl_adaptive_c1_tail_limit_ema is not None
+                targets = self.cfg.pure_rl_adaptive_sampling_target_success_rates
+                deficits = (
+                    max(0.0, targets[0] - self._pure_rl_adaptive_success_ema[0])
+                    + max(
+                        0.0,
+                        self._pure_rl_adaptive_c1_tail_limit_ema
+                        - float(self.cfg.pure_rl_adaptive_sampling_c1_tail_limit_target),
+                    ),
+                    max(0.0, targets[1] - self._pure_rl_adaptive_success_ema[1]),
+                    max(0.0, targets[2] - self._pure_rl_adaptive_success_ema[2]),
+                )
+                self._pure_rl_adaptive_task_probabilities = (
+                    update_retention_aware_task_probabilities(
+                        self._pure_rl_adaptive_task_probabilities,
+                        deficits,
+                        baseline_probabilities=self._pure_rl_spatial_stage.task_probabilities,
+                        minimum_probabilities=(
+                            self.cfg.pure_rl_adaptive_sampling_minimum_probabilities
+                        ),
+                        maximum_probability_change=float(
+                            self.cfg.pure_rl_adaptive_sampling_max_probability_change
+                        ),
+                    )
+                )
+                strong_lower, strong_upper = (
+                    self.cfg.pure_rl_adaptive_strong_climb_probability_bounds
+                )
+                strong_deficit_fraction = min(
+                    1.0,
+                    deficits[1] / max(float(targets[1]), 1.0e-6),
+                )
+                desired_strong_probability = strong_lower + (
+                    strong_upper - strong_lower
+                ) * strong_deficit_fraction
+                self._pure_rl_adaptive_strong_climb_probability = move_probability_toward(
+                    self._pure_rl_adaptive_strong_climb_probability,
+                    desired_strong_probability,
+                    lower_bound=float(strong_lower),
+                    upper_bound=float(strong_upper),
+                    maximum_probability_change=float(
+                        self.cfg.pure_rl_adaptive_strong_climb_max_probability_change
+                    ),
+                )
+                self._pure_rl_adaptive_completed_counts.zero_()
+                self._pure_rl_adaptive_success_counts.zero_()
+                self._pure_rl_adaptive_c1_tail_limit_fraction_sum.zero_()
+                self._pure_rl_adaptive_update_count += 1
+                self._pure_rl_adaptive_next_update_step = (
+                    int(self.common_step_counter)
+                    + 1
+                    + int(self.cfg.pure_rl_adaptive_sampling_interval_steps)
+                )
+
+        log = self.extras.setdefault("log", {})
+        log.update(
+            {
+                "AdaptiveSampling/c1_probability": self._pure_rl_adaptive_task_probabilities[0],
+                "AdaptiveSampling/c2c_probability": self._pure_rl_adaptive_task_probabilities[1],
+                "AdaptiveSampling/c3a_probability": self._pure_rl_adaptive_task_probabilities[2],
+                "AdaptiveSampling/strong_climb_probability": (
+                    self._pure_rl_adaptive_strong_climb_probability
+                ),
+                "AdaptiveSampling/update_count": self._pure_rl_adaptive_update_count,
+            }
+        )
+        if self._pure_rl_adaptive_success_ema is not None:
+            assert self._pure_rl_adaptive_c1_tail_limit_ema is not None
+            log.update(
+                {
+                    "AdaptiveSampling/c1_survival_ema": self._pure_rl_adaptive_success_ema[0],
+                    "AdaptiveSampling/c1_tail_limit_ema": (
+                        self._pure_rl_adaptive_c1_tail_limit_ema
+                    ),
+                    "AdaptiveSampling/c2c_strong_climb_success_ema": (
+                        self._pure_rl_adaptive_success_ema[1]
+                    ),
+                    "AdaptiveSampling/c3a_turn_success_ema": (
+                        self._pure_rl_adaptive_success_ema[2]
+                    ),
+                }
+            )
 
     def _get_pure_rl_observations(self) -> dict[str, Tensor]:
         """Build the normalized 555-value actor observation at policy rate."""
@@ -4449,7 +4853,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             action_history=self._pure_rl_action_history,
             preview_points_body_m=preview_points_b,
         )
-        return {"policy": observation}
+        observations = {"policy": observation}
+        if float(self.cfg.pure_rl_actor_distillation_coefficient) > 0.0:
+            assert self._pure_rl_spatial_path is not None
+            observations["actor_distillation_mask"] = (
+                self._pure_rl_spatial_path.task_family_id <= REHEARSAL_C2C_TASK_FAMILY_ID
+            ).to(dtype=observation.dtype).unsqueeze(1)
+        return observations
 
     def _get_observations(self) -> dict[str, Tensor]:
         if bool(self.cfg.use_pure_rl_actor_observation):
@@ -4751,6 +5161,19 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 assert self._eval_pure_rl_active_slope_rad is not None
                 assert self._eval_pure_rl_turn_activity is not None
                 assert self._eval_pure_rl_reached_all_events is not None
+                c2c_rehearsal = (
+                    self._pure_rl_spatial_path.task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
+                )
+                c2c_active_event = c2c_rehearsal & (
+                    self._eval_pure_rl_active_slope_rad.abs() > 1.0e-6
+                )
+                c2c_strong_climb_active = (
+                    c2c_active_event
+                    & (
+                        self._pure_rl_spatial_path.peak_slope_rad
+                        >= math.radians(float(self.cfg.pure_rl_c2c_strong_climb_minimum_deg))
+                    )
+                )
                 log.update(
                     {
                         "PureRLPath/mean_sampled_task_family_id": (
@@ -4785,6 +5208,15 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                             vertical_velocity_mps.abs().mean()
                         ),
                         "PureRLPath/mean_abs_roll_rad": roll_rad.abs().mean(),
+                        "PureRLPath/c2c_rehearsal_transition_fraction": (
+                            c2c_rehearsal.to(torch.float32).mean()
+                        ),
+                        "PureRLPath/c2c_active_event_transition_fraction": (
+                            c2c_active_event.to(torch.float32).mean()
+                        ),
+                        "PureRLPath/c2c_strong_climb_active_transition_fraction": (
+                            c2c_strong_climb_active.to(torch.float32).mean()
+                        ),
                     }
                 )
             elif self._pure_rl_longitudinal_stage is not None:
@@ -4880,6 +5312,33 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     roll_rad=roll_rad,
                     config=self._pure_rl_termination_cfg,
                 )
+                assert self._pure_rl_spatial_path is not None
+                c2c_rehearsal = (
+                    self._pure_rl_spatial_path.task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
+                )
+                effective_roll_limit = terms.roll_limit & ~c2c_rehearsal
+                terms = replace(
+                    terms,
+                    roll_limit=effective_roll_limit,
+                    terminated=(
+                        terms.ground
+                        | terms.tilt
+                        | terms.cross_track
+                        | terms.height_error
+                        | effective_roll_limit
+                    ),
+                )
+                successful_c2c_recovery = (
+                    c2c_rehearsal & query.reached_all_events & ~terms.terminated
+                )
+                if bool(self.cfg.pure_rl_c2c_recycle_on_recovery):
+                    timed_out = timed_out | successful_c2c_recovery
+                self._update_pure_rl_adaptive_task_sampling(
+                    terminated=terms.terminated,
+                    timed_out=timed_out,
+                    query=query,
+                    successful_c2c_recovery=successful_c2c_recovery,
+                )
             else:
                 if self._pure_rl_longitudinal_stage is not None:
                     query = self._query_pure_rl_longitudinal_path()
@@ -4931,6 +5390,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     log["PureRLTermination/roll_limit_fraction"] = terms.roll_limit.to(
                         torch.float32
                     ).mean()
+                    log["PureRLTermination/c2c_recovery_success_fraction"] = (
+                        successful_c2c_recovery.to(torch.float32).mean()
+                    )
             return terms.terminated, timed_out
 
         fell = height <= float(self.cfg.terminate_ground_height)

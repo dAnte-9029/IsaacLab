@@ -1,13 +1,16 @@
 # PureRL Curriculum 2 Longitudinal Handoff
 
-> 2026-08-11 update: C2a is promoted through `model_1575.pt`. The measured PureRL launcher defaults below now
-> use the validated sample-equivalent 256/16/500/25 training configuration.
+> 2026-08-12 update: C2b is promoted through `model_475.pt` from
+> `2026-08-12_10-45-45_pure_rl_c2b_seed0`. The measured PureRL launcher defaults below use the validated
+> sample-equivalent 256/16/500/25 training configuration.
+> The untrained C2c envelope was subsequently increased to 4--12 degrees under
+> `ADR-2026-08-12-pure-rl-maneuver-envelope-v2.md`; C2a/C2b evidence is unchanged.
 
 ## Scope and current status
 
-PureRL C2 longitudinal support is implemented on branch `feat/native-multibody-rl`. C2a has completed promotion,
-and `model_1575.pt` from `2026-08-11_17-14-11_cpu_native_256_resume_c2a_validation_seed0` is the accepted C2b
-source. C1 remains the retention baseline. C2 adds explicit C2a, C2b, and C2c task IDs while preserving the
+PureRL C2 longitudinal support is implemented on branch `feat/native-multibody-rl`. C2a and C2b have completed
+promotion. `model_475.pt` from `2026-08-12_10-45-45_pure_rl_c2b_seed0` is the accepted C2c source. C1 remains
+the retention baseline. C2 adds explicit C2a, C2b, and C2c task IDs while preserving the
 direct four-channel action, 555-value actor observation, 60 Hz policy rate, 480 Hz CPU PhysX, measured multibody
 plant, native holonomic wing mechanism, no-wind default, and all C1 reward weights and termination thresholds.
 
@@ -19,9 +22,9 @@ The C2 reward does not specify a target speed. It rewards signed velocity along 
 | --- | --- | --- | --- |
 | C2a | 1.5--4 deg | 50 / 25 / 25 percent | 80 cases at 0, +/-2, +/-4 deg |
 | C2b | 2--6 deg | 30 / 35 / 35 percent | 112 cases, adding +/-6 deg |
-| C2c | 2--8 deg | 25 / 37.5 / 37.5 percent | 144 cases, adding +/-8 deg |
+| C2c | 4--12 deg | 25 / 37.5 / 37.5 percent | 112 cases at 0, +/-4, +/-8, +/-12 deg |
 
-Every training episode samples a 15--20 m entry and a 20--30 m slope segment. Evaluation uses 17.5 m and 25 m. Each fixed grid combines its signed slopes with four headings and four initial flap phases. The separate 32-case +/-10 degree grid is diagnostic-only and must not select or promote a checkpoint.
+Every training episode samples a 15--20 m entry and a 20--30 m slope segment. Evaluation uses 17.5 m and 25 m. Each fixed grid combines its signed slopes with four headings and four initial flap phases. C2a/C2b retain the 32-case +/-10-degree diagnostic; C2c uses a 32-case +/-15-degree diagnostic. Diagnostics cannot select or promote a checkpoint.
 
 ## Qualification evidence
 
@@ -35,6 +38,12 @@ tests/test_native_cpu_pure_rl_longitudinal_runtime_isaac.py: 1 passed in 7.10 s
 The C2 runtime test used six CPU environments and verified active native constraints, deterministic level/climb/descent schedules, observation shape `(6, 555)`, preview altitude signs, orthonormal tangent/normal bases, finite rewards and telemetry, exact level-case C1 reward decomposition, partial reset isolation, and repeated reset completion.
 
 Headless GLFW and final Isaac plugin-unload warnings appeared in both the existing C1 and new C2 processes. They did not affect pytest completion. Same-process environment reload remains unsupported; each authority run must start in a fresh process.
+
+On 2026-08-12, fresh current-contract evaluation completed the 112-case C2b fixed grid for `model_450.pt`,
+`model_475.pt`, and `model_499.pt`; all three passed. The sample-equivalent adjacent `model_450.pt` and
+`model_475.pt` checkpoints also passed the 16-case C1 retention suite with 100 percent success and zero
+termination. The promotion helper returned `model_475.pt`. Full metrics and artifact paths are recorded in
+`docs/audits/2026-08-12-pure-rl-c2b-promotion.md`.
 
 ## Required checkpoint lineage
 
@@ -53,7 +62,8 @@ Each stage is a new run initialized with policy weights only. Do not restore the
 Run from this worktree after replacing the uppercase placeholders with an existing run directory name and exact
 checkpoint filename/path. The measured tasks automatically force CPU simulation, CPU policy optimization, 256
 training environments, 16 minibatches, 500 iterations, a 25-iteration save interval, and the native extension.
-The explicit flags below make the authority boundary visible.
+They also default to sequential checkpoint evaluation. The explicit `--train-only` flags below make the authority
+boundary independent of launcher-default changes.
 
 ```bash
 cd /home/zn/IsaacLab/.worktrees/native-multibody-rl
@@ -72,6 +82,7 @@ TERM=xterm ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
   --agent-num-mini-batches 16 \
   --max-iterations 500 \
   --save-interval 25 \
+  --train-only \
   --seed 0 \
   --load_weights_only \
   --load_run C1_RUN_DIRECTORY \
@@ -92,6 +103,7 @@ TERM=xterm ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
   --agent-num-mini-batches 16 \
   --max-iterations 500 \
   --save-interval 25 \
+  --train-only \
   --seed 0 \
   --load_weights_only \
   --load_run C2A_RUN_DIRECTORY \
@@ -101,7 +113,7 @@ TERM=xterm ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
   --headless
 ```
 
-C2c after C2b promotion:
+C2c from the accepted C2b checkpoint:
 
 ```bash
 TERM=xterm ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
@@ -112,20 +124,23 @@ TERM=xterm ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
   --agent-num-mini-batches 16 \
   --max-iterations 500 \
   --save-interval 25 \
+  --train-only \
   --seed 0 \
   --load_weights_only \
-  --load_run C2B_RUN_DIRECTORY \
-  --checkpoint C2B_PROMOTED_CHECKPOINT.pt \
+  --load_run 2026-08-12_10-45-45_pure_rl_c2b_seed0 \
+  --checkpoint model_475.pt \
   --source-stage c2b \
-  --source-checkpoint-path /home/zn/IsaacLab/.worktrees/native-multibody-rl/logs/rsl_rl/flapping_bot_straight_flight/C2B_RUN_DIRECTORY/C2B_PROMOTED_CHECKPOINT.pt \
+  --source-checkpoint-path /home/zn/IsaacLab/.worktrees/native-multibody-rl/logs/rsl_rl/flapping_bot_straight_flight/2026-08-12_10-45-45_pure_rl_c2b_seed0/model_475.pt \
   --headless
 ```
 
 ## Evaluation and promotion procedure
 
-The launcher saves and watches checkpoints every 25 PPO iterations under the 256-environment default. For
-C2a/C2b/C2c it automatically selects the corresponding 80/112/144-case fixed suite. Sample-equivalent promotion
-eligibility begins after 614,400 transitions, which maps to iteration 50 for 256 environments.
+The launcher saves checkpoints every 25 PPO iterations under the 256-environment default. Measured PureRL
+authority runs do not start a concurrent watcher; evaluate the saved checkpoints sequentially in fresh processes.
+If `--concurrent-eval` is deliberately enabled for a non-authority experiment, C2a/C2b/C2c automatically select
+the corresponding 80/112/112-case fixed suite. Sample-equivalent promotion eligibility begins after 614,400
+transitions, which maps to iteration 50 for 256 environments.
 
 For every candidate checkpoint at iteration 50 or later under the 256-environment default:
 
@@ -137,11 +152,13 @@ For every candidate checkpoint at iteration 50 or later under the 256-environmen
 
 The C2 hard gates are overall survival at least 0.95, climb and descent success each at least 0.90, recovery reached at least 0.95, mean absolute cross-track and height error each at most 0.50 m, p95 absolute height error at most 1.50 m, reverse-motion fraction at most 0.01, and finite metrics. C1 retention additionally requires success at least 0.95, termination at most 0.05, score drop at most five, and mean errors within `max(2 * source baseline, 0.25 m)`.
 
-The watcher intentionally records C2 selection as retention-incomplete until matching C1 evidence is supplied. Therefore, do not treat a watcher-side C2 score or a diagnostic +/-10 degree result as promotion by itself.
+Concurrent watcher output, when explicitly enabled, records C2 selection as retention-incomplete until matching
+C1 evidence is supplied. Therefore, do not treat a watcher-side C2 score or a stage diagnostic result as
+promotion by itself.
 
 ## Deferred work
 
-- C2b and C2c convergence and stage durations remain unverified.
-- C1 retention evaluation is still required for each C2b/C2c promotion candidate.
+- C2c convergence and stage duration remain unverified.
+- C1 retention evaluation is still required for each C2c promotion candidate.
 - Wind, C3 lateral/composite geometry, direct-GPU screening, and reward-weight tuning are outside this handoff.
 - CPU-native results are authoritative; no GPU plant equivalence is claimed.

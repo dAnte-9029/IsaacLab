@@ -33,10 +33,14 @@ from pure_rl_eval_common import (  # noqa: E402
     summarize_pure_rl_episode,
 )
 from pure_rl_playback_common import (  # noqa: E402
+    MEASURED_PURE_RL_C2B_TASK_ID,
     PLAYBACK_SCHEMA_VERSION,
     build_gif_command,
     compute_route_visual_geometry,
     numeric_metrics_are_finite,
+    playback_case_succeeded,
+    resolve_explicit_checkpoint,
+    resolve_playback_case,
     resolve_successful_checkpoint,
     sha256_file,
     validate_new_playback_outputs,
@@ -47,7 +51,19 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Replay a successful PureRL checkpoint with route visualization and MP4/GIF recording."
     )
-    parser.add_argument("--run-dir", type=Path, required=True, help="Training run containing eval/best_checkpoint.json.")
+    parser.add_argument(
+        "--task",
+        type=str,
+        default=MEASURED_PURE_RL_TASK_ID,
+        choices=(MEASURED_PURE_RL_TASK_ID, MEASURED_PURE_RL_C2B_TASK_ID),
+    )
+    parser.add_argument("--run-dir", type=Path, required=True, help="Training run containing the checkpoint.")
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help="Explicit promoted checkpoint inside --run-dir; otherwise use eval/best_checkpoint.json.",
+    )
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory for MP4, GIF and JSON manifest.")
     parser.add_argument("--name", type=str, required=True, help="Filename stem for playback artifacts.")
     parser.add_argument("--heading-deg", type=float, default=0.0, help="Fixed world route heading in degrees.")
@@ -61,6 +77,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--route-behind-m", type=float, default=10.0)
     parser.add_argument("--route-ahead-m", type=float, default=100.0)
     parser.add_argument("--trail-stride", type=int, default=6, help="Policy steps between trail markers.")
+    parser.add_argument("--longitudinal-slope-deg", type=float, default=6.0)
+    parser.add_argument("--longitudinal-entry-length-m", type=float, default=17.5)
+    parser.add_argument("--longitudinal-slope-length-m", type=float, default=25.0)
     parser.add_argument("--seed", type=int, default=0, help="Environment seed for reproducibility.")
     AppLauncher.add_app_launcher_args(parser)
     args = parser.parse_args()
@@ -74,7 +93,19 @@ def _parse_args() -> argparse.Namespace:
 
 
 args_cli = _parse_args()
-selection = resolve_successful_checkpoint(args_cli.run_dir)
+playback_case = resolve_playback_case(
+    task=args_cli.task,
+    heading_deg=args_cli.heading_deg,
+    flap_phase_deg=args_cli.flap_phase_deg,
+    longitudinal_slope_deg=args_cli.longitudinal_slope_deg,
+    longitudinal_entry_length_m=args_cli.longitudinal_entry_length_m,
+    longitudinal_slope_length_m=args_cli.longitudinal_slope_length_m,
+)
+selection = (
+    resolve_successful_checkpoint(args_cli.run_dir)
+    if args_cli.checkpoint is None
+    else resolve_explicit_checkpoint(args_cli.run_dir, args_cli.checkpoint)
+)
 mp4_path, gif_path, manifest_path = validate_new_playback_outputs(args_cli.output_dir, args_cli.name)
 ffmpeg_executable = shutil.which("ffmpeg")
 if ffmpeg_executable is None:
@@ -114,6 +145,7 @@ def _git_provenance() -> dict[str, Any]:
 
 def _spawn_route_visuals(env, heading_rad: float):
     import isaaclab.sim as sim_utils
+    import torch
     from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 
     env_origin_w = env.unwrapped.scene.env_origins[0].detach().cpu().tolist()
@@ -128,19 +160,55 @@ def _spawn_route_visuals(env, heading_rad: float):
         thickness_m=0.025,
         vertical_offset_m=-0.18,
     )
-    route_cfg = sim_utils.CuboidCfg(
-        size=geometry.size_xyz_m,
-        visual_material=sim_utils.PreviewSurfaceCfg(
-            diffuse_color=(0.05, 0.85, 0.08),
-            emissive_color=(0.0, 0.35, 0.0),
-        ),
-    )
-    route_cfg.func(
-        "/World/Visuals/PureRLPlayback/TargetRoute",
-        route_cfg,
-        translation=geometry.midpoint_w,
-        orientation=geometry.orientation_wxyz,
-    )
+    path_markers = None
+    if playback_case.stage_id is None:
+        route_cfg = sim_utils.CuboidCfg(
+            size=geometry.size_xyz_m,
+            visual_material=sim_utils.PreviewSurfaceCfg(
+                diffuse_color=(0.05, 0.85, 0.08),
+                emissive_color=(0.0, 0.35, 0.0),
+            ),
+        )
+        route_cfg.func(
+            "/World/Visuals/PureRLPlayback/TargetRoute",
+            route_cfg,
+            translation=geometry.midpoint_w,
+            orientation=geometry.orientation_wxyz,
+        )
+    else:
+        path = env.unwrapped._pure_rl_longitudinal_path
+        if path is None:
+            raise RuntimeError("C2 playback did not allocate longitudinal path state.")
+        progress_m = torch.linspace(
+            -float(args_cli.route_behind_m),
+            float(args_cli.route_ahead_m),
+            96,
+            device=env.unwrapped.device,
+        )
+        env_origin_tensor_w = env.unwrapped.scene.env_origins[0]
+        tangent_xy = env.unwrapped._straight_line_tangent_w[0, :2]
+        xy_w = env_origin_tensor_w[:2] + progress_m.unsqueeze(1) * tangent_xy.unsqueeze(0)
+        slope_progress_m = torch.clamp(
+            progress_m - path.entry_length_m[0],
+            min=0.0,
+            max=float(path.slope_length_m[0].item()),
+        )
+        altitude_m = path.initial_altitude_m[0] + torch.tan(path.signed_slope_rad[0]) * slope_progress_m
+        target_points_w = torch.cat((xy_w, altitude_m.unsqueeze(1)), dim=1)
+        path_marker_cfg = VisualizationMarkersCfg(
+            prim_path="/World/Visuals/PureRLPlayback/TargetPath",
+            markers={
+                "target": sim_utils.SphereCfg(
+                    radius=0.065,
+                    visual_material=sim_utils.PreviewSurfaceCfg(
+                        diffuse_color=(0.05, 0.95, 0.08),
+                        emissive_color=(0.0, 0.4, 0.0),
+                    ),
+                )
+            },
+        )
+        path_markers = VisualizationMarkers(path_marker_cfg)
+        path_markers.visualize(translations=target_points_w)
 
     marker_cfg = VisualizationMarkersCfg(
         prim_path="/World/Visuals/PureRLPlayback/Markers",
@@ -171,7 +239,7 @@ def _spawn_route_visuals(env, heading_rad: float):
     markers = VisualizationMarkers(marker_cfg)
     route_origin_w = env.unwrapped.scene.env_origins[0].clone()
     route_origin_w[2] += env.unwrapped._height_cmd[0]
-    return markers, route_origin_w
+    return markers, route_origin_w, path_markers
 
 
 def _update_markers(env, markers, route_origin_w, trail_w: list):
@@ -179,8 +247,13 @@ def _update_markers(env, markers, route_origin_w, trail_w: list):
 
     root_position_w = env.unwrapped._robot.data.root_pos_w[0].detach().clone()
     tangent_w = env.unwrapped._straight_line_tangent_w[0]
-    progress_m = torch.sum((root_position_w - route_origin_w) * tangent_w)
-    closest_target_w = route_origin_w + progress_m * tangent_w
+    if playback_case.stage_id is None:
+        progress_m = torch.sum((root_position_w - route_origin_w) * tangent_w)
+        closest_target_w = route_origin_w + progress_m * tangent_w
+    else:
+        query = env.unwrapped._query_pure_rl_longitudinal_path()
+        closest_target_w = env.unwrapped.scene.env_origins[0] + query.horizontal_progress_m[0] * tangent_w
+        closest_target_w[2] = env.unwrapped.scene.env_origins[0, 2] + query.reference_altitude_m[0]
     translations = torch.stack([route_origin_w, closest_target_w, *trail_w], dim=0)
     marker_indices = torch.tensor(
         [0, 1] + [2] * len(trail_w),
@@ -201,7 +274,7 @@ def main() -> None:
     import isaaclab_tasks  # noqa: F401
     from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry, parse_env_cfg
 
-    env_cfg = parse_env_cfg(MEASURED_PURE_RL_TASK_ID, device="cpu", num_envs=1)
+    env_cfg = parse_env_cfg(playback_case.task, device="cpu", num_envs=1)
     heading_rad = math.radians(float(args_cli.heading_deg))
     flap_phase_rad = math.radians(float(args_cli.flap_phase_deg))
     env_cfg.seed = int(args_cli.seed)
@@ -211,19 +284,36 @@ def main() -> None:
     env_cfg.randomize_flap_phase_at_reset = False
     env_cfg.pure_rl_eval_heading_schedule_rad = (heading_rad,)
     env_cfg.pure_rl_eval_flap_phase_schedule_rad = (flap_phase_rad,)
+    if playback_case.stage_id == "c2b":
+        assert playback_case.longitudinal_task_id is not None
+        assert playback_case.longitudinal_slope_deg is not None
+        assert playback_case.longitudinal_entry_length_m is not None
+        assert playback_case.longitudinal_slope_length_m is not None
+        env_cfg.pure_rl_eval_longitudinal_task_schedule = (playback_case.longitudinal_task_id,)
+        env_cfg.pure_rl_eval_longitudinal_slope_deg_schedule = (playback_case.longitudinal_slope_deg,)
+        env_cfg.pure_rl_eval_entry_length_m_schedule = (playback_case.longitudinal_entry_length_m,)
+        env_cfg.pure_rl_eval_slope_length_m_schedule = (playback_case.longitudinal_slope_length_m,)
     env_cfg.wind_enabled = False
     env_cfg.wind_ou_enabled = False
     env_cfg.viewer.resolution = (int(args_cli.width), int(args_cli.height))
     env_cfg.viewer.eye = (-6.0, -10.0, 4.0)
     env_cfg.viewer.lookat = (2.0, 0.0, 0.0)
+    robot_asset_path = (
+        _REPO_ROOT
+        / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf"
+    ).resolve()
+    robot_usd_dir = (args_cli.output_dir.expanduser().resolve() / "generated_assets/flap_robot_552").resolve()
+    robot_usd_dir.mkdir(parents=True, exist_ok=True)
+    env_cfg.robot.spawn.asset_path = str(robot_asset_path)
+    env_cfg.robot.spawn.usd_dir = str(robot_usd_dir)
 
-    agent_cfg = load_cfg_from_registry(MEASURED_PURE_RL_TASK_ID, "rsl_rl_cfg_entry_point")
+    agent_cfg = load_cfg_from_registry(playback_case.task, "rsl_rl_cfg_entry_point")
     agent_cfg.device = "cpu"
     agent_cfg_dict = agent_cfg.to_dict()
     agent_cfg_dict["device"] = "cpu"
 
     args_cli.output_dir.expanduser().resolve().mkdir(parents=True, exist_ok=True)
-    base_env = gym.make(MEASURED_PURE_RL_TASK_ID, cfg=env_cfg, render_mode="rgb_array")
+    base_env = gym.make(playback_case.task, cfg=env_cfg, render_mode="rgb_array")
     env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg_dict.get("clip_actions"))
     runner = OnPolicyRunner(env, agent_cfg_dict, log_dir=None, device="cpu")
     runner.load(str(selection.checkpoint))
@@ -245,7 +335,7 @@ def main() -> None:
             f"--record-fps must divide the {policy_hz:.6f} Hz policy rate exactly; got {args_cli.record_fps}."
         )
 
-    markers, route_origin_w = _spawn_route_visuals(env, heading_rad)
+    markers, route_origin_w, _path_markers = _spawn_route_visuals(env, heading_rad)
     trail_w = [env.unwrapped._robot.data.root_pos_w[0].detach().clone()]
     _update_markers(env, markers, route_origin_w, trail_w)
     obs = env.get_observations()
@@ -262,6 +352,8 @@ def main() -> None:
         "tail_limit_active",
         "normalized_action_delta",
     )
+    if playback_case.stage_id == "c2b":
+        metric_names = (*metric_names, "reached_recovery")
     episode_metrics = {name: [] for name in metric_names}
     max_steps = int(round(float(args_cli.duration_s) * policy_hz)) + 2
     writer = imageio.get_writer(
@@ -279,16 +371,34 @@ def main() -> None:
     rendered_frame_count = 0
     max_rendered_frame_std = 0.0
 
+    def render_frame():
+        """Render one camera frame without advancing physics."""
+
+        root_position_w = base_env.unwrapped._robot.data.root_pos_w[0].detach().cpu()
+        eye = root_position_w + root_position_w.new_tensor((-7.0, -11.0, 4.5))
+        target = root_position_w + root_position_w.new_tensor((3.0, 0.0, 0.0))
+        base_env.unwrapped.sim.set_camera_view(eye.tolist(), target.tolist())
+        return base_env.unwrapped.render()
+
     def append_rendered_frame() -> None:
         nonlocal rendered_frame_count, max_rendered_frame_std
-        frame = base_env.unwrapped.render()
+        frame = render_frame()
         frame_std = float(frame.std())
         rendered_frame_count += 1
         max_rendered_frame_std = max(max_rendered_frame_std, frame_std)
         writer.append_data(frame)
 
     try:
-        append_rendered_frame()
+        for _ in range(30):
+            initial_frame = render_frame()
+            initial_frame_std = float(initial_frame.std())
+            if initial_frame_std >= 1.0:
+                writer.append_data(initial_frame)
+                rendered_frame_count = 1
+                max_rendered_frame_std = initial_frame_std
+                break
+        else:
+            raise RuntimeError("Playback renderer did not produce a non-blank initial frame after warmup.")
         for step in range(max_steps):
             with torch.inference_mode():
                 actions = policy(obs)
@@ -345,6 +455,25 @@ def main() -> None:
         case=case,
         episode_rows=[episode_row],
     )
+    recovery_reached = bool(
+        playback_case.stage_id == "c2b"
+        and any(bool(value) for value in episode_metrics["reached_recovery"])
+    )
+    playback_success = playback_case_succeeded(
+        stage_id=playback_case.stage_id,
+        terminated=terminated,
+        c1_success_gate_passed=int(result_row["success_gate_passed"]) == 1,
+        recovery_reached=recovery_reached,
+    )
+    result_row.update(
+        {
+            "stage_id": playback_case.stage_id,
+            "longitudinal_task": playback_case.longitudinal_task,
+            "longitudinal_slope_deg": playback_case.longitudinal_slope_deg,
+            "recovery_reached": recovery_reached,
+            "playback_success": playback_success,
+        }
+    )
     required_metrics = (
         "score",
         "timeout_rate",
@@ -368,7 +497,7 @@ def main() -> None:
     )
     manifest = {
         "schema_version": PLAYBACK_SCHEMA_VERSION,
-        "task": MEASURED_PURE_RL_TASK_ID,
+        "task": playback_case.task,
         "command": [sys.executable, *sys.argv],
         "git": _git_provenance(),
         "run_dir": str(selection.run_dir),
@@ -380,6 +509,11 @@ def main() -> None:
             "heading_deg": float(args_cli.heading_deg),
             "flap_phase_deg": float(args_cli.flap_phase_deg),
             "wind_xy_mps": [0.0, 0.0],
+            "stage_id": playback_case.stage_id,
+            "longitudinal_task": playback_case.longitudinal_task,
+            "longitudinal_slope_deg": playback_case.longitudinal_slope_deg,
+            "longitudinal_entry_length_m": playback_case.longitudinal_entry_length_m,
+            "longitudinal_slope_length_m": playback_case.longitudinal_slope_length_m,
         },
         "recording": {
             "steps": steps,
@@ -402,15 +536,15 @@ def main() -> None:
                 "mp4": str(mp4_path),
                 "gif": str(gif_path),
                 "manifest": str(manifest_path),
-                "success_gate_passed": result_row["success_gate_passed"],
+                "playback_success": playback_success,
                 "score": result_row["score"],
             },
             sort_keys=True,
         ),
         flush=True,
     )
-    if int(result_row["success_gate_passed"]) != 1:
-        raise RuntimeError(f"Playback did not pass the curriculum-1 success gate: {result_row}")
+    if not playback_success:
+        raise RuntimeError(f"Playback did not pass its stage success requirement: {result_row}")
 
 
 if __name__ == "__main__":

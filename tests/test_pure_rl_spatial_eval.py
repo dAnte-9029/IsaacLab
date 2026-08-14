@@ -16,7 +16,7 @@ sys.modules[SPEC.name] = pure_rl_spatial_eval
 SPEC.loader.exec_module(pure_rl_spatial_eval)
 
 
-@pytest.mark.parametrize(("stage", "count"), (("c3a", 96), ("c3b", 112), ("c3c", 96)))
+@pytest.mark.parametrize(("stage", "count"), (("c3a", 96), ("c3b", 176), ("c3c", 96)))
 def test_spatial_grids_have_exact_counts_and_unique_ids(stage: str, count: int) -> None:
     cases = pure_rl_spatial_eval.build_spatial_evaluation_grid(stage)
     assert len(cases) == count
@@ -32,20 +32,31 @@ def test_spatial_grids_cover_approved_slices() -> None:
 
     c3b = pure_rl_spatial_eval.build_spatial_evaluation_grid("c3b")
     assert {case.template_id for case in c3b} == set(range(3, 10))
-    assert all(sum(item.template_id == template for item in c3b) == 16 for template in range(3, 10))
+    assert all(sum(item.template_id == template for item in c3b) == 16 for template in (3, 4, 9))
+    assert all(sum(item.template_id == template for item in c3b) == 32 for template in (5, 6, 7, 8))
+    assert {abs(case.slope_deg) for case in c3b if case.slope_deg != 0.0} == {8.0, 12.0}
     assert {case.turn_sign for case in c3b} == {-1, 1}
 
     c3c = pure_rl_spatial_eval.build_spatial_evaluation_grid("c3c")
     assert {(case.geometry_roll_deg, abs(case.slope_deg)) for case in c3c} == {
-        (8.0, 2.0),
-        (12.0, 3.0),
-        (16.0, 3.0),
+        (8.0, 4.0),
+        (12.0, 7.0),
+        (6.0, 9.0),
     }
     assert {(case.turn_sign, case.vertical_sign) for case in c3c} == {
         (-1, -1),
         (-1, 1),
         (1, -1),
         (1, 1),
+    }
+    assert all((case.geometry_roll_deg / 20.0) ** 2 + (abs(case.slope_deg) / 10.0) ** 2 <= 1.0 for case in c3c)
+
+
+def test_spatial_stages_use_version_two_evaluation_contracts() -> None:
+    assert pure_rl_spatial_eval.SPATIAL_EVAL_CONTRACTS == {
+        "c3a": "pure_rl_spatial_c3a_v2",
+        "c3b": "pure_rl_spatial_c3b_v2",
+        "c3c": "pure_rl_spatial_c3c_v2",
     }
 
 

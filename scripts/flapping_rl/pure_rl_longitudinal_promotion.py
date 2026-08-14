@@ -6,7 +6,7 @@ import math
 from typing import Mapping, Sequence
 
 from pure_rl_eval_common import PURE_RL_CURRICULUM1_EVAL_CONTRACT
-from pure_rl_longitudinal_eval import row_meets_longitudinal_promotion_gate
+from pure_rl_longitudinal_eval import LONGITUDINAL_EVAL_CONTRACTS, row_meets_longitudinal_promotion_gate
 
 
 _REFERENCE_NUM_ENVS = 64
@@ -100,6 +100,9 @@ def evaluate_longitudinal_promotion(
         iteration = _required_iteration(row)
         if str(row.get("stage_id", "")).strip().lower() != stage:
             raise ValueError(f"Evaluation row stage does not match {stage}: {checkpoint}")
+        expected_contract = LONGITUDINAL_EVAL_CONTRACTS[stage]
+        if str(row.get("evaluation_contract", "")).strip() != expected_contract:
+            raise ValueError(f"Evaluation row must use {expected_contract}: {checkpoint}")
         if not bool(row.get("grid_complete")):
             raise ValueError(f"Incomplete longitudinal evaluation grid: {checkpoint}")
         if int(row.get("climb_case_count", 0)) <= 0 or int(row.get("descent_case_count", 0)) <= 0:

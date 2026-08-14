@@ -51,7 +51,7 @@ def evaluate_spatial_promotion(
         iteration = _required_iteration(row)
         if str(row.get("stage_id", "")).strip().lower() != stage:
             raise ValueError(f"Evaluation row stage does not match {stage}: {checkpoint}")
-        expected_contract = f"pure_rl_spatial_{stage}_v1"
+        expected_contract = SPATIAL_EVAL_CONTRACTS[stage]
         if str(row.get("evaluation_contract", "")).strip() != expected_contract:
             raise ValueError(f"Evaluation row must use {expected_contract}: {checkpoint}")
         _validate_spatial_evaluation(row)

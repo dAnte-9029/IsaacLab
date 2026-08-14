@@ -26,7 +26,7 @@ def test_stage_configs_freeze_geometry_and_task_weights():
     assert LONGITUDINAL_STAGE_CONFIGS["c2a"].task_probabilities == (0.50, 0.25, 0.25)
     assert LONGITUDINAL_STAGE_CONFIGS["c2b"].absolute_slope_deg_range == (2.0, 6.0)
     assert LONGITUDINAL_STAGE_CONFIGS["c2b"].task_probabilities == (0.30, 0.35, 0.35)
-    assert LONGITUDINAL_STAGE_CONFIGS["c2c"].absolute_slope_deg_range == (2.0, 8.0)
+    assert LONGITUDINAL_STAGE_CONFIGS["c2c"].absolute_slope_deg_range == (4.0, 12.0)
     assert LONGITUDINAL_STAGE_CONFIGS["c2c"].task_probabilities == (0.25, 0.375, 0.375)
 ```
 
@@ -272,7 +272,7 @@ git commit -m "feat(env): integrate longitudinal PureRL curriculum"
 
 **Step 1: Write failing grid tests**
 
-Require exact case counts: C2a 80, C2b 112, C2c 144, with the Cartesian product of approved slopes, four headings, and four phases. Require signed 10-degree cases in a separate diagnostic grid.
+Require exact case counts: C2a 80, C2b 112, C2c 112, with the Cartesian product of approved slopes, four headings, and four phases. C2a/C2b retain signed 10-degree diagnostics; require signed 15-degree C2c cases in a separate diagnostic grid.
 
 **Step 2: Implement pure grid generation**
 
@@ -446,7 +446,7 @@ Document:
 3. require two consecutive C2a plus C1-retention passes;
 4. start a new C2b run from the promoted C2a checkpoint;
 5. repeat for C2c;
-6. keep signed-10-degree diagnostics out of selection.
+6. keep stage-specific diagnostics out of selection.
 
 Include exact `train_and_watch.py` commands only after task registration and launcher tests establish the supported CLI.
 

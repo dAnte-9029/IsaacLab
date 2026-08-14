@@ -11,6 +11,10 @@ from typing import Mapping, Sequence
 
 
 PLAYBACK_SCHEMA_VERSION = "pure_rl_playback_v1"
+MEASURED_PURE_RL_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0"
+MEASURED_PURE_RL_C2B_TASK_ID = (
+    "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0"
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +33,85 @@ class RouteVisualGeometry:
     midpoint_w: tuple[float, float, float]
     orientation_wxyz: tuple[float, float, float, float]
     size_xyz_m: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class PlaybackCase:
+    """Validated deterministic condition for one PureRL playback."""
+
+    task: str
+    stage_id: str | None
+    heading_deg: float
+    flap_phase_deg: float
+    longitudinal_task_id: int | None = None
+    longitudinal_task: str | None = None
+    longitudinal_slope_deg: float | None = None
+    longitudinal_entry_length_m: float | None = None
+    longitudinal_slope_length_m: float | None = None
+
+
+def resolve_playback_case(
+    *,
+    task: str,
+    heading_deg: float,
+    flap_phase_deg: float,
+    longitudinal_slope_deg: float,
+    longitudinal_entry_length_m: float,
+    longitudinal_slope_length_m: float,
+) -> PlaybackCase:
+    """Resolve the supported C1 or C2b deterministic playback condition."""
+
+    heading = float(heading_deg)
+    phase = float(flap_phase_deg)
+    values = (
+        heading,
+        phase,
+        float(longitudinal_slope_deg),
+        float(longitudinal_entry_length_m),
+        float(longitudinal_slope_length_m),
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("Playback condition values must be finite.")
+    if task == MEASURED_PURE_RL_TASK_ID:
+        return PlaybackCase(task=task, stage_id=None, heading_deg=heading, flap_phase_deg=phase)
+    if task != MEASURED_PURE_RL_C2B_TASK_ID:
+        raise ValueError(f"Unsupported PureRL playback task: {task}")
+
+    slope = float(longitudinal_slope_deg)
+    if abs(slope) < 2.0 or abs(slope) > 6.0:
+        raise ValueError("C2b playback slope magnitude must be within 2--6 degrees.")
+    entry_length = float(longitudinal_entry_length_m)
+    slope_length = float(longitudinal_slope_length_m)
+    if entry_length <= 0.0 or slope_length <= 0.0:
+        raise ValueError("C2b playback path lengths must be positive.")
+    task_id = 1 if slope > 0.0 else 2
+    return PlaybackCase(
+        task=task,
+        stage_id="c2b",
+        heading_deg=heading,
+        flap_phase_deg=phase,
+        longitudinal_task_id=task_id,
+        longitudinal_task="climb" if slope > 0.0 else "descent",
+        longitudinal_slope_deg=slope,
+        longitudinal_entry_length_m=entry_length,
+        longitudinal_slope_length_m=slope_length,
+    )
+
+
+def playback_case_succeeded(
+    *,
+    stage_id: str | None,
+    terminated: bool,
+    c1_success_gate_passed: bool,
+    recovery_reached: bool,
+) -> bool:
+    """Apply the stage-appropriate success requirement to one playback episode."""
+
+    if stage_id is None:
+        return bool(c1_success_gate_passed)
+    if stage_id == "c2b":
+        return not bool(terminated) and bool(recovery_reached)
+    raise ValueError(f"Unsupported playback stage: {stage_id}")
 
 
 def resolve_successful_checkpoint(run_dir: Path) -> SuccessfulCheckpoint:
@@ -59,6 +142,33 @@ def resolve_successful_checkpoint(run_dir: Path) -> SuccessfulCheckpoint:
         run_dir=resolved_run_dir,
         checkpoint=checkpoint,
         selection_row=dict(selection),
+    )
+
+
+def resolve_explicit_checkpoint(run_dir: Path, checkpoint: Path) -> SuccessfulCheckpoint:
+    """Resolve an explicitly approved checkpoint within its training run."""
+
+    resolved_run_dir = Path(run_dir).expanduser().resolve()
+    if not resolved_run_dir.is_dir():
+        raise NotADirectoryError(resolved_run_dir)
+    resolved_checkpoint = Path(checkpoint).expanduser()
+    if not resolved_checkpoint.is_absolute():
+        resolved_checkpoint = resolved_run_dir / resolved_checkpoint
+    resolved_checkpoint = resolved_checkpoint.resolve()
+    if resolved_checkpoint.parent != resolved_run_dir:
+        raise ValueError(f"Explicit checkpoint is outside its run directory: {resolved_checkpoint}")
+    if resolved_checkpoint.suffix != ".pt" or not resolved_checkpoint.is_file():
+        raise FileNotFoundError(resolved_checkpoint)
+    stem_parts = resolved_checkpoint.stem.split("_", maxsplit=1)
+    ckpt_index = int(stem_parts[1]) if len(stem_parts) == 2 and stem_parts[1].isdigit() else -1
+    return SuccessfulCheckpoint(
+        run_dir=resolved_run_dir,
+        checkpoint=resolved_checkpoint,
+        selection_row={
+            "checkpoint": str(resolved_checkpoint),
+            "ckpt_index": ckpt_index,
+            "selection_source": "explicit_promoted_checkpoint",
+        },
     )
 
 

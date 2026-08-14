@@ -10,13 +10,18 @@ from typing import Mapping, Sequence
 LONGITUDINAL_EVAL_CONTRACTS: dict[str, str] = {
     "c2a": "pure_rl_longitudinal_c2a_v1",
     "c2b": "pure_rl_longitudinal_c2b_v1",
-    "c2c": "pure_rl_longitudinal_c2c_v1",
+    "c2c": "pure_rl_longitudinal_c2c_v2",
 }
 
 _PROMOTION_ANGLES_DEG: dict[str, tuple[float, ...]] = {
     "c2a": (0.0, -2.0, 2.0, -4.0, 4.0),
     "c2b": (0.0, -2.0, 2.0, -4.0, 4.0, -6.0, 6.0),
-    "c2c": (0.0, -2.0, 2.0, -4.0, 4.0, -6.0, 6.0, -8.0, 8.0),
+    "c2c": (0.0, -4.0, 4.0, -8.0, 8.0, -12.0, 12.0),
+}
+_DIAGNOSTIC_ANGLES_DEG: dict[str, tuple[float, float]] = {
+    "c2a": (-10.0, 10.0),
+    "c2b": (-10.0, 10.0),
+    "c2c": (-15.0, 15.0),
 }
 _CARDINAL_ANGLES_RAD: tuple[float, ...] = (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0)
 
@@ -63,10 +68,10 @@ def build_longitudinal_evaluation_grid(stage_id: str) -> tuple[PureRLLongitudina
 
 
 def build_longitudinal_diagnostic_grid(stage_id: str) -> tuple[PureRLLongitudinalEvaluationCase, ...]:
-    """Build signed ten-degree extrapolation cases excluded from promotion."""
+    """Build stage-specific extrapolation cases excluded from promotion."""
 
     stage = _validate_stage_id(stage_id)
-    return _build_grid(stage, (-10.0, 10.0), promotion_eligible=False)
+    return _build_grid(stage, _DIAGNOSTIC_ANGLES_DEG[stage], promotion_eligible=False)
 
 
 def summarize_longitudinal_evaluation(
@@ -103,6 +108,7 @@ def summarize_longitudinal_evaluation(
     survived: list[float] = []
     recovered: list[float] = []
     success_by_task: dict[str, list[float]] = {"level": [], "climb": [], "descent": []}
+    slope_rows: dict[float, list[Mapping[str, object]]] = {}
     finite_flags: list[bool] = []
     for case in cases:
         row = rows_by_id[case.case_id]
@@ -116,6 +122,8 @@ def summarize_longitudinal_evaluation(
         survived.append(float(not _strict_bool(row.get("terminated"), name="terminated")))
         recovered.append(float(_strict_bool(row.get("recovery_reached"), name="recovery_reached")))
         success_by_task[case.task].append(float(_strict_bool(row.get("success"), name="success")))
+        _termination_causes(row)
+        slope_rows.setdefault(case.signed_slope_deg, []).append(row)
         finite_flags.append(_strict_bool(row.get("finite_metrics"), name="finite_metrics"))
 
     absolute_cross_track = [abs(value) for value in cross_track_samples]
@@ -150,11 +158,49 @@ def summarize_longitudinal_evaluation(
         "p95_abs_height_error_m": _quantile(absolute_height, 0.95),
         "reverse_motion_fraction": _mean([float(value < 0.0) for value in tangent_velocity_samples]),
         "finite_metrics": all(finite_flags),
+        "slope_breakdown": [
+            _summarize_slope(slope_deg, slope_rows[slope_deg])
+            for slope_deg in sorted(slope_rows)
+        ],
     }
     result["promotion_gate_passed"] = bool(
         promotion_eligible and row_meets_longitudinal_promotion_gate(result)
     )
     return result
+
+
+def _summarize_slope(
+    signed_slope_deg: float,
+    rows: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    task = "level" if signed_slope_deg == 0.0 else ("climb" if signed_slope_deg > 0.0 else "descent")
+    causes = [_termination_causes(row) for row in rows]
+    return {
+        "signed_slope_deg": float(signed_slope_deg),
+        "task": task,
+        "case_count": len(rows),
+        "survival_rate": _mean(
+            [float(not _strict_bool(row.get("terminated"), name="terminated")) for row in rows]
+        ),
+        "success_rate": _mean(
+            [float(_strict_bool(row.get("success"), name="success")) for row in rows]
+        ),
+        "recovery_reached_rate": _mean(
+            [float(_strict_bool(row.get("recovery_reached"), name="recovery_reached")) for row in rows]
+        ),
+        "termination_counts": {
+            name: sum(int(cause[name]) for cause in causes)
+            for name in ("ground", "tilt", "cross_track", "height_error")
+        },
+    }
+
+
+def _termination_causes(row: Mapping[str, object]) -> dict[str, bool]:
+    raw = row.get("termination_causes")
+    names = ("ground", "tilt", "cross_track", "height_error")
+    if not isinstance(raw, Mapping) or set(raw) != set(names):
+        raise ValueError(f"termination_causes must contain exactly {names}.")
+    return {name: _strict_bool(raw[name], name=f"termination_causes.{name}") for name in names}
 
 
 def row_meets_longitudinal_promotion_gate(

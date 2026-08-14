@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import math
 from collections.abc import Sequence
 
 import torch
@@ -9,6 +11,101 @@ import torch.nn as nn
 
 Tensor = torch.Tensor
 _SUPPORTED_TEACHER_GUIDANCE_MODES = ("envelope", "residual")
+ACTOR_DISTILLATION_MASK_KEY = "actor_distillation_mask"
+
+
+class ActorPolicyDistillationAugmentor:
+    """Provide frozen teacher targets through RSL-RL's auxiliary actor-loss hook."""
+
+    def __init__(self, policy: object, *, mask_key: str = ACTOR_DISTILLATION_MASK_KEY) -> None:
+        if bool(getattr(policy, "is_recurrent", False)):
+            raise ValueError("Actor policy distillation does not support recurrent policies.")
+        if bool(getattr(policy, "state_dependent_std", False)):
+            raise ValueError("Actor policy distillation requires a state-independent action standard deviation.")
+
+        actor = getattr(policy, "actor", None)
+        actor_normalizer = getattr(policy, "actor_obs_normalizer", None)
+        obs_groups = getattr(policy, "obs_groups", None)
+        if actor is None or actor_normalizer is None or not isinstance(obs_groups, dict):
+            raise ValueError("policy does not expose the actor observation path required for distillation.")
+
+        self.teacher_actor = copy.deepcopy(actor).eval()
+        self.teacher_actor_normalizer = copy.deepcopy(actor_normalizer).eval()
+        self.policy_obs_groups = tuple(obs_groups["policy"])
+        self.mask_key = str(mask_key)
+        self._teacher_actions: Tensor | None = None
+        self._mask: Tensor | None = None
+        for parameter in self.teacher_actor.parameters():
+            parameter.requires_grad_(False)
+        for parameter in self.teacher_actor_normalizer.parameters():
+            parameter.requires_grad_(False)
+
+    def __call__(
+        self,
+        *,
+        obs: object | None,
+        actions: Tensor | None,
+        env: object,
+    ) -> tuple[object | None, Tensor | None]:
+        """Duplicate observations and replace old-task targets with teacher means."""
+        del env
+        if (obs is None) == (actions is None):
+            raise ValueError("exactly one of obs or actions must be provided.")
+
+        if obs is not None:
+            if self.mask_key not in obs:
+                raise ValueError(f"distillation mask observation {self.mask_key!r} is missing.")
+            mask = obs[self.mask_key]
+            if mask.ndim != 2 or mask.shape[1] != 1:
+                raise ValueError("actor distillation mask must have shape (batch, 1).")
+            actor_obs = torch.cat([obs[group] for group in self.policy_obs_groups], dim=-1)
+            with torch.inference_mode():
+                normalized_obs = self.teacher_actor_normalizer(actor_obs)
+                self._teacher_actions = self.teacher_actor(normalized_obs)
+            self._mask = mask.to(dtype=torch.bool)
+            return torch.cat((obs, obs), dim=0), None
+
+        if self._teacher_actions is None or self._mask is None:
+            raise RuntimeError("distillation observations must be processed before action targets.")
+        assert actions is not None
+        if self._teacher_actions.shape != actions.shape or self._mask.shape[0] != actions.shape[0]:
+            raise ValueError("cached teacher targets do not match the student action batch.")
+        target_actions = torch.where(self._mask, self._teacher_actions, actions.detach())
+        augmented_actions = torch.cat((actions, target_actions), dim=0)
+        self._teacher_actions = None
+        self._mask = None
+        return None, augmented_actions
+
+
+def maybe_enable_actor_policy_distillation(*, runner: object) -> bool:
+    """Attach a frozen actor teacher after weights-only policy loading."""
+    env = getattr(runner, "env", None)
+    algorithm = getattr(runner, "alg", None)
+    cfg = getattr(env, "cfg", None)
+    coefficient = float(getattr(cfg, "pure_rl_actor_distillation_coefficient", 0.0))
+    if coefficient == 0.0:
+        return False
+    if not math.isfinite(coefficient) or coefficient < 0.0:
+        raise ValueError("actor distillation coefficient must be finite and non-negative.")
+    if algorithm is None or getattr(algorithm, "policy", None) is None:
+        raise ValueError("runner does not expose a PPO policy for actor distillation.")
+    if getattr(algorithm, "symmetry", None) is not None:
+        raise ValueError("actor distillation cannot share PPO's auxiliary symmetry-loss slot.")
+
+    storage = getattr(algorithm, "storage", None)
+    stored_observations = getattr(storage, "observations", None)
+    if stored_observations is None or ACTOR_DISTILLATION_MASK_KEY not in stored_observations:
+        raise ValueError("rollout storage does not contain the actor distillation mask.")
+
+    augmentor = ActorPolicyDistillationAugmentor(algorithm.policy)
+    algorithm.symmetry = {
+        "use_data_augmentation": False,
+        "use_mirror_loss": True,
+        "data_augmentation_func": augmentor,
+        "mirror_loss_coeff": coefficient,
+        "_env": env,
+    }
+    return True
 
 
 def linear_anneal(step: int, *, start: float, end: float, duration_steps: int) -> float:
@@ -193,6 +290,12 @@ def load_runner_checkpoint_for_warm_start(
 
     infos = load_fn(checkpoint_path, load_optimizer=False, map_location=map_location)
     runner.current_learning_iteration = 0
+    if maybe_enable_actor_policy_distillation(runner=runner):
+        coefficient = float(runner.env.cfg.pure_rl_actor_distillation_coefficient)
+        print(
+            "[INFO]: Enabled frozen actor policy distillation after warm start "
+            f"(coefficient={coefficient:g})."
+        )
     return infos
 
 

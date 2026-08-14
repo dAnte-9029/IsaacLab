@@ -6,19 +6,21 @@ import math
 
 try:
     from .pure_rl_longitudinal_eval import (
+        LONGITUDINAL_EVAL_CONTRACTS,
         build_longitudinal_diagnostic_grid,
         build_longitudinal_evaluation_grid,
     )
 except ImportError:  # pragma: no cover - direct script import path
     from pure_rl_longitudinal_eval import (
+        LONGITUDINAL_EVAL_CONTRACTS,
         build_longitudinal_diagnostic_grid,
         build_longitudinal_evaluation_grid,
     )
 
 try:
-    from .pure_rl_spatial_eval import build_spatial_evaluation_grid
+    from .pure_rl_spatial_eval import SPATIAL_EVAL_CONTRACTS, build_spatial_evaluation_grid
 except ImportError:  # pragma: no cover - direct script import path
-    from pure_rl_spatial_eval import build_spatial_evaluation_grid
+    from pure_rl_spatial_eval import SPATIAL_EVAL_CONTRACTS, build_spatial_evaluation_grid
 
 
 _PURE_RL_HEADINGS_RAD = (0.0, 0.5 * math.pi, math.pi, -0.5 * math.pi)
@@ -36,10 +38,10 @@ EVAL_SUITE_CHOICES = (
     "pure_rl_curriculum1_nowind_v2",
     "pure_rl_longitudinal_c2a_v1",
     "pure_rl_longitudinal_c2b_v1",
-    "pure_rl_longitudinal_c2c_v1",
-    "pure_rl_spatial_c3a_v1",
-    "pure_rl_spatial_c3b_v1",
-    "pure_rl_spatial_c3c_v1",
+    LONGITUDINAL_EVAL_CONTRACTS["c2c"],
+    SPATIAL_EVAL_CONTRACTS["c3a"],
+    SPATIAL_EVAL_CONTRACTS["c3b"],
+    SPATIAL_EVAL_CONTRACTS["c3c"],
     "path_tracking_standard",
     "path_tracking_truth_nowind_v1",
     "path_tracking_estimated_nowind_v1",
@@ -162,14 +164,13 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
             )
         ]
 
-    if eval_suite in {
-        "pure_rl_longitudinal_c2a_v1",
-        "pure_rl_longitudinal_c2b_v1",
-        "pure_rl_longitudinal_c2c_v1",
-    }:
-        stage_id = eval_suite.removeprefix("pure_rl_longitudinal_").removesuffix("_v1")
+    if eval_suite in LONGITUDINAL_EVAL_CONTRACTS.values():
+        stage_id = next(
+            stage for stage, contract in LONGITUDINAL_EVAL_CONTRACTS.items() if contract == eval_suite
+        )
         promotion_cases = build_longitudinal_evaluation_grid(stage_id)
         diagnostic_cases = build_longitudinal_diagnostic_grid(stage_id)
+        diagnostic_angle = int(max(abs(item.signed_slope_deg) for item in diagnostic_cases))
 
         def _longitudinal_case(name: str, registered_cases) -> dict:
             return _case(
@@ -187,15 +188,16 @@ def build_eval_cases(eval_suite: str) -> list[dict]:
 
         return [
             _longitudinal_case(f"{stage_id}_promotion_grid", promotion_cases),
-            _longitudinal_case(f"{stage_id}_signed_10deg_diagnostic", diagnostic_cases),
+            _longitudinal_case(
+                f"{stage_id}_signed_{diagnostic_angle}deg_diagnostic",
+                diagnostic_cases,
+            ),
         ]
 
-    if eval_suite in {
-        "pure_rl_spatial_c3a_v1",
-        "pure_rl_spatial_c3b_v1",
-        "pure_rl_spatial_c3c_v1",
-    }:
-        stage_id = eval_suite.removeprefix("pure_rl_spatial_").removesuffix("_v1")
+    if eval_suite in SPATIAL_EVAL_CONTRACTS.values():
+        stage_id = next(
+            stage for stage, contract in SPATIAL_EVAL_CONTRACTS.items() if contract == eval_suite
+        )
         registered_cases = build_spatial_evaluation_grid(stage_id)
         return [
             _case(

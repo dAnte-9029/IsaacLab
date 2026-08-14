@@ -51,9 +51,10 @@ def test_path_tracking_truth_nowind_suite_covers_required_cases() -> None:
 
 
 def test_pure_rl_longitudinal_suites_expose_promotion_and_diagnostic_schedules() -> None:
-    expected_counts = {"c2a": 80, "c2b": 112, "c2c": 144}
+    expected_counts = {"c2a": 80, "c2b": 112, "c2c": 112}
     for stage_id, count in expected_counts.items():
-        suite = f"pure_rl_longitudinal_{stage_id}_v1"
+        version = "v2" if stage_id == "c2c" else "v1"
+        suite = f"pure_rl_longitudinal_{stage_id}_{version}"
         assert suite in get_eval_suite_choices()
         promotion, diagnostic = build_eval_cases(suite)
 
@@ -67,17 +68,21 @@ def test_pure_rl_longitudinal_suites_expose_promotion_and_diagnostic_schedules()
         assert set(promotion["longitudinal_slope_length_m_schedule"]) == {25.0}
         assert promotion["promotion_eligible"] is True
 
-        assert diagnostic["name"] == f"{stage_id}_signed_10deg_diagnostic"
+        diagnostic_angle = 15 if stage_id == "c2c" else 10
+        assert diagnostic["name"] == f"{stage_id}_signed_{diagnostic_angle}deg_diagnostic"
         assert len(diagnostic["longitudinal_case_ids"]) == 32
-        assert set(diagnostic["longitudinal_slope_deg_schedule"]) == {-10.0, 10.0}
+        assert set(diagnostic["longitudinal_slope_deg_schedule"]) == {
+            -float(diagnostic_angle),
+            float(diagnostic_angle),
+        }
         assert diagnostic["promotion_eligible"] is False
 
 
 def test_spatial_suites_expose_exact_registered_schedules() -> None:
-    expected_counts = {"c3a": 96, "c3b": 112, "c3c": 96}
+    expected_counts = {"c3a": 96, "c3b": 176, "c3c": 96}
     choices = get_eval_suite_choices()
     for stage, expected_count in expected_counts.items():
-        suite = f"pure_rl_spatial_{stage}_v1"
+        suite = f"pure_rl_spatial_{stage}_v2"
         assert suite in choices
         cases = build_eval_cases(suite)
         assert len(cases) == 1

@@ -8,9 +8,9 @@ from typing import Mapping, Sequence
 
 
 SPATIAL_EVAL_CONTRACTS: dict[str, str] = {
-    "c3a": "pure_rl_spatial_c3a_v1",
-    "c3b": "pure_rl_spatial_c3b_v1",
-    "c3c": "pure_rl_spatial_c3c_v1",
+    "c3a": "pure_rl_spatial_c3a_v2",
+    "c3b": "pure_rl_spatial_c3b_v2",
+    "c3c": "pure_rl_spatial_c3c_v2",
 }
 
 _CARDINAL_HEADINGS_RAD = (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0)
@@ -18,7 +18,7 @@ _CARDINAL_PHASES_RAD = (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0)
 _HALF_PHASES_RAD = (0.0, math.pi)
 _C3A_ROLL_LEVELS_DEG = (9.0, 11.0, 13.0)
 _C3B_TEMPLATE_IDS = tuple(range(3, 10))
-_C3C_SEVERITIES = (("low", 8.0, 2.0), ("medium", 12.0, 3.0), ("high", 16.0, 3.0))
+_C3C_SEVERITIES = (("low", 8.0, 4.0), ("medium", 12.0, 7.0), ("high", 6.0, 9.0))
 
 
 @dataclass(frozen=True)
@@ -85,24 +85,28 @@ def build_spatial_evaluation_grid(stage_id: str) -> tuple[PureRLSpatialEvaluatio
                         )
     elif stage == "c3b":
         for template_id in _C3B_TEMPLATE_IDS:
-            slope_magnitude = 0.0 if template_id in (3, 4, 9) else 5.0
             vertical_sign = -1 if template_id in (6, 8) else 1
-            for turn_sign in (-1, 1):
-                for heading_index, heading in enumerate(_CARDINAL_HEADINGS_RAD):
-                    for phase_index, phase in enumerate(_HALF_PHASES_RAD):
-                        cases.append(
-                            _case(
-                                stage=stage,
-                                template_id=template_id,
-                                roll_deg=13.5,
-                                slope_deg=vertical_sign * slope_magnitude,
-                                turn_sign=turn_sign,
-                                heading=heading,
-                                phase=phase,
-                                suffix=f"tpl{template_id}_t{turn_sign:+d}_h{heading_index}_p{phase_index}",
-                                severity=f"template_{template_id}",
+            slope_magnitudes = (0.0,) if template_id in (3, 4, 9) else (8.0, 12.0)
+            for slope_magnitude in slope_magnitudes:
+                for turn_sign in (-1, 1):
+                    for heading_index, heading in enumerate(_CARDINAL_HEADINGS_RAD):
+                        for phase_index, phase in enumerate(_HALF_PHASES_RAD):
+                            cases.append(
+                                _case(
+                                    stage=stage,
+                                    template_id=template_id,
+                                    roll_deg=13.5,
+                                    slope_deg=vertical_sign * slope_magnitude,
+                                    turn_sign=turn_sign,
+                                    heading=heading,
+                                    phase=phase,
+                                    suffix=(
+                                        f"tpl{template_id}_s{slope_magnitude:02.0f}_t{turn_sign:+d}_"
+                                        f"h{heading_index}_p{phase_index}"
+                                    ),
+                                    severity=f"template_{template_id}",
+                                )
                             )
-                        )
     else:
         for severity, roll_deg, slope_magnitude in _C3C_SEVERITIES:
             for turn_sign in (-1, 1):

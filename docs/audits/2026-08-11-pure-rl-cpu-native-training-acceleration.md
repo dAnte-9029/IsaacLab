@@ -50,12 +50,18 @@ The machine-readable summary is `/home/zn/temp/pure_rl_cpu_native_benchmark_2026
 
 ## Launcher findings
 
-`train_and_watch.py` now has opt-in `--train-only`, `--agent-num-mini-batches` and
-`--disable-kit-fs-watcher` controls. Defaults are unchanged. A wrapper defect was also exposed by the host's
+At the time of this audit, `train_and_watch.py` had opt-in `--train-only`, `--agent-num-mini-batches` and
+`--disable-kit-fs-watcher` controls while the watcher default remained unchanged. A wrapper defect was also exposed by the host's
 exhausted inotify allocation: after parsing the RSL-RL run name, the parent waited for the run directory without
 reading its child's piped stdout. The high warning volume filled the pipe and stopped the child before directory
 creation. A background output forwarder now drains the pipe throughout startup and training. A regression test
 writes 200 kB before creating a child run directory and confirms the wait completes.
+
+On 2026-08-12, an authority C2b launch exposed that unchanged default as inconsistent with the benchmark
+contract: a concurrent CPU-native watcher competed with training and materially increased iteration time.
+`ADR-2026-08-12-pure-rl-sequential-evaluation-default.md` corrects the launcher policy. Measured PureRL tasks now
+default to train-only execution, `--concurrent-eval` is the explicit opt-in, and non-measured defaults are
+unchanged.
 
 The host still has `fs.inotify.max_user_watches=65536`, all of which were occupied primarily by two VS Code file
 watchers. Kit therefore still logs `errno=28` warnings. The wrapper no longer deadlocks on those warnings, but a
@@ -91,6 +97,7 @@ uses 50/25 explicitly through `build_sample_equivalent_promotion_schedule()`.
 
 The validated configuration is promoted to the measured PureRL launcher default by
 `docs/decisions/ADR-2026-08-11-pure-rl-accelerated-training-defaults.md`: 256 environments, 16 minibatches, 500
-iterations, and a 25-iteration save interval. Explicit overrides and all non-measured task defaults remain
-available. No plant, action, observation, reward, termination, curriculum geometry, physics rate or policy rate
-changed in this work. The rejected GPU implicit route remains rejected.
+iterations, a 25-iteration save interval, and sequential checkpoint evaluation as clarified by
+`docs/decisions/ADR-2026-08-12-pure-rl-sequential-evaluation-default.md`. Explicit overrides and all non-measured
+task defaults remain available. No plant, action, observation, reward, termination, curriculum geometry, physics
+rate or policy rate changed in this work. The rejected GPU implicit route remains rejected.

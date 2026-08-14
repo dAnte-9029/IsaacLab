@@ -37,7 +37,7 @@ Cover the frozen stage values and batch contract:
 def test_spatial_stage_configs_match_approved_ranges_and_probabilities():
     assert SPATIAL_STAGE_CONFIGS["c3a"].geometry_roll_deg_range == (8.0, 14.0)
     assert SPATIAL_STAGE_CONFIGS["c3b"].geometry_roll_deg_range == (10.0, 17.0)
-    assert SPATIAL_STAGE_CONFIGS["c3c"].coupled_slope_deg_range == (1.5, 6.0)
+    assert SPATIAL_STAGE_CONFIGS["c3c"].coupled_slope_deg_range == (3.0, 10.0)
     assert SPATIAL_STAGE_CONFIGS["c3a"].task_probabilities == (0.15, 0.25, 0.60)
     assert SPATIAL_STAGE_CONFIGS["c3b"].task_probabilities == (0.15, 0.20, 0.15, 0.50)
     assert SPATIAL_STAGE_CONFIGS["c3c"].task_probabilities == (0.15, 0.20, 0.15, 0.50)
@@ -52,7 +52,7 @@ def test_sampled_c3c_paths_respect_coupled_bound_and_metadata():
         generator=torch.Generator().manual_seed(7),
     )
     demand = torch.square(batch.peak_geometry_roll_rad / math.radians(20.0))
-    demand += torch.square(torch.abs(batch.peak_slope_rad) / math.radians(6.0))
+    demand += torch.square(torch.abs(batch.peak_slope_rad) / math.radians(10.0))
     assert bool(torch.all(demand <= 1.0 + 1.0e-12))
     assert batch.points_world_m.shape == (128, 1201, 3)
     assert batch.points_world_m.dtype == torch.float64
@@ -485,7 +485,7 @@ Define immutable evaluation cases and assert exact counts:
 
 ```python
 assert len(build_spatial_evaluation_grid("c3a")) == 96
-assert len(build_spatial_evaluation_grid("c3b")) == 112
+assert len(build_spatial_evaluation_grid("c3b")) == 176
 assert len(build_spatial_evaluation_grid("c3c")) == 96
 ```
 
@@ -521,7 +521,7 @@ Fail closed on incomplete grids, duplicate cases, wrong metadata, missing slices
 
 **Step 4: Wire suites and runtime collection**
 
-Add `pure_rl_spatial_c3a_v1`, `c3b_v1`, and `c3c_v1` to `eval_suites.py`. Carry fixed template, roll, slope, turn-sign, heading, and flap-phase schedules into the environment config.
+Add `pure_rl_spatial_c3a_v2`, `c3b_v2`, and `c3c_v2` to `eval_suites.py`. Carry fixed template, roll, slope, turn-sign, heading, and flap-phase schedules into the environment config.
 
 Extend `read_pure_rl_step_metrics()` only when a spatial path is active. In `watch_and_eval.py`, assert the reset schedule, collect per-step errors, tangent velocity, roll, event completion, and termination causes, then call `summarize_spatial_evaluation`. Set the default environment/episode count to the exact grid count. Do not run C1/C2 retention inside the watcher; those remain separate evidence inputs to promotion.
 

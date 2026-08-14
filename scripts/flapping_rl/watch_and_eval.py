@@ -82,10 +82,10 @@ def _resolve_eval_suite(task: str, eval_suite: str) -> str:
     if resolved == "straight_standard" and is_measured_pure_rl_task(task):
         stage_id = longitudinal_stage_for_task(task)
         if stage_id is not None:
-            return f"pure_rl_longitudinal_{stage_id}_v1"
+            return LONGITUDINAL_EVAL_CONTRACTS[stage_id]
         spatial_stage_id = spatial_stage_for_task(task)
         if spatial_stage_id is not None:
-            return f"pure_rl_spatial_{spatial_stage_id}_v1"
+            return SPATIAL_EVAL_CONTRACTS[spatial_stage_id]
         return PURE_RL_CURRICULUM1_EVAL_SUITE
     return resolved
 
@@ -128,11 +128,10 @@ def _resolve_eval_shape(
 
     stage_id = longitudinal_stage_for_task(task)
     spatial_stage_id = spatial_stage_for_task(task)
-    longitudinal_case_counts = {"c2a": 80, "c2b": 112, "c2c": 144}
-    if stage_id is not None and eval_suite == f"pure_rl_longitudinal_{stage_id}_v1":
-        default_count = longitudinal_case_counts[stage_id]
-    elif spatial_stage_id is not None and eval_suite == f"pure_rl_spatial_{spatial_stage_id}_v1":
-        default_count = {"c3a": 96, "c3b": 112, "c3c": 96}[spatial_stage_id]
+    if stage_id is not None and eval_suite == LONGITUDINAL_EVAL_CONTRACTS[stage_id]:
+        default_count = len(build_longitudinal_evaluation_grid(stage_id))
+    elif spatial_stage_id is not None and eval_suite == SPATIAL_EVAL_CONTRACTS[spatial_stage_id]:
+        default_count = len(build_spatial_evaluation_grid(spatial_stage_id))
     elif is_measured_pure_rl_task(task) and eval_suite == PURE_RL_CURRICULUM1_EVAL_SUITE:
         default_count = 16
     else:
@@ -148,6 +147,48 @@ def _resolve_eval_shape(
     return resolved_num_envs, resolved_episodes
 
 
+def _apply_robot_asset_overrides(
+    env_cfg,
+    *,
+    asset_path: str | None,
+    usd_dir: str | None,
+) -> None:
+    """Apply an explicit source asset and writable conversion cache as one contract."""
+
+    if (asset_path is None) != (usd_dir is None):
+        raise ValueError("--robot-asset-path and --robot-usd-dir must be provided together.")
+    if asset_path is None:
+        return
+
+    resolved_asset_path = Path(asset_path).expanduser().resolve()
+    if not resolved_asset_path.is_file():
+        raise FileNotFoundError(f"Robot source asset does not exist: {resolved_asset_path}")
+    resolved_usd_dir = Path(usd_dir).expanduser().resolve()
+    resolved_usd_dir.mkdir(parents=True, exist_ok=True)
+    env_cfg.robot.spawn.asset_path = str(resolved_asset_path)
+    env_cfg.robot.spawn.usd_dir = str(resolved_usd_dir)
+
+
+def _resolve_robot_asset_overrides(
+    task: str,
+    log_dir: Path,
+    *,
+    asset_path: str | None,
+    usd_dir: str | None,
+) -> tuple[str | None, str | None]:
+    """Default measured PureRL conversion to an evaluation-owned writable directory."""
+
+    if asset_path is not None or usd_dir is not None or not is_measured_pure_rl_task(task):
+        return asset_path, usd_dir
+    repo_root = Path(__file__).resolve().parents[2]
+    default_asset = (
+        repo_root
+        / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf"
+    ).resolve()
+    default_usd_dir = (log_dir / "eval/generated_assets/flap_robot_552").resolve()
+    return str(default_asset), str(default_usd_dir)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Watch a run directory and evaluate new checkpoints.")
     parser.add_argument("--task", type=str, required=True)
@@ -160,6 +201,18 @@ def _parse_args() -> argparse.Namespace:
         "--no_saved_cfg",
         action="store_true",
         help="Do not load env/agent config from <log_dir>/params/{env,agent}.yaml.",
+    )
+    parser.add_argument(
+        "--robot-asset-path",
+        type=str,
+        default=None,
+        help="Optional robot source asset override; requires --robot-usd-dir.",
+    )
+    parser.add_argument(
+        "--robot-usd-dir",
+        type=str,
+        default=None,
+        help="Writable robot conversion directory; requires --robot-asset-path.",
     )
     # fixed-command evaluation
     parser.add_argument("--vx_cmd", type=float, default=None)
@@ -367,6 +420,12 @@ def main():
     log_dir = Path(args.log_dir).expanduser().resolve()
     if not log_dir.is_dir():
         raise NotADirectoryError(log_dir)
+    args.robot_asset_path, args.robot_usd_dir = _resolve_robot_asset_overrides(
+        args.task,
+        log_dir,
+        asset_path=args.robot_asset_path,
+        usd_dir=args.robot_usd_dir,
+    )
 
     eval_dir = log_dir / "eval"
     eval_dir.mkdir(parents=True, exist_ok=True)
@@ -397,6 +456,11 @@ def main():
             env_cfg.scene.num_envs = int(args.num_envs)
 
     env_cfg.randomize_commands = False
+    _apply_robot_asset_overrides(
+        env_cfg,
+        asset_path=args.robot_asset_path,
+        usd_dir=args.robot_usd_dir,
+    )
     if args.vx_cmd is not None:
         env_cfg.vx_cmd = float(args.vx_cmd)
     if args.height_cmd is not None:
@@ -632,6 +696,16 @@ def main():
                                 "terminated": terminated,
                                 "success": (not terminated) and recovery_reached,
                                 "recovery_reached": recovery_reached,
+                                "termination_causes": {
+                                    "ground": bool(step_metrics["ground_termination"][env_id].item()),
+                                    "tilt": bool(step_metrics["tilt_termination"][env_id].item()),
+                                    "cross_track": bool(
+                                        step_metrics["cross_track_termination"][env_id].item()
+                                    ),
+                                    "height_error": bool(
+                                        step_metrics["height_termination"][env_id].item()
+                                    ),
+                                },
                                 "cross_track_error_m": trace["cross_track_error_m"],
                                 "height_error_m": trace["height_error_m"],
                                 "tangent_velocity_mps": trace["along_track_velocity_mps"],

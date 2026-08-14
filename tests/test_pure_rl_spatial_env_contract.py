@@ -111,6 +111,7 @@ def test_constructor_resolves_one_route_stage_and_rejects_both() -> None:
     assert "self._pure_rl_spatial_stage" in source
     assert "self._pure_rl_spatial_path" in source
     assert "self._pure_rl_spatial_progress_m" in source
+    assert "self._pure_rl_c2c_rehearsal_path" in source
 
 
 def test_c3_reset_samples_selected_rows_and_aligns_heading_to_first_tangent() -> None:
@@ -148,6 +149,12 @@ def test_c3_reset_samples_selected_rows_and_aligns_heading_to_first_tangent() ->
     assert heading_line < quaternion_line
     assert "self._pure_rl_history_valid[env_ids]" in source
     assert "self._pure_rl_previous_reward_action[env_ids]" in source
+    assert "resolve_longitudinal_stage" in calls
+    assert "replace" in calls
+    assert "sample_longitudinal_path_batch" in calls
+    assert "write_longitudinal_path_batch_rows_" in calls
+    assert "REHEARSAL_C2C_TASK_FAMILY_ID" in source
+    assert "sampled_c2c_path.heading_rad" in source
 
 
 def test_spatial_query_is_explicit_stable_state_and_c3_observation_keeps_555_contract() -> None:
@@ -163,6 +170,10 @@ def test_spatial_query_is_explicit_stable_state_and_c3_observation_keeps_555_con
     assert "position_world_m=self._robot.data.root_pos_w - self.scene.env_origins" in query_source
     assert "ground_velocity_world_mps=self._robot.data.root_lin_vel_w" in query_source
     assert "self._pure_rl_spatial_progress_m.copy_(query.progress_m)" in query_source
+    assert "query_longitudinal_path" in _called_names(query)
+    assert "self._pure_rl_c2c_rehearsal_path" in query_source
+    assert "REHEARSAL_C2C_TASK_FAMILY_ID" in query_source
+    assert "torch.where" in query_source
     assert "setattr" not in _called_names(query)
     assert "if self._pure_rl_spatial_stage is not None" in observation_source
     assert "self._query_pure_rl_spatial_path().preview_points_world_m" in observation_source
@@ -170,6 +181,42 @@ def test_spatial_query_is_explicit_stable_state_and_c3_observation_keeps_555_con
     assert "PURE_RL_SHARED_CONTRACT.observation_dim" in _source(
         _ann_assign(measured, "observation_space").value
     )
+
+
+def test_c3_actor_distillation_is_opt_in_and_kept_outside_policy_observation() -> None:
+    module = _module()
+    base = _class(module, "FlappingBotStraightFlightEnvCfg")
+    env = _class(module, "FlappingBotStraightFlightEnv")
+    constructor_source = _source(_method(env, "__init__"))
+    observation_source = _source(_method(env, "_get_pure_rl_observations"))
+
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_actor_distillation_coefficient").value) == 0.0
+    assert "actor_distillation_coefficient > 0.0" in constructor_source
+    assert 'spatial_stage.stage_id != \'c3a\'' in constructor_source
+    assert 'observations = {\'policy\': observation}' in observation_source
+    assert "actor_distillation_mask" in observation_source
+    assert "task_family_id <= REHEARSAL_C2C_TASK_FAMILY_ID" in observation_source
+
+
+def test_c3_adaptive_task_sampling_is_opt_in_and_uses_completed_episode_signals() -> None:
+    module = _module()
+    base = _class(module, "FlappingBotStraightFlightEnvCfg")
+    env = _class(module, "FlappingBotStraightFlightEnv")
+    constructor_source = _source(_method(env, "__init__"))
+    reset_source = _source(_method(env, "_reset_idx"))
+    dones_source = _source(_method(env, "_get_dones"))
+    update_source = _source(_method(env, "_update_pure_rl_adaptive_task_sampling"))
+
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_adaptive_task_sampling_enabled").value) is False
+    assert "spatial_stage.stage_id != 'c3a'" in constructor_source
+    assert "task_probabilities=self._pure_rl_adaptive_task_probabilities" in reset_source
+    assert "self._pure_rl_adaptive_strong_climb_probability" in reset_source
+    assert "self._update_pure_rl_adaptive_task_sampling" in dones_source
+    assert "c1_completed & ~terminated" in update_source
+    assert "strong_c2c_completed & successful_c2c_recovery" in update_source
+    assert "c3a_completed & query.reached_all_events & ~terminated" in update_source
+    assert "update_retention_aware_task_probabilities" in update_source
+    assert "AdaptiveSampling/c3a_probability" in update_source
 
 
 def test_spatial_query_is_cached_once_per_policy_step_and_reset_invalidates_it() -> None:
@@ -234,7 +281,20 @@ def test_c3_dones_use_spatial_termination_and_distinct_roll_limit_telemetry() ->
     assert "query.vertical_normal_error_m" in source
     assert "self._eval_pure_rl_roll_limit_termination.copy_(terms.roll_limit)" in source
     assert "PureRLTermination/roll_limit_fraction" in source
+    assert "REHEARSAL_C2C_TASK_FAMILY_ID" in source
+    assert "terms.roll_limit & ~c2c_rehearsal" in source
+    assert "self.cfg.pure_rl_c2c_recycle_on_recovery" in source
+    assert "c2c_rehearsal & query.reached_all_events & ~terms.terminated" in source
     assert "return (terms.terminated, timed_out)" in source
+
+
+def test_c3_reset_forwards_event_balanced_strong_climb_quota() -> None:
+    env = _class(_module(), "FlappingBotStraightFlightEnv")
+    reset_source = _source(_method(env, "_reset_idx"))
+
+    assert "climb_strong_slope_probability" in reset_source
+    assert "self.cfg.pure_rl_c2c_strong_climb_probability" in reset_source
+    assert "climb_strong_slope_minimum_deg" in reset_source
 
 
 def test_c3_configs_are_lazy_exported_without_path_tracking_or_upstream_dependencies() -> None:

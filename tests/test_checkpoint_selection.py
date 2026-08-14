@@ -371,3 +371,59 @@ def test_longitudinal_checkpoint_requires_matching_contract_and_c1_retention(tmp
     assert best is not None
     assert best["checkpoint"].endswith("model_300.pt")
     assert int(best["success_gate_passed"]) == 1
+
+
+def test_spatial_checkpoint_uses_spatial_gate_and_metrics(tmp_path: Path) -> None:
+    summary_csv = tmp_path / "summary.csv"
+    common = {
+        "case": "suite",
+        "evaluation_contract": "pure_rl_spatial_c3a_v2",
+        "stage_id": "c3a",
+        "grid_complete": True,
+        "case_count": 96,
+        "overall_survival_rate": 1.0,
+        "all_event_completion_rate": 1.0,
+        "reverse_motion_fraction": 0.0,
+        "p95_abs_roll_deg": 8.0,
+        "roll_limit_termination_count": 0,
+        "finite_metrics": True,
+        "slice_success_rates": {"left": 1.0, "right": 1.0},
+        "termination_rate": 0.0,
+        "timeout_rate": 1.0,
+    }
+    _write_summary(
+        summary_csv,
+        [
+            {
+                **common,
+                "checkpoint": str(tmp_path / "model_200.pt"),
+                "ppo_iteration": 200,
+                "overall_success_rate": 1.0,
+                "mean_abs_horizontal_error_m": 0.24,
+                "mean_abs_vertical_error_m": 0.08,
+                "p95_abs_horizontal_error_m": 0.77,
+                "p95_abs_vertical_error_m": 0.20,
+                "score": 75.0,
+            },
+            {
+                **common,
+                "checkpoint": str(tmp_path / "model_225.pt"),
+                "ppo_iteration": 225,
+                "overall_success_rate": 0.80,
+                "mean_abs_horizontal_error_m": 0.20,
+                "mean_abs_vertical_error_m": 0.07,
+                "p95_abs_horizontal_error_m": 0.70,
+                "p95_abs_vertical_error_m": 0.18,
+                "score": 90.0,
+            },
+        ],
+    )
+
+    best = checkpoint_selection.select_best_checkpoint_row(
+        summary_csv,
+        evaluation_contract="pure_rl_spatial_c3a_v2",
+    )
+
+    assert best is not None
+    assert best["checkpoint"].endswith("model_200.pt")
+    assert int(best["success_gate_passed"]) == 1

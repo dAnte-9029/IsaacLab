@@ -29,14 +29,17 @@ from flapping_bot.direct.flapping_bot.pure_rl_reward import (
     compute_pure_rl_spatial_path_reward_terms,
     compute_pure_rl_spatial_termination_terms,
 )
+from flapping_bot.direct.flapping_bot.pure_rl_longitudinal_path import query_longitudinal_path
 from flapping_bot.direct.flapping_bot.pure_rl_spatial_path import (
     C3B_TURN_THEN_CLIMB_TEMPLATE_ID,
     C3C_COUPLED_TEMPLATE_ID,
     ISOLATED_TURN_TEMPLATE_ID,
+    REHEARSAL_C2C_TASK_FAMILY_ID,
     query_spatial_path,
     sample_spatial_path_batch,
 )
 from flapping_bot.direct.flapping_bot.straight_flight_env import (
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3cEnvCfg,
     FlappingBotStraightFlightEnv,
 )
@@ -64,8 +67,8 @@ def test_native_cpu_pure_rl_c3_geometry_reward_and_reset_runtime_gate(tmp_path: 
     cfg.randomize_straight_line_heading = False
     cfg.randomize_flap_phase_at_reset = False
     cfg.pure_rl_eval_spatial_template_schedule = (C3C_COUPLED_TEMPLATE_ID,) * 6
-    cfg.pure_rl_eval_spatial_geometry_roll_deg_schedule = (8.0, 12.0, 16.0, 8.0, 12.0, 16.0)
-    cfg.pure_rl_eval_spatial_slope_deg_schedule = (2.0, -3.0, 3.0, -2.0, 3.0, -3.0)
+    cfg.pure_rl_eval_spatial_geometry_roll_deg_schedule = (8.0, 12.0, 6.0, 8.0, 12.0, 6.0)
+    cfg.pure_rl_eval_spatial_slope_deg_schedule = (4.0, -7.0, 9.0, -4.0, 7.0, -9.0)
     cfg.pure_rl_eval_spatial_turn_sign_schedule = (-1, -1, -1, 1, 1, 1)
     cfg.pure_rl_eval_heading_schedule_rad = (0.0, 0.0, math.pi / 2.0, math.pi, math.pi, -math.pi / 2.0)
     cfg.pure_rl_eval_flap_phase_schedule_rad = (0.0, math.pi / 2.0, math.pi, 3.0 * math.pi / 2.0, 0.0, math.pi)
@@ -155,9 +158,37 @@ def test_native_cpu_pure_rl_c3_geometry_reward_and_reset_runtime_gate(tmp_path: 
             if isinstance(value, torch.Tensor):
                 _assert_finite(f"query_{field_name.name}", value.to(torch.float32))
 
+        rehearsal_path = env._pure_rl_c2c_rehearsal_path
+        assert rehearsal_path is not None
+        path.task_family_id[0] = REHEARSAL_C2C_TASK_FAMILY_ID
+        expected_c2c = query_longitudinal_path(
+            path=rehearsal_path,
+            position_world_m=env._robot.data.root_pos_w - env.scene.env_origins,
+            ground_velocity_world_mps=env._robot.data.root_lin_vel_w,
+            minimum_preview_speed_mps=cfg.pure_rl_preview_minimum_speed_mps,
+            maximum_preview_speed_mps=cfg.pure_rl_preview_maximum_speed_mps,
+        )
+        env._pure_rl_spatial_query_cache = None
+        env._pure_rl_spatial_query_step = -1
+        mixed_query = env._query_pure_rl_spatial_path()
+        torch.testing.assert_close(
+            mixed_query.preview_points_world_m[0], expected_c2c.preview_points_world_m[0]
+        )
+        torch.testing.assert_close(
+            mixed_query.horizontal_normal_error_m[0], expected_c2c.cross_track_error_m[0]
+        )
+        torch.testing.assert_close(
+            mixed_query.vertical_normal_error_m[0], expected_c2c.height_error_m[0]
+        )
+        torch.testing.assert_close(mixed_query.tangent_world[0], expected_c2c.tangent_world[0])
+        assert bool(mixed_query.reached_all_events[0]) == bool(expected_c2c.reached_recovery[0])
+        path.task_family_id[0] = 3
+        env._pure_rl_spatial_query_cache = None
+        env._pure_rl_spatial_query_step = -1
+
         for stage, template, roll, slope in (
             ("c3a", ISOLATED_TURN_TEMPLATE_ID, 11.0, 0.0),
-            ("c3b", C3B_TURN_THEN_CLIMB_TEMPLATE_ID, 13.5, 5.0),
+            ("c3b", C3B_TURN_THEN_CLIMB_TEMPLATE_ID, 13.5, 12.0),
         ):
             sampled = sample_spatial_path_batch(
                 num_paths=2,
@@ -266,6 +297,58 @@ def test_native_cpu_pure_rl_c3_geometry_reward_and_reset_runtime_gate(tmp_path: 
         observations, rewards, _terminated, _truncated, _extras = env.step(actions)
         _assert_finite("post_reset_observation", observations["policy"])
         _assert_finite("post_reset_reward", rewards)
+    finally:
+        omni.physx.get_physx_simulation_interface().detach_stage()
+        env.close()
+
+
+@pytest.mark.isaacsim_ci
+def test_native_cpu_c3a_adaptive_sampling_runtime_update(tmp_path: Path) -> None:
+    cfg = FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg()
+    cfg.scene.num_envs = 8
+    cfg.scene.env_spacing = 5.0
+    cfg.sim.device = "cpu"
+    cfg.seed = 0
+    cfg.freeze_steps_after_reset = 0
+    cfg.episode_length_s = 100.0
+    cfg.terminate_ground_height = -1.0e6
+    cfg.terminate_tilt_deg = 89.9
+    cfg.terminate_abs_y = 1.0e6
+    cfg.pure_rl_terminate_abs_height_error_m = 1.0e6
+    cfg.pure_rl_c2c_strong_climb_probability = 0.5
+    cfg.pure_rl_adaptive_task_sampling_enabled = True
+    cfg.pure_rl_adaptive_sampling_interval_steps = 1
+    cfg.pure_rl_adaptive_sampling_minimum_episodes = 1
+    cfg.robot = cfg.robot.replace(
+        spawn=cfg.robot.spawn.replace(
+            asset_path=str(
+                _REPO_ROOT
+                / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf"
+            ),
+            usd_dir=str(tmp_path / "generated_assets/flap_robot_552_adaptive"),
+        )
+    )
+
+    env = FlappingBotStraightFlightEnv(cfg)
+    try:
+        env.reset()
+        assert env._pure_rl_adaptive_completed_counts is not None
+        assert env._pure_rl_adaptive_success_counts is not None
+        env._pure_rl_adaptive_completed_counts.fill_(1.0)
+        env._pure_rl_adaptive_success_counts.copy_(
+            torch.tensor([1.0, 0.0, 0.0], device=env.device)
+        )
+        initial_probabilities = env._pure_rl_adaptive_task_probabilities
+
+        actions = torch.zeros((8, cfg.action_space), device=env.device)
+        observations, rewards, _terminated, _truncated, extras = env.step(actions)
+
+        _assert_finite("adaptive_observation", observations["policy"])
+        _assert_finite("adaptive_reward", rewards)
+        assert env._pure_rl_adaptive_update_count == 1
+        assert env._pure_rl_adaptive_task_probabilities[1] > initial_probabilities[1]
+        assert env._pure_rl_adaptive_strong_climb_probability == pytest.approx(0.6)
+        assert extras["log"]["AdaptiveSampling/update_count"] == 1
     finally:
         omni.physx.get_physx_simulation_interface().detach_stage()
         env.close()

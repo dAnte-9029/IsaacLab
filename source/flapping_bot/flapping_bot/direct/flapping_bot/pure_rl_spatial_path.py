@@ -51,6 +51,7 @@ class PureRLSpatialStageConfig:
     task_probabilities: tuple[float, ...]
     geometry_roll_deg_range: tuple[float, float]
     finite_turn_deg_range: tuple[float, float]
+    c2c_rehearsal_task_probabilities: tuple[float, float, float] = (0.0, 0.5, 0.5)
     coupled_slope_deg_range: tuple[float, float] = (0.0, 0.0)
     event_count_range: tuple[int, int] = (1, 1)
     transition_length_m_range: tuple[float, float] = (8.0, 12.0)
@@ -58,7 +59,7 @@ class PureRLSpatialStageConfig:
     sample_spacing_m: float = 0.25
     path_length_m: float = 300.0
     minimum_altitude_m: float = 0.05
-    vertical_slope_deg_range: tuple[float, float] = (2.0, 8.0)
+    vertical_slope_deg_range: tuple[float, float] = (4.0, 12.0)
     loiter_radius_m_range: tuple[float, float] = (0.0, 0.0)
 
 
@@ -111,13 +112,15 @@ class PureRLSpatialPathQuery:
 SPATIAL_STAGE_CONFIGS: dict[str, PureRLSpatialStageConfig] = {
     "c3a": PureRLSpatialStageConfig(
         stage_id="c3a",
-        task_probabilities=(0.15, 0.25, 0.60),
+        task_probabilities=(0.15, 0.35, 0.50),
+        c2c_rehearsal_task_probabilities=(0.0, 2.0 / 3.0, 1.0 / 3.0),
         geometry_roll_deg_range=(8.0, 14.0),
         finite_turn_deg_range=(20.0, 50.0),
     ),
     "c3b": PureRLSpatialStageConfig(
         stage_id="c3b",
         task_probabilities=(0.15, 0.20, 0.15, 0.50),
+        c2c_rehearsal_task_probabilities=(0.0, 0.5, 0.5),
         geometry_roll_deg_range=(10.0, 17.0),
         finite_turn_deg_range=(20.0, 60.0),
         event_count_range=(2, 3),
@@ -126,12 +129,93 @@ SPATIAL_STAGE_CONFIGS: dict[str, PureRLSpatialStageConfig] = {
     "c3c": PureRLSpatialStageConfig(
         stage_id="c3c",
         task_probabilities=(0.15, 0.20, 0.15, 0.50),
+        c2c_rehearsal_task_probabilities=(0.0, 0.5, 0.5),
         geometry_roll_deg_range=(6.0, 17.0),
         finite_turn_deg_range=(20.0, 20.0),
-        coupled_slope_deg_range=(1.5, 6.0),
+        coupled_slope_deg_range=(3.0, 10.0),
         event_count_range=(2, 4),
     ),
 }
+
+
+def update_retention_aware_task_probabilities(
+    current_probabilities: tuple[float, float, float],
+    ability_deficits: tuple[float, float, float],
+    *,
+    baseline_probabilities: tuple[float, float, float],
+    minimum_probabilities: tuple[float, float, float],
+    maximum_probability_change: float,
+) -> tuple[float, float, float]:
+    """Move C1/C2c/C3a sampling toward the currently weakest abilities."""
+
+    probability_sets = (
+        ("current_probabilities", current_probabilities),
+        ("baseline_probabilities", baseline_probabilities),
+    )
+    for name, values in probability_sets:
+        if len(values) != 3 or any(not math.isfinite(value) or value < 0.0 for value in values):
+            raise ValueError(f"{name} must contain three finite non-negative values.")
+        if not math.isclose(sum(values), 1.0, rel_tol=0.0, abs_tol=1.0e-12):
+            raise ValueError(f"{name} must sum to one.")
+    if len(minimum_probabilities) != 3 or any(
+        not math.isfinite(value) or value < 0.0 for value in minimum_probabilities
+    ):
+        raise ValueError("minimum_probabilities must contain three finite non-negative values.")
+    minimum_sum = sum(minimum_probabilities)
+    if minimum_sum >= 1.0:
+        raise ValueError("minimum_probabilities must sum to less than one.")
+    if any(current < minimum for current, minimum in zip(current_probabilities, minimum_probabilities)):
+        raise ValueError("current_probabilities must satisfy all minimum probabilities.")
+    if len(ability_deficits) != 3 or any(
+        not math.isfinite(value) or value < 0.0 for value in ability_deficits
+    ):
+        raise ValueError("ability_deficits must contain three finite non-negative values.")
+    if not math.isfinite(maximum_probability_change) or maximum_probability_change <= 0.0:
+        raise ValueError("maximum_probability_change must be finite and positive.")
+
+    deficit_sum = sum(ability_deficits)
+    if deficit_sum == 0.0:
+        desired = baseline_probabilities
+    else:
+        remaining_probability = 1.0 - minimum_sum
+        desired = tuple(
+            minimum + remaining_probability * deficit / deficit_sum
+            for minimum, deficit in zip(minimum_probabilities, ability_deficits)
+        )
+    maximum_difference = max(
+        abs(target - current) for target, current in zip(desired, current_probabilities)
+    )
+    if maximum_difference == 0.0:
+        return current_probabilities
+    interpolation = min(1.0, maximum_probability_change / maximum_difference)
+    return tuple(
+        current + interpolation * (target - current)
+        for current, target in zip(current_probabilities, desired)
+    )
+
+
+def move_probability_toward(
+    current_probability: float,
+    desired_probability: float,
+    *,
+    lower_bound: float,
+    upper_bound: float,
+    maximum_probability_change: float,
+) -> float:
+    """Move one bounded sampling probability by at most one configured step."""
+
+    values = (current_probability, desired_probability, lower_bound, upper_bound)
+    if any(not math.isfinite(value) for value in values):
+        raise ValueError("Probability values and bounds must be finite.")
+    if not 0.0 <= lower_bound <= upper_bound <= 1.0:
+        raise ValueError("Probability bounds must satisfy 0 <= lower <= upper <= 1.")
+    if not lower_bound <= current_probability <= upper_bound:
+        raise ValueError("current_probability must lie within the configured bounds.")
+    if not math.isfinite(maximum_probability_change) or maximum_probability_change <= 0.0:
+        raise ValueError("maximum_probability_change must be finite and positive.")
+    target = min(upper_bound, max(lower_bound, desired_probability))
+    delta = min(maximum_probability_change, abs(target - current_probability))
+    return current_probability + math.copysign(delta, target - current_probability)
 
 
 def resolve_spatial_stage(stage: str | PureRLSpatialStageConfig) -> PureRLSpatialStageConfig:
@@ -438,8 +522,16 @@ def _resolve_evaluation_overrides(
         raise ValueError("evaluation_geometry_roll_deg is outside the active stage range.")
     if config.stage_id == "c3a" and not bool(torch.all(resolved_slope == 0.0)):
         raise ValueError("C3a evaluation paths require zero slope.")
-    if config.stage_id == "c3b" and not bool(torch.all(torch.abs(resolved_slope) <= 8.0)):
-        raise ValueError("C3b evaluation slopes must not exceed 8 degrees.")
+    if config.stage_id == "c3b" and not bool(
+        torch.all(
+            (resolved_slope == 0.0)
+            | (
+                (torch.abs(resolved_slope) >= config.vertical_slope_deg_range[0])
+                & (torch.abs(resolved_slope) <= config.vertical_slope_deg_range[1])
+            )
+        )
+    ):
+        raise ValueError("C3b evaluation slope magnitude is outside the sequential stage range.")
     if config.stage_id == "c3c":
         slope_magnitude = torch.abs(resolved_slope)
         if not bool(
@@ -449,7 +541,7 @@ def _resolve_evaluation_overrides(
             )
         ):
             raise ValueError("C3c evaluation slope magnitude is outside the coupled stage range.")
-        coupled_demand = torch.square(resolved_roll / 20.0) + torch.square(slope_magnitude / 6.0)
+        coupled_demand = torch.square(resolved_roll / 20.0) + torch.square(slope_magnitude / 10.0)
         if not bool(torch.all(coupled_demand <= 1.0)):
             raise ValueError("C3c evaluation severity violates the coupled demand bound.")
     return resolved_template, resolved_roll, resolved_slope, resolved_turn, resolved_heading
@@ -479,7 +571,8 @@ def _apply_evaluation_event_contracts(
         return
     if config.stage_id == "c3c":
         event_count.fill_(2)
-        event_type[:, 0:2] = _EVENT_COUPLED
+        event_type[:, 0] = _EVENT_COUPLED
+        event_type[:, 1] = _EVENT_TURN
         return
 
     event_count.fill_(2)
@@ -755,6 +848,15 @@ def _sample_event_contracts(
         later_type = torch.randint(1, 4, (count, _MAX_EVENTS), device=device, generator=generator)
         later_active = current_rows.unsqueeze(1) & active
         event_type[:, 1:] = torch.where(later_active[:, 1:], later_type[:, 1:], event_type[:, 1:])
+        vertical_event = (event_type == _EVENT_VERTICAL) | (event_type == _EVENT_COUPLED)
+        vertical_rank = torch.cumsum(vertical_event.to(dtype=torch.int64), dim=1)
+        first_vertical_sign = random_vertical_sign[:, 0].unsqueeze(1)
+        alternating_vertical_sign = torch.where(
+            torch.remainder(vertical_rank, 2) == 1,
+            first_vertical_sign,
+            -first_vertical_sign,
+        )
+        random_vertical_sign[current_rows] = alternating_vertical_sign[current_rows]
 
         earlier_c3b_rows = earlier_spatial_rows & (
             torch.rand(count, device=device, dtype=dtype, generator=generator) < 0.5
@@ -887,7 +989,7 @@ def _sample_event_amplitudes(
     )
     if isinstance(current_c3c, Tensor) and bool(torch.any(current_c3c)):
         row_roll_fraction = row_roll_deg[:, 0] / 20.0
-        elliptical_maximum_slope_deg = 6.0 * torch.sqrt(
+        elliptical_maximum_slope_deg = 10.0 * torch.sqrt(
             torch.clamp(1.0 - torch.square(row_roll_fraction), min=0.0)
         )
         maximum_coupled_slope_deg = torch.minimum(
@@ -1098,6 +1200,13 @@ def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
         raise ValueError("task_probabilities must contain finite non-negative values.")
     if not math.isclose(sum(config.task_probabilities), 1.0, rel_tol=0.0, abs_tol=1.0e-12):
         raise ValueError("task_probabilities must sum to one.")
+    rehearsal_probabilities = config.c2c_rehearsal_task_probabilities
+    if len(rehearsal_probabilities) != 3 or any(
+        not math.isfinite(value) or value < 0.0 for value in rehearsal_probabilities
+    ):
+        raise ValueError("c2c_rehearsal_task_probabilities must contain three finite non-negative values.")
+    if not math.isclose(sum(rehearsal_probabilities), 1.0, rel_tol=0.0, abs_tol=1.0e-12):
+        raise ValueError("c2c_rehearsal_task_probabilities must sum to one.")
     for name, bounds, allow_zero in (
         ("geometry_roll_deg_range", config.geometry_roll_deg_range, False),
         ("finite_turn_deg_range", config.finite_turn_deg_range, False),
@@ -1133,7 +1242,7 @@ def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
         if config.coupled_slope_deg_range[0] <= 0.0:
             raise ValueError("c3c coupled_slope_deg_range must be positive.")
         maximum_roll_fraction = config.geometry_roll_deg_range[1] / 20.0
-        available_slope_deg = 6.0 * math.sqrt(max(0.0, 1.0 - maximum_roll_fraction**2))
+        available_slope_deg = 10.0 * math.sqrt(max(0.0, 1.0 - maximum_roll_fraction**2))
         if config.coupled_slope_deg_range[0] > available_slope_deg:
             raise ValueError("c3c coupled ranges do not admit the approved elliptical demand bound.")
     if config.stage_id == "c3b" and config.loiter_radius_m_range[0] <= 0.0:
@@ -1198,7 +1307,7 @@ def _validate_generated_batch(batch: PureRLSpatialPathBatch, *, config: PureRLSp
     if config.stage_id == "c3c":
         current = batch.task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID
         demand = torch.square(batch.peak_geometry_roll_rad[current] / math.radians(20.0))
-        demand += torch.square(torch.abs(batch.peak_slope_rad[current]) / math.radians(6.0))
+        demand += torch.square(torch.abs(batch.peak_slope_rad[current]) / math.radians(10.0))
         if bool(torch.any(demand > 1.0 + 16.0 * torch.finfo(batch.points_world_m.dtype).eps)):
             raise RuntimeError("C3c current-stage coupled demand exceeds the approved bound.")
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import csv
 import json
 import os
@@ -22,6 +23,7 @@ from pure_rl_longitudinal_eval import (
     LONGITUDINAL_EVAL_CONTRACTS,
     row_meets_longitudinal_promotion_gate,
 )
+from pure_rl_spatial_eval import SPATIAL_EVAL_CONTRACTS, row_meets_spatial_promotion_gate
 
 
 def _row_float(row: dict[str, Any], key: str) -> float:
@@ -33,6 +35,17 @@ def _row_float_default(row: dict[str, Any], key: str, default: float) -> float:
     if value in (None, ""):
         return float(default)
     return float(value)
+
+
+def _spatial_gate_row(row: dict[str, str]) -> dict[str, Any]:
+    parsed: dict[str, Any] = dict(row)
+    parsed["grid_complete"] = str(row.get("grid_complete", "")).strip().lower() in {"1", "true"}
+    parsed["finite_metrics"] = str(row.get("finite_metrics", "")).strip().lower() in {"1", "true"}
+    slice_rates = ast.literal_eval(row.get("slice_success_rates", ""))
+    if not isinstance(slice_rates, dict):
+        raise ValueError("Spatial slice_success_rates must be a mapping.")
+    parsed["slice_success_rates"] = slice_rates
+    return parsed
 
 
 def load_summary_rows(summary_csv: Path) -> list[dict[str, str]]:
@@ -70,6 +83,9 @@ def select_best_checkpoint_row(
     def _is_longitudinal_row(row: dict[str, str]) -> bool:
         return row.get("evaluation_contract") in LONGITUDINAL_EVAL_CONTRACTS.values()
 
+    def _is_spatial_row(row: dict[str, str]) -> bool:
+        return row.get("evaluation_contract") in SPATIAL_EVAL_CONTRACTS.values()
+
     def _sort_key(row: dict[str, str]) -> tuple[float, float, float, float, float, float, float]:
         if _is_longitudinal_row(row):
             return (
@@ -90,6 +106,16 @@ def select_best_checkpoint_row(
                 _row_float(row, "score"),
                 _row_float(row, "mean_along_track_progress_m"),
                 -_row_float(row, "mean_abs_cross_track_error_m"),
+            )
+        if _is_spatial_row(row):
+            return (
+                float(row_meets_spatial_promotion_gate(_spatial_gate_row(row))),
+                _row_float(row, "overall_success_rate"),
+                _row_float(row, "all_event_completion_rate"),
+                _row_float(row, "overall_survival_rate"),
+                -_row_float(row, "mean_abs_horizontal_error_m"),
+                -_row_float(row, "mean_abs_vertical_error_m"),
+                -_row_float(row, "p95_abs_horizontal_error_m"),
             )
         if _is_path_tracking_row(row):
             completion_rate = _row_float_default(row, "completion_rate", 0.0)
@@ -128,6 +154,10 @@ def select_best_checkpoint_row(
         )
     elif _is_pure_rl_row(best_row):
         best_row["success_gate_passed"] = str(int(row_meets_pure_rl_success_gate(best_row)))
+    elif _is_spatial_row(best_row):
+        best_row["success_gate_passed"] = str(
+            int(row_meets_spatial_promotion_gate(_spatial_gate_row(best_row)))
+        )
     elif _is_path_tracking_row(best_row):
         best_row["success_gate_passed"] = str(int(row_meets_path_tracking_success_gate(best_row)))
     return best_row

@@ -1,4 +1,4 @@
-"""Launch training and a parallel checkpoint evaluator (watcher).
+"""Launch training with optional concurrent checkpoint evaluation.
 
 Motivation: for long unattended runs, it's useful to continuously evaluate new
 `model_*.pt` checkpoints and append metrics to `eval/summary.csv` while training
@@ -17,11 +17,14 @@ Typical usage:
     --episodes 5 --poll-s 120 \
     --headless
 
-  # Canonical CPU-native measured-wing plant
+  # Canonical CPU-native measured-wing plant (sequential evaluation by default)
   ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
     --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0 \
     --run-name native_cpu_pure_rl \
     --headless
+
+Add `--concurrent-eval` only when the training and watcher processes are
+intentionally allowed to share or use independently assigned compute resources.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import os
 import re
 import signal
@@ -56,8 +60,8 @@ from pure_rl_eval_common import (
     longitudinal_stage_for_task,
     spatial_stage_for_task,
 )
-from pure_rl_longitudinal_eval import LONGITUDINAL_EVAL_CONTRACTS
-from pure_rl_spatial_eval import SPATIAL_EVAL_CONTRACTS
+from pure_rl_longitudinal_eval import LONGITUDINAL_EVAL_CONTRACTS, build_longitudinal_evaluation_grid
+from pure_rl_spatial_eval import SPATIAL_EVAL_CONTRACTS, build_spatial_evaluation_grid
 
 
 _NATIVE_HOLONOMIC_EXTENSION_ID = "omni.flapping_bot.holonomic_constraint"
@@ -75,10 +79,10 @@ def _resolve_eval_suite(task: str, eval_suite: str) -> str:
     if eval_suite == "straight_standard" and is_measured_pure_rl_task(task):
         longitudinal_stage_id = longitudinal_stage_for_task(task)
         if longitudinal_stage_id is not None:
-            return f"pure_rl_longitudinal_{longitudinal_stage_id}_v1"
+            return LONGITUDINAL_EVAL_CONTRACTS[longitudinal_stage_id]
         spatial_stage_id = spatial_stage_for_task(task)
         if spatial_stage_id is not None:
-            return f"pure_rl_spatial_{spatial_stage_id}_v1"
+            return SPATIAL_EVAL_CONTRACTS[spatial_stage_id]
         return PURE_RL_CURRICULUM1_EVAL_SUITE
     if eval_suite == "straight_standard" and "PathTracking" in str(task):
         if "Primitive" in str(task):
@@ -93,10 +97,10 @@ def _resolve_eval_shape(args: argparse.Namespace) -> tuple[int, int]:
     stage_id = longitudinal_stage_for_task(args.task)
     spatial_stage_id = spatial_stage_for_task(args.task)
     resolved_suite = _resolve_eval_suite(args.task, str(args.eval_suite))
-    if stage_id is not None and resolved_suite == f"pure_rl_longitudinal_{stage_id}_v1":
-        default_count = {"c2a": 80, "c2b": 112, "c2c": 144}[stage_id]
-    elif spatial_stage_id is not None and resolved_suite == f"pure_rl_spatial_{spatial_stage_id}_v1":
-        default_count = {"c3a": 96, "c3b": 112, "c3c": 96}[spatial_stage_id]
+    if stage_id is not None and resolved_suite == LONGITUDINAL_EVAL_CONTRACTS[stage_id]:
+        default_count = len(build_longitudinal_evaluation_grid(stage_id))
+    elif spatial_stage_id is not None and resolved_suite == SPATIAL_EVAL_CONTRACTS[spatial_stage_id]:
+        default_count = len(build_spatial_evaluation_grid(spatial_stage_id))
     elif is_measured_pure_rl_task(args.task) and resolved_suite == PURE_RL_CURRICULUM1_EVAL_SUITE:
         default_count = 16
     else:
@@ -120,7 +124,7 @@ def _should_apply_estimated_teacher_defaults(task: str) -> bool:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train + watch/eval new checkpoints.")
+    parser = argparse.ArgumentParser(description="Train with optional concurrent checkpoint evaluation.")
     parser.add_argument("--task", type=str, required=True)
     parser.add_argument("--run-name", type=str, required=True)
     parser.add_argument(
@@ -183,7 +187,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train-only",
         action="store_true",
-        help="Run training without the concurrent checkpoint watcher or final evaluation.",
+        help=(
+            "Run training without the concurrent checkpoint watcher or final evaluation. This is already the "
+            "default for measured PureRL tasks and remains available as an explicit compatibility flag."
+        ),
+    )
+    parser.add_argument(
+        "--concurrent-eval",
+        action="store_true",
+        help=(
+            "Run the checkpoint watcher concurrently with training. Measured PureRL tasks require this explicit "
+            "opt-in; other tasks retain their concurrent-evaluation default."
+        ),
     )
     parser.add_argument(
         "--disable-kit-fs-watcher",
@@ -196,6 +211,34 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional environment reset-freeze override. MeasuredPureRL now defaults to zero in its task config."
+        ),
+    )
+    parser.add_argument(
+        "--c2c-strong-climb-probability",
+        type=float,
+        default=None,
+        help="Optional C3 rehearsal quota for C2c climbs in the configured strong-slope band.",
+    )
+    parser.add_argument(
+        "--c2c-recycle-on-recovery",
+        action="store_true",
+        help="End successful C2c rehearsal episodes as timeouts immediately after recovery begins.",
+    )
+    parser.add_argument(
+        "--adaptive-task-sampling",
+        action="store_true",
+        help=(
+            "Adapt the C1/C2c/C3a environment mix from completed-episode retention signals. "
+            "Currently supported only for C3a training."
+        ),
+    )
+    parser.add_argument(
+        "--actor-distillation-coefficient",
+        type=float,
+        default=0.0,
+        help=(
+            "Frozen source-actor MSE coefficient on C1/C2c rehearsal observations. "
+            "Currently supported only for a weights-only C3a warm start."
         ),
     )
     parser.add_argument(
@@ -380,7 +423,15 @@ def _native_cpu_enabled(args: argparse.Namespace) -> bool:
 
 
 def _watcher_enabled(args: argparse.Namespace) -> bool:
-    return not bool(getattr(args, "train_only", False))
+    train_only = bool(getattr(args, "train_only", False))
+    concurrent_eval = bool(getattr(args, "concurrent_eval", False))
+    if train_only and concurrent_eval:
+        raise ValueError("--train-only and --concurrent-eval cannot both be enabled.")
+    if train_only:
+        return False
+    if concurrent_eval:
+        return True
+    return not is_measured_pure_rl_task(str(getattr(args, "task", "")))
 
 
 def _resolved_train_num_envs(args: argparse.Namespace) -> int:
@@ -473,8 +524,8 @@ def _native_asset_source() -> Path:
     ).resolve()
 
 
-def _native_asset_cache(args: argparse.Namespace) -> Path:
-    return (_portable_root_for_role(args, "train") / "generated_assets/flap_robot_552").resolve()
+def _native_asset_cache(args: argparse.Namespace, role: str = "train") -> Path:
+    return (_portable_root_for_role(args, role) / "generated_assets/flap_robot_552").resolve()
 
 
 def _child_process_env(args: argparse.Namespace) -> dict[str, str]:
@@ -555,6 +606,33 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
         if int(freeze_steps_after_reset) < 0:
             raise ValueError("--freeze-steps-after-reset must be non-negative.")
         train_cmd.append(f"env.freeze_steps_after_reset={int(freeze_steps_after_reset)}")
+    strong_climb_probability = getattr(args, "c2c_strong_climb_probability", None)
+    if strong_climb_probability is not None:
+        probability = float(strong_climb_probability)
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError("--c2c-strong-climb-probability must lie in [0, 1].")
+        train_cmd.append(f"env.pure_rl_c2c_strong_climb_probability={probability}")
+    if bool(getattr(args, "c2c_recycle_on_recovery", False)):
+        train_cmd.append("env.pure_rl_c2c_recycle_on_recovery=true")
+    if bool(getattr(args, "adaptive_task_sampling", False)):
+        if spatial_stage_for_task(str(args.task)) != "c3a":
+            raise ValueError("Adaptive task sampling is currently supported only for C3a training.")
+        if strong_climb_probability is None:
+            raise ValueError(
+                "Adaptive task sampling requires an explicit --c2c-strong-climb-probability."
+            )
+        train_cmd.append("env.pure_rl_adaptive_task_sampling_enabled=true")
+    actor_distillation_coefficient = float(getattr(args, "actor_distillation_coefficient", 0.0))
+    if not math.isfinite(actor_distillation_coefficient) or actor_distillation_coefficient < 0.0:
+        raise ValueError("--actor-distillation-coefficient must be finite and non-negative.")
+    if actor_distillation_coefficient > 0.0:
+        if spatial_stage_for_task(str(args.task)) != "c3a":
+            raise ValueError("Actor policy distillation is currently supported only for C3a training.")
+        if not bool(getattr(args, "load_weights_only", False)):
+            raise ValueError("Actor policy distillation requires --load_weights_only to define the frozen teacher.")
+        train_cmd.append(
+            f"env.pure_rl_actor_distillation_coefficient={actor_distillation_coefficient}"
+        )
     if _native_cpu_enabled(args):
         train_cmd.extend(
             [
@@ -597,7 +675,18 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
         "--eval_suite",
         _resolve_eval_suite(args.task, str(args.eval_suite)),
     ]
+    if is_measured_pure_rl_task(args.task):
+        watch_cmd.append("--no_saved_cfg")
     watch_cmd.extend(["--kit_args", _kit_args(args, "watch")])
+    if _native_cpu_enabled(args):
+        watch_cmd.extend(
+            [
+                "--robot-asset-path",
+                str(_native_asset_source()),
+                "--robot-usd-dir",
+                str(_native_asset_cache(args, "watch")),
+            ]
+        )
     if args.headless:
         watch_cmd.append("--headless")
     return watch_cmd
@@ -657,6 +746,8 @@ def main():
         if not _native_asset_source().is_file():
             raise FileNotFoundError(f"Native PureRL URDF does not exist: {_native_asset_source()}")
         _native_asset_cache(args).mkdir(parents=True, exist_ok=True)
+        if _watcher_enabled(args):
+            _native_asset_cache(args, "watch").mkdir(parents=True, exist_ok=True)
 
     train_cmd = _build_train_cmd(args)
     child_env = _child_process_env(args)

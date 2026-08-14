@@ -18,11 +18,22 @@ sys.modules[SPEC.name] = promotion
 SPEC.loader.exec_module(promotion)
 
 
-def _evaluation(checkpoint: str, iteration: int, *, passed: bool = True) -> dict[str, object]:
+def _evaluation(
+    checkpoint: str,
+    iteration: int,
+    *,
+    stage: str = "c2a",
+    passed: bool = True,
+) -> dict[str, object]:
     return {
         "checkpoint": checkpoint,
         "ppo_iteration": iteration,
-        "stage_id": "c2a",
+        "stage_id": stage,
+        "evaluation_contract": {
+            "c2a": "pure_rl_longitudinal_c2a_v1",
+            "c2b": "pure_rl_longitudinal_c2b_v1",
+            "c2c": "pure_rl_longitudinal_c2c_v2",
+        }[stage],
         "grid_complete": True,
         "climb_case_count": 32,
         "descent_case_count": 32,
@@ -213,4 +224,22 @@ def test_promotion_fails_closed_on_ambiguous_or_incomplete_evidence(fault: str) 
             c1_retention_rows=retention_rows,
             source_c1_baseline=baseline,
             stage_id="c2a",
+        )
+
+
+def test_c2c_promotion_rejects_legacy_evaluation_contract() -> None:
+    evaluations = [
+        _evaluation("model_50.pt", 50, stage="c2c"),
+        _evaluation("model_75.pt", 75, stage="c2c"),
+    ]
+    evaluations[0]["evaluation_contract"] = "pure_rl_longitudinal_c2c_v1"
+
+    with pytest.raises(ValueError, match="pure_rl_longitudinal_c2c_v2"):
+        promotion.evaluate_longitudinal_promotion(
+            evaluations,
+            c1_retention_rows=[_retention(row["checkpoint"]) for row in evaluations],
+            source_c1_baseline=SOURCE_BASELINE,
+            stage_id="c2c",
+            minimum_ppo_iteration=50,
+            evaluation_interval=25,
         )

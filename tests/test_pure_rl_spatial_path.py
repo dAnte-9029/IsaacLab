@@ -36,18 +36,23 @@ def test_spatial_stage_configs_match_approved_ranges_and_probabilities() -> None
 
     assert configs["c3a"].geometry_roll_deg_range == (8.0, 14.0)
     assert configs["c3a"].finite_turn_deg_range == (20.0, 50.0)
-    assert configs["c3a"].task_probabilities == (0.15, 0.25, 0.60)
+    assert configs["c3a"].task_probabilities == (0.15, 0.35, 0.50)
+    assert configs["c3a"].c2c_rehearsal_task_probabilities == (0.0, 2.0 / 3.0, 1.0 / 3.0)
     assert configs["c3a"].event_count_range == (1, 1)
 
     assert configs["c3b"].geometry_roll_deg_range == (10.0, 17.0)
     assert configs["c3b"].finite_turn_deg_range == (20.0, 60.0)
     assert configs["c3b"].task_probabilities == (0.15, 0.20, 0.15, 0.50)
+    assert configs["c3b"].c2c_rehearsal_task_probabilities == (0.0, 0.5, 0.5)
     assert configs["c3b"].event_count_range == (2, 3)
+    assert configs["c3b"].vertical_slope_deg_range == (4.0, 12.0)
     assert configs["c3b"].loiter_radius_m_range == (50.0, 80.0)
 
     assert configs["c3c"].geometry_roll_deg_range == (6.0, 17.0)
-    assert configs["c3c"].coupled_slope_deg_range == (1.5, 6.0)
+    assert configs["c3c"].coupled_slope_deg_range == (3.0, 10.0)
+    assert configs["c3c"].vertical_slope_deg_range == (4.0, 12.0)
     assert configs["c3c"].task_probabilities == (0.15, 0.20, 0.15, 0.50)
+    assert configs["c3c"].c2c_rehearsal_task_probabilities == (0.0, 0.5, 0.5)
     assert configs["c3c"].event_count_range == (2, 4)
 
     for config in configs.values():
@@ -60,6 +65,12 @@ def test_spatial_stage_configs_match_approved_ranges_and_probabilities() -> None
 
     with pytest.raises(FrozenInstanceError):
         configs["c3a"].guard_speed_mps = 10.0
+
+
+def test_c3a_c2c_rehearsal_reuses_c2c_geometry_with_climb_weighting() -> None:
+    config = pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3a"]
+    assert config.vertical_slope_deg_range == (4.0, 12.0)
+    assert config.c2c_rehearsal_task_probabilities == (0.0, 2.0 / 3.0, 1.0 / 3.0)
 
 
 def test_sampled_batch_exposes_dense_centerline_and_finite_metadata() -> None:
@@ -119,7 +130,7 @@ def test_c3c_current_paths_have_two_to_four_events_and_respect_coupled_demand() 
     assert bool(torch.all((batch.event_count[current] >= 2) & (batch.event_count[current] <= 4)))
 
     demand = torch.square(batch.peak_geometry_roll_rad[current] / math.radians(20.0))
-    demand += torch.square(torch.abs(batch.peak_slope_rad[current]) / math.radians(6.0))
+    demand += torch.square(torch.abs(batch.peak_slope_rad[current]) / math.radians(10.0))
     assert bool(torch.all(demand <= 1.0 + 1.0e-12))
     assert bool(
         torch.all(
@@ -132,6 +143,31 @@ def test_c3c_current_paths_have_two_to_four_events_and_respect_coupled_demand() 
     )
     assert set(batch.turn_sign[current].unique().tolist()) == {-1.0, 1.0}
     assert set(batch.vertical_sign[current].unique().tolist()) == {-1.0, 1.0}
+
+
+def test_c3c_current_vertical_events_alternate_direction() -> None:
+    count = 256
+    task_family_id = torch.full(
+        (count,),
+        pure_rl_spatial_path.CURRENT_SPATIAL_TASK_FAMILY_ID,
+        dtype=torch.int64,
+    )
+    event_type, _, _, _, vertical_sign = pure_rl_spatial_path._sample_event_contracts(
+        task_family_id=task_family_id,
+        config=pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3c"],
+        device=torch.device("cpu"),
+        dtype=torch.float64,
+        generator=torch.Generator().manual_seed(19),
+    )
+
+    for row in range(count):
+        vertical_events = (event_type[row] == pure_rl_spatial_path._EVENT_VERTICAL) | (
+            event_type[row] == pure_rl_spatial_path._EVENT_COUPLED
+        )
+        active_signs = vertical_sign[row, vertical_events]
+        assert active_signs.numel() >= 1
+        if active_signs.numel() > 1:
+            torch.testing.assert_close(active_signs[1:], -active_signs[:-1])
 
 
 def test_current_c3a_and_c3b_event_contracts_are_isolated_and_sequential() -> None:
@@ -287,8 +323,8 @@ def test_fixed_evaluation_overrides_are_applied_row_by_row() -> None:
             ],
             dtype=torch.int64,
         ),
-        evaluation_geometry_roll_deg=torch.tensor([8.0, 12.0], dtype=torch.float64),
-        evaluation_slope_deg=torch.tensor([3.0, -4.0], dtype=torch.float64),
+        evaluation_geometry_roll_deg=torch.tensor([6.0, 12.0], dtype=torch.float64),
+        evaluation_slope_deg=torch.tensor([9.0, -7.0], dtype=torch.float64),
         evaluation_turn_sign=torch.tensor([-1.0, 1.0], dtype=torch.float64),
         evaluation_heading_rad=torch.tensor([0.0, math.pi / 2.0], dtype=torch.float64),
     )
@@ -299,12 +335,21 @@ def test_fixed_evaluation_overrides_are_applied_row_by_row() -> None:
     )
     torch.testing.assert_close(
         batch.peak_geometry_roll_rad,
-        torch.deg2rad(torch.tensor([8.0, 12.0], dtype=torch.float64)),
+        torch.deg2rad(torch.tensor([6.0, 12.0], dtype=torch.float64)),
     )
     torch.testing.assert_close(
         batch.peak_slope_rad,
-        torch.deg2rad(torch.tensor([3.0, -4.0], dtype=torch.float64)),
+        torch.deg2rad(torch.tensor([9.0, -7.0], dtype=torch.float64)),
     )
+    torch.testing.assert_close(batch.event_count, torch.full((2,), 2, dtype=torch.int64))
+    nonzero_curvature = torch.abs(batch.curvature_rad_per_m) > 1.0e-9
+    curvature_starts = nonzero_curvature & ~torch.roll(nonzero_curvature, shifts=1, dims=1)
+    curvature_starts[:, 0] = nonzero_curvature[:, 0]
+    nonzero_slope = torch.abs(batch.slope_rad) > 1.0e-9
+    slope_starts = nonzero_slope & ~torch.roll(nonzero_slope, shifts=1, dims=1)
+    slope_starts[:, 0] = nonzero_slope[:, 0]
+    torch.testing.assert_close(curvature_starts.sum(dim=1), torch.full((2,), 2, dtype=torch.int64))
+    torch.testing.assert_close(slope_starts.sum(dim=1), torch.ones(2, dtype=torch.int64))
     torch.testing.assert_close(batch.turn_sign, torch.tensor([-1.0, 1.0], dtype=torch.float64))
     torch.testing.assert_close(
         batch.tangent_world[:, 0],
@@ -930,3 +975,60 @@ def _load_longitudinal_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def test_retention_aware_sampling_increases_the_weakest_family_with_bounded_change() -> None:
+    current = (0.15, 0.35, 0.50)
+
+    updated = pure_rl_spatial_path.update_retention_aware_task_probabilities(
+        current,
+        (0.0, 0.4, 0.0),
+        baseline_probabilities=(0.15, 0.35, 0.50),
+        minimum_probabilities=(0.10, 0.25, 0.30),
+        maximum_probability_change=0.05,
+    )
+
+    assert updated[1] > current[1]
+    assert sum(updated) == pytest.approx(1.0)
+    assert all(value >= minimum for value, minimum in zip(updated, (0.10, 0.25, 0.30)))
+    assert max(abs(value - previous) for value, previous in zip(updated, current)) <= 0.05
+
+
+def test_retention_aware_sampling_returns_toward_baseline_without_deficits() -> None:
+    updated = pure_rl_spatial_path.update_retention_aware_task_probabilities(
+        (0.10, 0.40, 0.50),
+        (0.0, 0.0, 0.0),
+        baseline_probabilities=(0.15, 0.35, 0.50),
+        minimum_probabilities=(0.10, 0.25, 0.30),
+        maximum_probability_change=0.02,
+    )
+
+    assert updated == pytest.approx((0.12, 0.38, 0.50))
+
+
+def test_probability_step_respects_bounds_and_change_limit() -> None:
+    assert pure_rl_spatial_path.move_probability_toward(
+        0.50,
+        1.0,
+        lower_bound=0.50,
+        upper_bound=0.85,
+        maximum_probability_change=0.10,
+    ) == pytest.approx(0.60)
+    assert pure_rl_spatial_path.move_probability_toward(
+        0.60,
+        0.0,
+        lower_bound=0.50,
+        upper_bound=0.85,
+        maximum_probability_change=0.10,
+    ) == pytest.approx(0.50)
+
+
+def test_retention_aware_sampling_rejects_invalid_contracts() -> None:
+    with pytest.raises(ValueError, match="sum to less than one"):
+        pure_rl_spatial_path.update_retention_aware_task_probabilities(
+            (0.15, 0.35, 0.50),
+            (0.0, 0.1, 0.0),
+            baseline_probabilities=(0.15, 0.35, 0.50),
+            minimum_probabilities=(0.40, 0.30, 0.30),
+            maximum_probability_change=0.05,
+        )

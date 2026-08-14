@@ -6,6 +6,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 
 def _load_watch_and_eval_module():
     module_path = Path(__file__).resolve().parents[1] / "scripts" / "flapping_rl" / "watch_and_eval.py"
@@ -65,6 +67,96 @@ def test_watch_and_eval_parser_accepts_truth_nowind_suite(monkeypatch) -> None:
     args = watch_and_eval._parse_args()
 
     assert args.eval_suite == "path_tracking_truth_nowind_v1"
+
+
+def test_watch_and_eval_parser_accepts_robot_asset_overrides(monkeypatch, tmp_path: Path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    asset_path = tmp_path / "robot.urdf"
+    usd_dir = tmp_path / "generated"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "watch_and_eval.py",
+            "--task",
+            "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0",
+            "--log_dir",
+            "logs/dummy_run",
+            "--robot-asset-path",
+            str(asset_path),
+            "--robot-usd-dir",
+            str(usd_dir),
+        ],
+    )
+
+    args = watch_and_eval._parse_args()
+
+    assert args.robot_asset_path == str(asset_path)
+    assert args.robot_usd_dir == str(usd_dir)
+
+
+def test_watch_and_eval_applies_robot_asset_overrides(tmp_path: Path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    asset_path = tmp_path / "robot.urdf"
+    asset_path.write_text("<robot name='test' />", encoding="utf-8")
+    usd_dir = tmp_path / "generated" / "robot"
+    cfg = types.SimpleNamespace(
+        robot=types.SimpleNamespace(
+            spawn=types.SimpleNamespace(asset_path="old.urdf", usd_dir="old-cache")
+        )
+    )
+
+    watch_and_eval._apply_robot_asset_overrides(
+        cfg,
+        asset_path=str(asset_path),
+        usd_dir=str(usd_dir),
+    )
+
+    assert cfg.robot.spawn.asset_path == str(asset_path.resolve())
+    assert cfg.robot.spawn.usd_dir == str(usd_dir.resolve())
+    assert usd_dir.is_dir()
+
+
+def test_watch_and_eval_rejects_incomplete_robot_asset_overrides(tmp_path: Path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    cfg = types.SimpleNamespace(robot=types.SimpleNamespace(spawn=types.SimpleNamespace()))
+
+    with pytest.raises(ValueError, match="must be provided together"):
+        watch_and_eval._apply_robot_asset_overrides(
+            cfg,
+            asset_path=str(tmp_path / "robot.urdf"),
+            usd_dir=None,
+        )
+
+
+def test_watch_and_eval_defaults_measured_robot_assets_to_writable_eval_cache(tmp_path: Path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    asset_path, usd_dir = watch_and_eval._resolve_robot_asset_overrides(
+        "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2b-Direct-v0",
+        tmp_path,
+        asset_path=None,
+        usd_dir=None,
+    )
+
+    expected_asset = (
+        Path(watch_and_eval.__file__).resolve().parents[2]
+        / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf"
+    ).resolve()
+    assert asset_path == str(expected_asset)
+    assert usd_dir == str((tmp_path / "eval/generated_assets/flap_robot_552").resolve())
+
+
+def test_watch_and_eval_leaves_non_measured_robot_assets_unchanged(tmp_path: Path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+
+    assert watch_and_eval._resolve_robot_asset_overrides(
+        "Isaac-FlappingBot-StraightFlight-Simple-Direct-v0",
+        tmp_path,
+        asset_path=None,
+        usd_dir=None,
+    ) == (None, None)
 
 
 def test_watch_and_eval_parser_accepts_truth_primitives_nowind_suite(monkeypatch) -> None:
@@ -138,12 +230,21 @@ def test_watch_and_eval_resolves_longitudinal_task_to_stage_grid_and_shape() -> 
     assert watch_and_eval._resolve_eval_shape(task, suite, num_envs=None, episodes=None) == (80, 80)
 
 
+def test_watch_and_eval_resolves_c2c_to_version_two_grid() -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0"
+    suite = watch_and_eval._resolve_eval_suite(task, "straight_standard")
+
+    assert suite == "pure_rl_longitudinal_c2c_v2"
+    assert watch_and_eval._resolve_eval_shape(task, suite, num_envs=None, episodes=None) == (112, 112)
+
+
 def test_watch_and_eval_resolves_spatial_task_to_stage_grid_and_shape() -> None:
     watch_and_eval = _load_watch_and_eval_module()
     task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
     suite = watch_and_eval._resolve_eval_suite(task, "straight_standard")
-    assert suite == "pure_rl_spatial_c3b_v1"
-    assert watch_and_eval._resolve_eval_shape(task, suite, num_envs=None, episodes=None) == (112, 112)
+    assert suite == "pure_rl_spatial_c3b_v2"
+    assert watch_and_eval._resolve_eval_shape(task, suite, num_envs=None, episodes=None) == (176, 176)
 
 
 def test_watch_and_eval_applies_longitudinal_fixed_schedules() -> None:

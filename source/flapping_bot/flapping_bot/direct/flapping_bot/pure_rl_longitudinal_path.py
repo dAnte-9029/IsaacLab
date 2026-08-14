@@ -67,7 +67,7 @@ LONGITUDINAL_STAGE_CONFIGS: dict[str, PureRLLongitudinalStageConfig] = {
     ),
     "c2c": PureRLLongitudinalStageConfig(
         stage_id="c2c",
-        absolute_slope_deg_range=(2.0, 8.0),
+        absolute_slope_deg_range=(4.0, 12.0),
         task_probabilities=(0.25, 0.375, 0.375),
     ),
 }
@@ -99,6 +99,8 @@ def sample_longitudinal_path_batch(
     dtype: torch.dtype,
     generator: torch.Generator | None = None,
     initial_altitude_m: float | Tensor = 10.0,
+    climb_strong_slope_probability: float = 0.0,
+    climb_strong_slope_minimum_deg: float = 10.0,
 ) -> PureRLLongitudinalPathBatch:
     """Sample independent path parameters with batched Torch operations."""
 
@@ -110,6 +112,18 @@ def sample_longitudinal_path_batch(
     resolved_device = torch.device(device)
     config = resolve_longitudinal_stage(stage)
     _validate_stage_config(config)
+    strong_climb_probability = float(climb_strong_slope_probability)
+    strong_climb_minimum_deg = float(climb_strong_slope_minimum_deg)
+    minimum_slope_deg, maximum_slope_deg = config.absolute_slope_deg_range
+    if not math.isfinite(strong_climb_probability) or not 0.0 <= strong_climb_probability <= 1.0:
+        raise ValueError("climb_strong_slope_probability must be finite and lie in [0, 1].")
+    if strong_climb_probability > 0.0 and (
+        not math.isfinite(strong_climb_minimum_deg)
+        or not minimum_slope_deg < strong_climb_minimum_deg < maximum_slope_deg
+    ):
+        raise ValueError(
+            "climb_strong_slope_minimum_deg must lie strictly inside the stage slope range."
+        )
 
     task_draw = torch.rand(count, device=resolved_device, dtype=dtype, generator=generator)
     level_threshold = config.task_probabilities[LEVEL_TASK_ID]
@@ -126,12 +140,30 @@ def sample_longitudinal_path_batch(
         dtype=dtype,
         generator=generator,
     )
-    minimum_slope_deg, maximum_slope_deg = config.absolute_slope_deg_range
-    absolute_slope_rad = torch.deg2rad(
-        minimum_slope_deg
-        + (maximum_slope_deg - minimum_slope_deg)
-        * torch.rand(count, device=resolved_device, dtype=dtype, generator=generator)
+    absolute_slope_deg = minimum_slope_deg + (maximum_slope_deg - minimum_slope_deg) * torch.rand(
+        count, device=resolved_device, dtype=dtype, generator=generator
     )
+    if strong_climb_probability > 0.0:
+        strong_climb = (
+            torch.rand(count, device=resolved_device, dtype=dtype, generator=generator)
+            < strong_climb_probability
+        )
+        climb_slope_draw = torch.rand(
+            count, device=resolved_device, dtype=dtype, generator=generator
+        )
+        stratified_climb_slope_deg = torch.where(
+            strong_climb,
+            strong_climb_minimum_deg
+            + (maximum_slope_deg - strong_climb_minimum_deg) * climb_slope_draw,
+            minimum_slope_deg
+            + (strong_climb_minimum_deg - minimum_slope_deg) * climb_slope_draw,
+        )
+        absolute_slope_deg = torch.where(
+            task_id == CLIMB_TASK_ID,
+            stratified_climb_slope_deg,
+            absolute_slope_deg,
+        )
+    absolute_slope_rad = torch.deg2rad(absolute_slope_deg)
     signed_slope_rad = torch.where(
         task_id == CLIMB_TASK_ID,
         absolute_slope_rad,
@@ -337,8 +369,6 @@ def _validate_stage_config(config: PureRLLongitudinalStageConfig) -> None:
         raise ValueError("task_probabilities must contain three finite non-negative values.")
     if not math.isclose(sum(probabilities), 1.0, rel_tol=0.0, abs_tol=1.0e-12):
         raise ValueError("task_probabilities must sum to one.")
-    if probabilities[CLIMB_TASK_ID] != probabilities[DESCENT_TASK_ID]:
-        raise ValueError("Climb and descent probabilities must match.")
     if not math.isfinite(config.minimum_recovery_length_m) or config.minimum_recovery_length_m < 15.0:
         raise ValueError("minimum_recovery_length_m must be finite and at least 15 m.")
 

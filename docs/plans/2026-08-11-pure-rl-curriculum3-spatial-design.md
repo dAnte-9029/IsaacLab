@@ -107,24 +107,29 @@ loiter.
 - approximate radius at the guard speed: 49--83 m;
 - loiter radius: 50--80 m;
 - heading change per finite turn: 20--60 degrees;
-- climb and descent angle: 2--8 degrees, matching C2c;
+- climb and descent angle: 4--12 degrees, matching C2c v2;
 - sampling: 15% C1, 20% C2c, 15% C3a, and 50% C3b.
 
 ### C3c: coupled three-dimensional events
 
 C3c samples two to four events and requires at least one event with nonzero curvature and nonzero slope.
+When a sampled path contains multiple vertical events, their climb and descent directions alternate to bound the
+net altitude excursion within the 10 m reset altitude.
 
 - coupled-event geometry roll: 6--17 degrees;
-- coupled-event climb or descent magnitude: 1.5--6 degrees;
+- coupled-event climb or descent magnitude: 3--10 degrees;
 - sampling: 15% C1, 20% C2c, 15% earlier C3, and 50% C3c.
 
 Simultaneous events satisfy
 
 ```text
-(phi_geometry / 20 deg)^2 + (abs(gamma) / 6 deg)^2 <= 1
+(phi_geometry / 20 deg)^2 + (abs(gamma) / 10 deg)^2 <= 1
 ```
 
 so the generator cannot demand maximum lateral and vertical difficulty at the same time.
+The deterministic C3c gate uses one coupled turn and climb or descent event followed by one level turn. This keeps
+the two-event retention requirement while avoiding an artificial double altitude excursion from two same-sign
+vertical events.
 
 ## Projection and path frame
 
@@ -180,11 +185,12 @@ Training samples continuous random trajectories. Promotion uses fixed cases held
 | Stage | Cartesian grid | Cases |
 | --- | --- | ---: |
 | C3a | 3 geometry-roll levels x 2 directions x 4 headings x 4 flap phases | 96 |
-| C3b | 7 ordered templates x 2 lateral mirrors x 4 headings x 2 flap phases | 112 |
+| C3b | 3 lateral-only templates at 16 cases plus 4 vertical templates at 2 slopes x 16 cases | 176 |
 | C3c | 3 coupled severities x 4 lateral/vertical sign pairs x 4 headings x 2 flap phases | 96 |
 
 The seven C3b templates are same-direction turns, S-turns, turn then climb, turn then descent, climb then turn,
-descent then turn, and sustained loiter. C3c covers left/right crossed with climb/descent. Reports remain split by
+descent then turn, and sustained loiter. Each vertical template is evaluated at 8 and 12 degrees. C3c covers
+left/right crossed with climb/descent at `(roll, slope)` severities `(8,4)`, `(12,7)`, and `(6,9)` degrees. Reports remain split by
 direction, vertical sign, event family, and coupled severity.
 
 ## Promotion gates

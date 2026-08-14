@@ -16,7 +16,17 @@ class FlappingRoomSceneCfg(InteractiveSceneCfg):
 
     ground = AssetBaseCfg(
         prim_path="/World/GroundPlane",
-        spawn=sim_utils.GroundPlaneCfg(size=(500.0, 500.0)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.0, -0.05)),
+        spawn=sim_utils.CuboidCfg(
+            size=(500.0, 500.0, 0.1),
+            collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                static_friction=0.5,
+                dynamic_friction=0.5,
+                restitution=0.0,
+            ),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 0.0)),
+        ),
     )
 
     robot = FlappingBotCfg.replace(prim_path="{ENV_REGEX_NS}/Robot")
