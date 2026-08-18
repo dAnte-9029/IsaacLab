@@ -122,6 +122,7 @@ from ...physics import (
     step_ideal_frequency_phase,
 )
 from ...px4_like.rl_training_utils import (
+    ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP,
     ACTOR_GRADIENT_PROBE_C1_GROUP,
     ACTOR_GRADIENT_PROBE_C2C_GROUP,
     ACTOR_GRADIENT_PROBE_C3A_GROUP,
@@ -258,6 +259,10 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_actor_gradient_probe_enabled: bool = False
     pure_rl_actor_gradient_probe_interval: int = 1
     pure_rl_actor_gradient_probe_minimum_samples: int = 32
+    pure_rl_task_aware_ppo_enabled: bool = False
+    pure_rl_task_aware_ppo_task_weights: tuple[float, float, float] = (0.15, 0.35, 0.50)
+    pure_rl_task_aware_ppo_minimum_task_samples: int = 32
+    pure_rl_task_aware_ppo_minimum_phase_samples: int = 16
     pure_rl_warm_start_guard_enabled: bool = False
     pure_rl_warm_start_burn_in_iterations: int = 3
     pure_rl_warm_start_update_iterations: int = 10
@@ -994,6 +999,8 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg(
     pure_rl_spatial_stage_id: str = "c3a"
     episode_length_s: float = 20.0
     pure_rl_warm_start_guard_enabled: bool = True
+    pure_rl_actor_gradient_probe_enabled: bool = True
+    pure_rl_task_aware_ppo_enabled: bool = True
 
 
 @configclass
@@ -1131,6 +1138,23 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 or probe_minimum_samples <= 0
             ):
                 raise ValueError("PureRL actor gradient probe minimum samples must be a positive integer.")
+        task_aware_ppo_enabled = bool(cfg.pure_rl_task_aware_ppo_enabled)
+        if task_aware_ppo_enabled:
+            if spatial_stage is None or spatial_stage.stage_id != "c3a":
+                raise ValueError("PureRL task-aware PPO is currently defined only for C3a training.")
+            task_weights = tuple(float(value) for value in cfg.pure_rl_task_aware_ppo_task_weights)
+            if len(task_weights) != 3 or any(
+                (not math.isfinite(value)) or value <= 0.0 for value in task_weights
+            ):
+                raise ValueError("PureRL task-aware PPO requires three finite positive task weights.")
+            if not math.isclose(sum(task_weights), 1.0, rel_tol=0.0, abs_tol=1.0e-6):
+                raise ValueError("PureRL task-aware PPO task weights must sum to one.")
+            for name, value in (
+                ("minimum task samples", cfg.pure_rl_task_aware_ppo_minimum_task_samples),
+                ("minimum phase samples", cfg.pure_rl_task_aware_ppo_minimum_phase_samples),
+            ):
+                if isinstance(value, bool) or int(value) != value or value <= 0:
+                    raise ValueError(f"PureRL task-aware PPO {name} must be a positive integer.")
         warm_start_guard_enabled = bool(cfg.pure_rl_warm_start_guard_enabled)
         if warm_start_guard_enabled:
             if spatial_stage is None or spatial_stage.stage_id != "c3a":
@@ -4925,18 +4949,38 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             observations["actor_distillation_mask"] = (
                 self._pure_rl_spatial_path.task_family_id <= REHEARSAL_C2C_TASK_FAMILY_ID
             ).to(dtype=observation.dtype).unsqueeze(1)
-        if bool(self.cfg.pure_rl_actor_gradient_probe_enabled):
+        if bool(self.cfg.pure_rl_actor_gradient_probe_enabled) or bool(
+            self.cfg.pure_rl_task_aware_ppo_enabled
+        ):
             assert self._pure_rl_spatial_path is not None
+            assert self._pure_rl_c2c_rehearsal_path is not None
             task_family_id = self._pure_rl_spatial_path.task_family_id
             probe_group = torch.full_like(task_family_id, ACTOR_GRADIENT_PROBE_C3A_GROUP)
             probe_group[task_family_id == REHEARSAL_C1_TASK_FAMILY_ID] = ACTOR_GRADIENT_PROBE_C1_GROUP
             c2c = task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
             probe_group[c2c] = ACTOR_GRADIENT_PROBE_C2C_GROUP
-            strong_c2c = c2c & (
+            query = self._query_pure_rl_spatial_path()
+            strong_c2c_route = c2c & (
                 self._pure_rl_spatial_path.peak_slope_rad
                 >= math.radians(float(self.cfg.pure_rl_c2c_strong_climb_minimum_deg))
             )
-            probe_group[strong_c2c] = ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP
+            recovery_length_m = float(resolve_longitudinal_stage("c2c").minimum_recovery_length_m)
+            strong_phase_end_m = (
+                self._pure_rl_c2c_rehearsal_path.entry_length_m
+                + self._pure_rl_c2c_rehearsal_path.slope_length_m
+                + recovery_length_m
+            )
+            strong_c2c_phase = (
+                strong_c2c_route
+                & (query.progress_m >= self._pure_rl_c2c_rehearsal_path.entry_length_m)
+                & (query.progress_m < strong_phase_end_m)
+            )
+            probe_group[strong_c2c_phase] = ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP
+            active_c3a = (
+                (task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID_C3A)
+                & (query.turn_activity > 0.0)
+            )
+            probe_group[active_c3a] = ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP
             observations[ACTOR_GRADIENT_PROBE_GROUP_KEY] = probe_group.unsqueeze(1)
         return observations
 

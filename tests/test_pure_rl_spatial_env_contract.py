@@ -92,8 +92,16 @@ def test_c3_configs_add_only_spatial_stage_and_twenty_second_episode() -> None:
         assert cfg.bases[0].id == "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg"
         expected_names = {"pure_rl_spatial_stage_id", "episode_length_s"}
         if suffix == "C3a":
-            expected_names.add("pure_rl_warm_start_guard_enabled")
+            expected_names.update(
+                {
+                    "pure_rl_warm_start_guard_enabled",
+                    "pure_rl_actor_gradient_probe_enabled",
+                    "pure_rl_task_aware_ppo_enabled",
+                }
+            )
             assert ast.literal_eval(_ann_assign(cfg, "pure_rl_warm_start_guard_enabled").value) is True
+            assert ast.literal_eval(_ann_assign(cfg, "pure_rl_actor_gradient_probe_enabled").value) is True
+            assert ast.literal_eval(_ann_assign(cfg, "pure_rl_task_aware_ppo_enabled").value) is True
         assert _assigned_names(cfg) == expected_names
         assert ast.literal_eval(_ann_assign(cfg, "pure_rl_spatial_stage_id").value) == stage_id
         assert ast.literal_eval(_ann_assign(cfg, "episode_length_s").value) == 20.0
@@ -214,6 +222,28 @@ def test_c3_actor_gradient_probe_is_opt_in_and_kept_outside_policy_observation()
     assert "spatial_stage.stage_id != 'c3a'" in constructor_source
     assert "ACTOR_GRADIENT_PROBE_GROUP_KEY" in observation_source
     assert "ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP" in observation_source
+    assert "ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP" in observation_source
+
+
+def test_c3a_task_aware_ppo_is_default_disabled_and_phase_labeled() -> None:
+    module = _module()
+    base = _class(module, "FlappingBotStraightFlightEnvCfg")
+    c3a = _class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg")
+    env = _class(module, "FlappingBotStraightFlightEnv")
+    constructor_source = _source(_method(env, "__init__"))
+    observation_source = _source(_method(env, "_get_pure_rl_observations"))
+
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_task_aware_ppo_enabled").value) is False
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_task_aware_ppo_task_weights").value) == (
+        0.15,
+        0.35,
+        0.50,
+    )
+    assert ast.literal_eval(_ann_assign(c3a, "pure_rl_task_aware_ppo_enabled").value) is True
+    assert "task_aware_ppo_enabled" in constructor_source
+    assert "spatial_stage.stage_id != 'c3a'" in constructor_source
+    assert "strong_c2c_phase" in observation_source
+    assert "query.turn_activity > 0.0" in observation_source
 
 
 def test_c3a_enables_bounded_weights_only_warm_start_guard() -> None:

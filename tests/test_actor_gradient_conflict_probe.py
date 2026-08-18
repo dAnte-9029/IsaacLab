@@ -110,6 +110,96 @@ def test_gradient_probe_is_disabled_by_default() -> None:
     assert training_utils.maybe_enable_actor_gradient_conflict_probe(runner=runner) is False
 
 
+class _TaskAwareStorage:
+    def __init__(self) -> None:
+        group_values = torch.tensor(
+            [
+                training_utils.ACTOR_GRADIENT_PROBE_C1_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_C1_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_C2C_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_C2C_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_C3A_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_C3A_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP,
+                training_utils.ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP,
+            ]
+        )
+        self.observations = TensorDict(
+            {
+                "policy": torch.arange(20, dtype=torch.float32).reshape(1, 10, 2),
+                training_utils.ACTOR_GRADIENT_PROBE_GROUP_KEY: group_values.reshape(1, 10, 1),
+            },
+            batch_size=[1, 10],
+        )
+        self.values = torch.zeros(1, 10, 1)
+        self.returns = torch.tensor(
+            [[[-1.0], [1.0], [8.0], [12.0], [9.0], [11.0], [98.0], [102.0], [99.0], [101.0]]]
+        )
+        self.advantages = torch.zeros_like(self.returns)
+        self.actions = torch.zeros(1, 10, 1)
+        self.actions_log_prob = torch.zeros(1, 10, 1)
+        self.mu = torch.zeros(1, 10, 1)
+        self.sigma = torch.ones(1, 10, 1)
+
+    def mini_batch_generator(self, num_mini_batches: int, num_epochs: int = 8):
+        del num_mini_batches, num_epochs
+        raise AssertionError("baseline generator should be replaced by task-aware PPO")
+
+
+class _TaskAwareAlgorithm:
+    def __init__(self) -> None:
+        self.policy = _DummyPolicy()
+        self.storage = _TaskAwareStorage()
+
+    def update(self) -> dict[str, float]:
+        batches = list(self.storage.mini_batch_generator(2, 1))
+        assert len(batches) == 2
+        for batch in batches:
+            labels = set(
+                batch[0][training_utils.ACTOR_GRADIENT_PROBE_GROUP_KEY].squeeze(-1).tolist()
+            )
+            assert labels == {0, 1, 2, 3, 4}
+        return {"surrogate": 0.0}
+
+
+def test_task_aware_ppo_normalizes_per_task_and_stratifies_phases(tmp_path: Path) -> None:
+    algorithm = _TaskAwareAlgorithm()
+    adapter = training_utils.TaskAwarePpoAdapter(
+        algorithm,
+        output_path=tmp_path / "task_aware_ppo.csv",
+        task_weights=(0.2, 0.4, 0.4),
+        minimum_task_samples=2,
+        minimum_phase_samples=2,
+    )
+
+    metrics = adapter.update()
+
+    group = algorithm.storage.observations[training_utils.ACTOR_GRADIENT_PROBE_GROUP_KEY].squeeze(-1)
+    task_masks = adapter._task_masks(group)
+    for mask in task_masks.values():
+        task_advantages = algorithm.storage.advantages.squeeze(-1)[mask]
+        assert task_advantages.mean().item() == pytest.approx(0.0, abs=1.0e-6)
+        assert task_advantages.std(unbiased=False).item() == pytest.approx(1.0, abs=1.0e-6)
+    assert metrics["task_aware/count_c2c_strong_phase"] == 2.0
+    assert metrics["task_aware/count_c3a_active_phase"] == 2.0
+    assert (tmp_path / "task_aware_ppo.csv").is_file()
+
+
+def test_task_aware_ppo_is_disabled_by_default() -> None:
+    runner = type(
+        "Runner",
+        (),
+        {
+            "env": type("Env", (), {"cfg": type("Cfg", (), {})()})(),
+            "alg": None,
+        },
+    )()
+
+    assert training_utils.maybe_enable_task_aware_ppo(runner=runner) is False
+
+
 class _WarmStartStorage:
     def __init__(self) -> None:
         self.clear_count = 0
