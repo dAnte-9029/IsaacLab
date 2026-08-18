@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import csv
 import copy
 import math
 from collections.abc import Sequence
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -12,6 +14,11 @@ import torch.nn as nn
 Tensor = torch.Tensor
 _SUPPORTED_TEACHER_GUIDANCE_MODES = ("envelope", "residual")
 ACTOR_DISTILLATION_MASK_KEY = "actor_distillation_mask"
+ACTOR_GRADIENT_PROBE_GROUP_KEY = "actor_gradient_probe_group"
+ACTOR_GRADIENT_PROBE_C1_GROUP = 0
+ACTOR_GRADIENT_PROBE_C2C_GROUP = 1
+ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP = 2
+ACTOR_GRADIENT_PROBE_C3A_GROUP = 3
 
 
 class ActorPolicyDistillationAugmentor:
@@ -77,6 +84,338 @@ class ActorPolicyDistillationAugmentor:
         return None, augmented_actions
 
 
+class ActorGradientConflictProbe:
+    """Measure task-specific PPO actor gradients without changing the update."""
+
+    def __init__(
+        self,
+        algorithm: object,
+        *,
+        output_path: str | Path,
+        interval: int,
+        minimum_samples: int,
+    ) -> None:
+        policy = getattr(algorithm, "policy", None)
+        storage = getattr(algorithm, "storage", None)
+        if policy is None or storage is None:
+            raise ValueError("gradient probe requires a PPO policy and rollout storage.")
+        if bool(getattr(policy, "is_recurrent", False)):
+            raise ValueError("gradient probe does not support recurrent policies.")
+        if bool(getattr(policy, "state_dependent_std", False)):
+            raise ValueError("gradient probe requires a state-independent action standard deviation.")
+        actor = getattr(policy, "actor", None)
+        actor_normalizer = getattr(policy, "actor_obs_normalizer", None)
+        get_actor_obs = getattr(policy, "get_actor_obs", None)
+        if actor is None or actor_normalizer is None or get_actor_obs is None:
+            raise ValueError("policy does not expose the actor observation path required by the gradient probe.")
+        if isinstance(interval, bool) or int(interval) != interval or interval <= 0:
+            raise ValueError("gradient probe interval must be a positive integer.")
+        if isinstance(minimum_samples, bool) or int(minimum_samples) != minimum_samples or minimum_samples <= 0:
+            raise ValueError("gradient probe minimum samples must be a positive integer.")
+
+        self.algorithm = algorithm
+        self.policy = policy
+        self.storage = storage
+        self.actor_parameters = tuple(actor.parameters())
+        if not self.actor_parameters:
+            raise ValueError("gradient probe actor has no trainable parameters.")
+        self.output_path = Path(output_path)
+        self.interval = int(interval)
+        self.minimum_samples = int(minimum_samples)
+        self.iteration = 0
+        self._original_update = algorithm.update
+
+    @staticmethod
+    def _dot(left: tuple[Tensor, ...], right: tuple[Tensor, ...]) -> Tensor:
+        return sum((left_part * right_part).sum() for left_part, right_part in zip(left, right))
+
+    @classmethod
+    def _norm(cls, gradient: tuple[Tensor, ...]) -> Tensor:
+        return torch.sqrt(torch.clamp(cls._dot(gradient, gradient), min=0.0))
+
+    @classmethod
+    def _cosine(cls, left: tuple[Tensor, ...], right: tuple[Tensor, ...]) -> Tensor:
+        denominator = cls._norm(left) * cls._norm(right)
+        return cls._dot(left, right) / torch.clamp(denominator, min=1.0e-12)
+
+    def _distribution_log_prob(self, observations: object, actions: Tensor) -> Tensor:
+        actor_obs = self.policy.get_actor_obs(observations)
+        actor_obs = self.policy.actor_obs_normalizer(actor_obs)
+        mean = self.policy.actor(actor_obs)
+        noise_std_type = str(getattr(self.policy, "noise_std_type", ""))
+        if noise_std_type == "scalar":
+            std = self.policy.std.expand_as(mean)
+        elif noise_std_type == "log":
+            std = torch.exp(self.policy.log_std).expand_as(mean)
+        else:
+            raise ValueError(f"unsupported actor noise standard-deviation type: {noise_std_type!r}.")
+        return torch.distributions.Normal(mean, std).log_prob(actions).sum(dim=-1)
+
+    def _gradient_for_mask(
+        self,
+        *,
+        mask: Tensor,
+        name: str,
+    ) -> tuple[tuple[Tensor, ...], dict[str, float]]:
+        count = int(mask.sum().item())
+        if count < self.minimum_samples:
+            raise RuntimeError(
+                f"gradient probe group {name!r} has {count} samples; "
+                f"at least {self.minimum_samples} are required."
+            )
+        observations = self.storage.observations.flatten(0, 1)[mask]
+        actions = self.storage.actions.flatten(0, 1)[mask]
+        advantages = self.storage.advantages.flatten(0, 1)[mask].squeeze(-1)
+        old_log_prob = self.storage.actions_log_prob.flatten(0, 1)[mask].squeeze(-1)
+        new_log_prob = self._distribution_log_prob(observations, actions)
+        ratio = torch.exp(new_log_prob - old_log_prob)
+        surrogate = -advantages * ratio
+        surrogate_clipped = -advantages * torch.clamp(
+            ratio,
+            1.0 - float(self.algorithm.clip_param),
+            1.0 + float(self.algorithm.clip_param),
+        )
+        loss = torch.maximum(surrogate, surrogate_clipped).mean()
+        gradient = tuple(
+            part.detach()
+            for part in torch.autograd.grad(loss, self.actor_parameters, allow_unused=False)
+        )
+        metrics = {
+            f"gradient_probe/count_{name}": float(count),
+            f"gradient_probe/loss_{name}": float(loss.detach().item()),
+            f"gradient_probe/norm_{name}": float(self._norm(gradient).item()),
+            f"gradient_probe/advantage_mean_{name}": float(advantages.mean().item()),
+            f"gradient_probe/advantage_std_{name}": float(advantages.std(unbiased=False).item()),
+            f"gradient_probe/ratio_mean_{name}": float(ratio.detach().mean().item()),
+            f"gradient_probe/clipped_fraction_{name}": float(
+                ((ratio < 1.0 - self.algorithm.clip_param) | (ratio > 1.0 + self.algorithm.clip_param))
+                .to(dtype=torch.float32)
+                .mean()
+                .item()
+            ),
+        }
+        return gradient, metrics
+
+    def _measure(self) -> tuple[dict[str, float], dict[str, tuple[Tensor, ...]]]:
+        group = self.storage.observations[ACTOR_GRADIENT_PROBE_GROUP_KEY].flatten(0, 1).squeeze(-1)
+        masks = {
+            "c1": group == ACTOR_GRADIENT_PROBE_C1_GROUP,
+            "c2c_all": (group == ACTOR_GRADIENT_PROBE_C2C_GROUP)
+            | (group == ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP),
+            "c2c_non_strong": group == ACTOR_GRADIENT_PROBE_C2C_GROUP,
+            "c2c_strong": group == ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
+            "c3a": group == ACTOR_GRADIENT_PROBE_C3A_GROUP,
+        }
+        metrics: dict[str, float] = {}
+        gradients: dict[str, tuple[Tensor, ...]] = {}
+        for name, mask in masks.items():
+            gradients[name], group_metrics = self._gradient_for_mask(mask=mask, name=name)
+            metrics.update(group_metrics)
+
+        for left, right in (
+            ("c2c_all", "c3a"),
+            ("c2c_strong", "c3a"),
+            ("c2c_non_strong", "c3a"),
+            ("c1", "c3a"),
+        ):
+            pair = f"{left}_vs_{right}"
+            metrics[f"gradient_probe/dot_{pair}"] = float(self._dot(gradients[left], gradients[right]).item())
+            metrics[f"gradient_probe/cos_{pair}"] = float(
+                self._cosine(gradients[left], gradients[right]).item()
+            )
+        return metrics, gradients
+
+    def _write_csv(self, metrics: dict[str, float]) -> None:
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        row = {"iteration": self.iteration, **metrics}
+        write_header = not self.output_path.exists()
+        with self.output_path.open("a", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(row))
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
+
+    def update(self) -> dict[str, float]:
+        """Run the original PPO update and attach non-invasive probe metrics."""
+
+        if self.iteration % self.interval != 0:
+            result = self._original_update()
+            self.iteration += 1
+            return result
+
+        metrics, gradients = self._measure()
+        actor_before = tuple(parameter.detach().clone() for parameter in self.actor_parameters)
+        result = self._original_update()
+        actor_delta = tuple(
+            parameter.detach() - before
+            for parameter, before in zip(self.actor_parameters, actor_before)
+        )
+        delta_norm = self._norm(actor_delta)
+        metrics["gradient_probe/actor_update_norm"] = float(delta_norm.item())
+        for name in ("c2c_all", "c2c_strong"):
+            gradient = gradients[name]
+            directional_derivative = self._dot(gradient, actor_delta)
+            desired_alignment = -directional_derivative / torch.clamp(
+                self._norm(gradient) * delta_norm,
+                min=1.0e-12,
+            )
+            metrics[f"gradient_probe/update_directional_derivative_{name}"] = float(
+                directional_derivative.item()
+            )
+            metrics[f"gradient_probe/update_alignment_{name}"] = float(desired_alignment.item())
+        result.update(metrics)
+        self._write_csv(metrics)
+        self.iteration += 1
+        return result
+
+
+class PpoWarmStartGuard:
+    """Delay and soften the first PPO updates after a weights-only warm start."""
+
+    def __init__(
+        self,
+        algorithm: object,
+        *,
+        burn_in_iterations: int,
+        warmup_update_iterations: int,
+        initial_learning_rate: float,
+        target_learning_rate: float,
+        warmup_num_learning_epochs: int,
+        actor_update_norm_limit: float,
+    ) -> None:
+        policy = getattr(algorithm, "policy", None)
+        actor = getattr(policy, "actor", None)
+        storage = getattr(algorithm, "storage", None)
+        optimizer = getattr(algorithm, "optimizer", None)
+        if actor is None or storage is None or optimizer is None:
+            raise ValueError("PPO warm-start guard requires an actor, rollout storage, and optimizer.")
+        if isinstance(burn_in_iterations, bool) or int(burn_in_iterations) != burn_in_iterations:
+            raise ValueError("warm-start burn-in iterations must be a non-negative integer.")
+        if burn_in_iterations < 0:
+            raise ValueError("warm-start burn-in iterations must be a non-negative integer.")
+        if (
+            isinstance(warmup_update_iterations, bool)
+            or int(warmup_update_iterations) != warmup_update_iterations
+            or warmup_update_iterations <= 0
+        ):
+            raise ValueError("warm-start update iterations must be a positive integer.")
+        if (
+            isinstance(warmup_num_learning_epochs, bool)
+            or int(warmup_num_learning_epochs) != warmup_num_learning_epochs
+            or warmup_num_learning_epochs <= 0
+        ):
+            raise ValueError("warm-start learning epochs must be a positive integer.")
+        if not math.isfinite(initial_learning_rate) or initial_learning_rate <= 0.0:
+            raise ValueError("warm-start initial learning rate must be finite and positive.")
+        if not math.isfinite(target_learning_rate) or target_learning_rate < initial_learning_rate:
+            raise ValueError("warm-start target learning rate must be finite and at least the initial rate.")
+        if not math.isfinite(actor_update_norm_limit) or actor_update_norm_limit <= 0.0:
+            raise ValueError("warm-start actor update norm limit must be finite and positive.")
+
+        self.algorithm = algorithm
+        self.storage = storage
+        self.optimizer = optimizer
+        self.actor_parameters = tuple(actor.parameters())
+        if not self.actor_parameters:
+            raise ValueError("PPO warm-start guard actor has no trainable parameters.")
+        self.burn_in_iterations = int(burn_in_iterations)
+        self.warmup_update_iterations = int(warmup_update_iterations)
+        self.initial_learning_rate = float(initial_learning_rate)
+        self.target_learning_rate = float(target_learning_rate)
+        self.warmup_num_learning_epochs = int(warmup_num_learning_epochs)
+        self.actor_update_norm_limit = float(actor_update_norm_limit)
+        self.original_num_learning_epochs = int(getattr(algorithm, "num_learning_epochs"))
+        self.iteration = 0
+        self._original_update = algorithm.update
+
+        # Keep the cross-stage run on a bounded fixed schedule. RSL-RL's adaptive
+        # schedule otherwise raises the learning rate on the first zero-KL minibatch.
+        self.algorithm.schedule = "fixed"
+        self._set_learning_rate(self.initial_learning_rate)
+
+    @staticmethod
+    def _parameter_delta_norm(before: tuple[Tensor, ...], after: tuple[Tensor, ...]) -> float:
+        squared_norm = sum(torch.square(current - previous).sum() for previous, current in zip(before, after))
+        return float(torch.sqrt(torch.clamp(squared_norm, min=0.0)).item())
+
+    def _set_learning_rate(self, learning_rate: float) -> None:
+        self.algorithm.learning_rate = float(learning_rate)
+        for parameter_group in self.optimizer.param_groups:
+            parameter_group["lr"] = float(learning_rate)
+
+    def _empty_update_result(self) -> dict[str, float]:
+        result = {
+            "value_function": 0.0,
+            "surrogate": 0.0,
+            "entropy": 0.0,
+        }
+        if getattr(self.algorithm, "rnd", None) is not None:
+            result["rnd"] = 0.0
+        if getattr(self.algorithm, "symmetry", None) is not None:
+            result["symmetry"] = 0.0
+        return result
+
+    def update(self) -> dict[str, float]:
+        """Skip entry-only rollouts, then apply the bounded fixed-LR schedule."""
+
+        if self.iteration < self.burn_in_iterations:
+            self.storage.clear()
+            result = self._empty_update_result()
+            result.update(
+                {
+                    "warm_start/skipped_update": 1.0,
+                    "warm_start/update_index": -1.0,
+                    "warm_start/learning_rate": 0.0,
+                    "warm_start/num_learning_epochs": 0.0,
+                    "warm_start/actor_update_norm": 0.0,
+                }
+            )
+            self.iteration += 1
+            return result
+
+        update_index = self.iteration - self.burn_in_iterations
+        if update_index < self.warmup_update_iterations:
+            learning_rate = linear_anneal(
+                update_index,
+                start=self.initial_learning_rate,
+                end=self.target_learning_rate,
+                duration_steps=max(self.warmup_update_iterations - 1, 1),
+            )
+            num_learning_epochs = self.warmup_num_learning_epochs
+        else:
+            learning_rate = self.target_learning_rate
+            num_learning_epochs = self.original_num_learning_epochs
+
+        self._set_learning_rate(learning_rate)
+        self.algorithm.num_learning_epochs = num_learning_epochs
+        actor_before = tuple(parameter.detach().clone() for parameter in self.actor_parameters)
+        try:
+            result = self._original_update()
+        finally:
+            self.algorithm.num_learning_epochs = self.original_num_learning_epochs
+        actor_after = tuple(parameter.detach() for parameter in self.actor_parameters)
+        actor_update_norm = self._parameter_delta_norm(actor_before, actor_after)
+        result.update(
+            {
+                "warm_start/skipped_update": 0.0,
+                "warm_start/update_index": float(update_index),
+                "warm_start/learning_rate": float(learning_rate),
+                "warm_start/num_learning_epochs": float(num_learning_epochs),
+                "warm_start/actor_update_norm": actor_update_norm,
+            }
+        )
+        self.iteration += 1
+        if (
+            update_index < self.warmup_update_iterations
+            and actor_update_norm > self.actor_update_norm_limit
+        ):
+            raise RuntimeError(
+                "PPO warm-start actor update exceeded the configured limit: "
+                f"{actor_update_norm:.6f} > {self.actor_update_norm_limit:.6f}."
+            )
+        return result
+
+
 def maybe_enable_actor_policy_distillation(*, runner: object) -> bool:
     """Attach a frozen actor teacher after weights-only policy loading."""
     env = getattr(runner, "env", None)
@@ -105,6 +444,60 @@ def maybe_enable_actor_policy_distillation(*, runner: object) -> bool:
         "mirror_loss_coeff": coefficient,
         "_env": env,
     }
+    return True
+
+
+def maybe_enable_ppo_warm_start_guard(*, runner: object) -> bool:
+    """Attach the default-disabled PPO guard after weights-only loading."""
+
+    env = getattr(runner, "env", None)
+    algorithm = getattr(runner, "alg", None)
+    cfg = getattr(env, "cfg", None)
+    if not bool(getattr(cfg, "pure_rl_warm_start_guard_enabled", False)):
+        return False
+    if algorithm is None:
+        raise ValueError("runner does not expose a PPO algorithm for the warm-start guard.")
+
+    guard = PpoWarmStartGuard(
+        algorithm,
+        burn_in_iterations=getattr(cfg, "pure_rl_warm_start_burn_in_iterations", 3),
+        warmup_update_iterations=getattr(cfg, "pure_rl_warm_start_update_iterations", 10),
+        initial_learning_rate=float(getattr(cfg, "pure_rl_warm_start_initial_learning_rate", 1.0e-5)),
+        target_learning_rate=float(getattr(cfg, "pure_rl_warm_start_target_learning_rate", 5.0e-5)),
+        warmup_num_learning_epochs=getattr(cfg, "pure_rl_warm_start_num_learning_epochs", 1),
+        actor_update_norm_limit=float(getattr(cfg, "pure_rl_warm_start_actor_update_norm_limit", 0.10)),
+    )
+    algorithm.update = guard.update
+    algorithm.ppo_warm_start_guard = guard
+    return True
+
+
+def maybe_enable_actor_gradient_conflict_probe(*, runner: object) -> bool:
+    """Attach the default-disabled actor gradient probe to a weights-only run."""
+
+    env = getattr(runner, "env", None)
+    algorithm = getattr(runner, "alg", None)
+    cfg = getattr(env, "cfg", None)
+    if not bool(getattr(cfg, "pure_rl_actor_gradient_probe_enabled", False)):
+        return False
+    if algorithm is None:
+        raise ValueError("runner does not expose a PPO algorithm for the gradient probe.")
+    storage = getattr(algorithm, "storage", None)
+    stored_observations = getattr(storage, "observations", None)
+    if stored_observations is None or ACTOR_GRADIENT_PROBE_GROUP_KEY not in stored_observations:
+        raise ValueError("rollout storage does not contain the actor gradient probe group.")
+    log_dir = getattr(runner, "log_dir", None)
+    if log_dir is None:
+        raise ValueError("gradient probe requires a runner log directory.")
+
+    probe = ActorGradientConflictProbe(
+        algorithm,
+        output_path=Path(log_dir) / "actor_gradient_conflict.csv",
+        interval=int(getattr(cfg, "pure_rl_actor_gradient_probe_interval", 1)),
+        minimum_samples=int(getattr(cfg, "pure_rl_actor_gradient_probe_minimum_samples", 32)),
+    )
+    algorithm.update = probe.update
+    algorithm.actor_gradient_conflict_probe = probe
     return True
 
 
@@ -296,6 +689,10 @@ def load_runner_checkpoint_for_warm_start(
             "[INFO]: Enabled frozen actor policy distillation after warm start "
             f"(coefficient={coefficient:g})."
         )
+    if maybe_enable_ppo_warm_start_guard(runner=runner):
+        print("[INFO]: Enabled bounded PPO warm-start guard after weights-only loading.")
+    if maybe_enable_actor_gradient_conflict_probe(runner=runner):
+        print("[INFO]: Enabled actor gradient conflict probe after warm start.")
     return infos
 
 

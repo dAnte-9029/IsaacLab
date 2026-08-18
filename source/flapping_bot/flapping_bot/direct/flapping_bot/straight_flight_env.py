@@ -122,6 +122,11 @@ from ...physics import (
     step_ideal_frequency_phase,
 )
 from ...px4_like.rl_training_utils import (
+    ACTOR_GRADIENT_PROBE_C1_GROUP,
+    ACTOR_GRADIENT_PROBE_C2C_GROUP,
+    ACTOR_GRADIENT_PROBE_C3A_GROUP,
+    ACTOR_GRADIENT_PROBE_GROUP_KEY,
+    ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
     apply_teacher_guided_actions,
     linear_anneal,
     piecewise_linear_anneal,
@@ -250,6 +255,16 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_longitudinal_stage_id: str | None = None
     pure_rl_spatial_stage_id: str | None = None
     pure_rl_actor_distillation_coefficient: float = 0.0
+    pure_rl_actor_gradient_probe_enabled: bool = False
+    pure_rl_actor_gradient_probe_interval: int = 1
+    pure_rl_actor_gradient_probe_minimum_samples: int = 32
+    pure_rl_warm_start_guard_enabled: bool = False
+    pure_rl_warm_start_burn_in_iterations: int = 3
+    pure_rl_warm_start_update_iterations: int = 10
+    pure_rl_warm_start_initial_learning_rate: float = 1.0e-5
+    pure_rl_warm_start_target_learning_rate: float = 5.0e-5
+    pure_rl_warm_start_num_learning_epochs: int = 1
+    pure_rl_warm_start_actor_update_norm_limit: float = 0.10
     pure_rl_c2c_strong_climb_probability: float = 0.0
     pure_rl_c2c_strong_climb_minimum_deg: float = 10.0
     pure_rl_c2c_recycle_on_recovery: bool = False
@@ -978,6 +993,7 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg(
 
     pure_rl_spatial_stage_id: str = "c3a"
     episode_length_s: float = 20.0
+    pure_rl_warm_start_guard_enabled: bool = True
 
 
 @configclass
@@ -1101,6 +1117,56 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             spatial_stage is None or spatial_stage.stage_id != "c3a"
         ):
             raise ValueError("PureRL actor distillation is currently defined only for C3a training.")
+        actor_gradient_probe_enabled = bool(cfg.pure_rl_actor_gradient_probe_enabled)
+        if actor_gradient_probe_enabled:
+            if spatial_stage is None or spatial_stage.stage_id != "c3a":
+                raise ValueError("PureRL actor gradient probe is currently defined only for C3a training.")
+            probe_interval = cfg.pure_rl_actor_gradient_probe_interval
+            probe_minimum_samples = cfg.pure_rl_actor_gradient_probe_minimum_samples
+            if isinstance(probe_interval, bool) or int(probe_interval) != probe_interval or probe_interval <= 0:
+                raise ValueError("PureRL actor gradient probe interval must be a positive integer.")
+            if (
+                isinstance(probe_minimum_samples, bool)
+                or int(probe_minimum_samples) != probe_minimum_samples
+                or probe_minimum_samples <= 0
+            ):
+                raise ValueError("PureRL actor gradient probe minimum samples must be a positive integer.")
+        warm_start_guard_enabled = bool(cfg.pure_rl_warm_start_guard_enabled)
+        if warm_start_guard_enabled:
+            if spatial_stage is None or spatial_stage.stage_id != "c3a":
+                raise ValueError("PureRL warm-start guard is currently defined only for C3a training.")
+            burn_in_iterations = cfg.pure_rl_warm_start_burn_in_iterations
+            update_iterations = cfg.pure_rl_warm_start_update_iterations
+            warmup_epochs = cfg.pure_rl_warm_start_num_learning_epochs
+            if (
+                isinstance(burn_in_iterations, bool)
+                or int(burn_in_iterations) != burn_in_iterations
+                or burn_in_iterations < 0
+            ):
+                raise ValueError("PureRL warm-start burn-in iterations must be a non-negative integer.")
+            if (
+                isinstance(update_iterations, bool)
+                or int(update_iterations) != update_iterations
+                or update_iterations <= 0
+            ):
+                raise ValueError("PureRL warm-start update iterations must be a positive integer.")
+            if (
+                isinstance(warmup_epochs, bool)
+                or int(warmup_epochs) != warmup_epochs
+                or warmup_epochs <= 0
+            ):
+                raise ValueError("PureRL warm-start learning epochs must be a positive integer.")
+            initial_learning_rate = float(cfg.pure_rl_warm_start_initial_learning_rate)
+            target_learning_rate = float(cfg.pure_rl_warm_start_target_learning_rate)
+            update_norm_limit = float(cfg.pure_rl_warm_start_actor_update_norm_limit)
+            if not math.isfinite(initial_learning_rate) or initial_learning_rate <= 0.0:
+                raise ValueError("PureRL warm-start initial learning rate must be finite and positive.")
+            if not math.isfinite(target_learning_rate) or target_learning_rate < initial_learning_rate:
+                raise ValueError(
+                    "PureRL warm-start target learning rate must be finite and at least the initial rate."
+                )
+            if not math.isfinite(update_norm_limit) or update_norm_limit <= 0.0:
+                raise ValueError("PureRL warm-start actor update norm limit must be finite and positive.")
         adaptive_sampling_enabled = bool(cfg.pure_rl_adaptive_task_sampling_enabled)
         if adaptive_sampling_enabled:
             if spatial_stage is None or spatial_stage.stage_id != "c3a":
@@ -4859,6 +4925,19 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             observations["actor_distillation_mask"] = (
                 self._pure_rl_spatial_path.task_family_id <= REHEARSAL_C2C_TASK_FAMILY_ID
             ).to(dtype=observation.dtype).unsqueeze(1)
+        if bool(self.cfg.pure_rl_actor_gradient_probe_enabled):
+            assert self._pure_rl_spatial_path is not None
+            task_family_id = self._pure_rl_spatial_path.task_family_id
+            probe_group = torch.full_like(task_family_id, ACTOR_GRADIENT_PROBE_C3A_GROUP)
+            probe_group[task_family_id == REHEARSAL_C1_TASK_FAMILY_ID] = ACTOR_GRADIENT_PROBE_C1_GROUP
+            c2c = task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
+            probe_group[c2c] = ACTOR_GRADIENT_PROBE_C2C_GROUP
+            strong_c2c = c2c & (
+                self._pure_rl_spatial_path.peak_slope_rad
+                >= math.radians(float(self.cfg.pure_rl_c2c_strong_climb_minimum_deg))
+            )
+            probe_group[strong_c2c] = ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP
+            observations[ACTOR_GRADIENT_PROBE_GROUP_KEY] = probe_group.unsqueeze(1)
         return observations
 
     def _get_observations(self) -> dict[str, Tensor]:

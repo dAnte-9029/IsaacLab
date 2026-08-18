@@ -90,7 +90,11 @@ def test_c3_configs_add_only_spatial_stage_and_twenty_second_episode() -> None:
         assert len(cfg.bases) == 1
         assert isinstance(cfg.bases[0], ast.Name)
         assert cfg.bases[0].id == "FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg"
-        assert _assigned_names(cfg) == {"pure_rl_spatial_stage_id", "episode_length_s"}
+        expected_names = {"pure_rl_spatial_stage_id", "episode_length_s"}
+        if suffix == "C3a":
+            expected_names.add("pure_rl_warm_start_guard_enabled")
+            assert ast.literal_eval(_ann_assign(cfg, "pure_rl_warm_start_guard_enabled").value) is True
+        assert _assigned_names(cfg) == expected_names
         assert ast.literal_eval(_ann_assign(cfg, "pure_rl_spatial_stage_id").value) == stage_id
         assert ast.literal_eval(_ann_assign(cfg, "episode_length_s").value) == 20.0
         assert not (_assigned_names(cfg) & forbidden_overrides)
@@ -196,6 +200,38 @@ def test_c3_actor_distillation_is_opt_in_and_kept_outside_policy_observation() -
     assert 'observations = {\'policy\': observation}' in observation_source
     assert "actor_distillation_mask" in observation_source
     assert "task_family_id <= REHEARSAL_C2C_TASK_FAMILY_ID" in observation_source
+
+
+def test_c3_actor_gradient_probe_is_opt_in_and_kept_outside_policy_observation() -> None:
+    module = _module()
+    base = _class(module, "FlappingBotStraightFlightEnvCfg")
+    env = _class(module, "FlappingBotStraightFlightEnv")
+    constructor_source = _source(_method(env, "__init__"))
+    observation_source = _source(_method(env, "_get_pure_rl_observations"))
+
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_actor_gradient_probe_enabled").value) is False
+    assert "actor_gradient_probe_enabled" in constructor_source
+    assert "spatial_stage.stage_id != 'c3a'" in constructor_source
+    assert "ACTOR_GRADIENT_PROBE_GROUP_KEY" in observation_source
+    assert "ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP" in observation_source
+
+
+def test_c3a_enables_bounded_weights_only_warm_start_guard() -> None:
+    module = _module()
+    base = _class(module, "FlappingBotStraightFlightEnvCfg")
+    c3a = _class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg")
+    constructor_source = _source(_method(_class(module, "FlappingBotStraightFlightEnv"), "__init__"))
+
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_guard_enabled").value) is False
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_burn_in_iterations").value) == 3
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_update_iterations").value) == 10
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_initial_learning_rate").value) == 1.0e-5
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_target_learning_rate").value) == 5.0e-5
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_num_learning_epochs").value) == 1
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_actor_update_norm_limit").value) == 0.10
+    assert ast.literal_eval(_ann_assign(c3a, "pure_rl_warm_start_guard_enabled").value) is True
+    assert "warm_start_guard_enabled" in constructor_source
+    assert "spatial_stage.stage_id != 'c3a'" in constructor_source
 
 
 def test_c3_adaptive_task_sampling_is_opt_in_and_uses_completed_episode_signals() -> None:
