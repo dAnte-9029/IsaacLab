@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import copy
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import torch
@@ -20,6 +20,8 @@ ACTOR_GRADIENT_PROBE_C2C_GROUP = 1
 ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP = 2
 ACTOR_GRADIENT_PROBE_C3A_GROUP = 3
 ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP = 4
+_LARGE_ACTOR_HIDDEN_DIMS = (512, 256)
+_NET2WIDER_PRIMARY_FRACTION = 0.55
 
 
 class ActorPolicyDistillationAugmentor:
@@ -928,6 +930,122 @@ def maybe_bootstrap_teacher_guided_policy(
     return True
 
 
+def expand_actor_state_dict_net2wider(
+    *,
+    source_state: Mapping[str, Tensor],
+    target_state: Mapping[str, Tensor],
+) -> dict[str, Tensor]:
+    """Double a two-layer actor width while preserving its action mean exactly.
+
+    The critic and action-noise state must retain identical shapes. The two
+    actor hidden layers must each be exactly twice the source width; all other
+    architecture changes fail closed.
+    """
+
+    if set(source_state) != set(target_state):
+        raise ValueError("Net2Wider requires identical policy state-dict keys.")
+    actor_keys = {
+        "actor.0.weight",
+        "actor.0.bias",
+        "actor.2.weight",
+        "actor.2.bias",
+        "actor.4.weight",
+        "actor.4.bias",
+    }
+    if {key for key in source_state if key.startswith("actor.")} != actor_keys:
+        raise ValueError("Net2Wider supports only the registered two-hidden-layer actor MLP.")
+
+    source_w1 = source_state["actor.0.weight"]
+    source_b1 = source_state["actor.0.bias"]
+    source_w2 = source_state["actor.2.weight"]
+    source_b2 = source_state["actor.2.bias"]
+    source_head = source_state["actor.4.weight"]
+    source_head_bias = source_state["actor.4.bias"]
+    target_w1 = target_state["actor.0.weight"]
+    target_b1 = target_state["actor.0.bias"]
+    target_w2 = target_state["actor.2.weight"]
+    target_b2 = target_state["actor.2.bias"]
+    target_head = target_state["actor.4.weight"]
+    target_head_bias = target_state["actor.4.bias"]
+
+    source_h1, input_dim = source_w1.shape
+    source_h2, source_w2_input = source_w2.shape
+    action_dim, source_head_input = source_head.shape
+    expected_shapes = {
+        "actor.0.weight": (2 * source_h1, input_dim),
+        "actor.0.bias": (2 * source_h1,),
+        "actor.2.weight": (2 * source_h2, 2 * source_h1),
+        "actor.2.bias": (2 * source_h2,),
+        "actor.4.weight": (action_dim, 2 * source_h2),
+        "actor.4.bias": (action_dim,),
+    }
+    actual_shapes = {
+        "actor.0.weight": tuple(target_w1.shape),
+        "actor.0.bias": tuple(target_b1.shape),
+        "actor.2.weight": tuple(target_w2.shape),
+        "actor.2.bias": tuple(target_b2.shape),
+        "actor.4.weight": tuple(target_head.shape),
+        "actor.4.bias": tuple(target_head_bias.shape),
+    }
+    if source_w2_input != source_h1 or source_head_input != source_h2:
+        raise ValueError("Source actor state is not a connected two-hidden-layer MLP.")
+    if actual_shapes != expected_shapes:
+        raise ValueError(
+            f"Net2Wider requires exact twofold hidden widths; expected {expected_shapes}, "
+            f"received {actual_shapes}."
+        )
+    for key, source_value in source_state.items():
+        if key in actor_keys:
+            continue
+        if tuple(source_value.shape) != tuple(target_state[key].shape):
+            raise ValueError(f"Net2Wider cannot change non-actor parameter shape: {key}.")
+
+    def _as_target(source: Tensor, target: Tensor) -> Tensor:
+        return source.to(device=target.device, dtype=target.dtype)
+
+    result = {key: value.detach().clone() for key, value in target_state.items()}
+    for key, source_value in source_state.items():
+        if key not in actor_keys:
+            result[key] = _as_target(source_value, target_state[key]).detach().clone()
+
+    w1 = _as_target(source_w1, target_w1)
+    b1 = _as_target(source_b1, target_b1)
+    w2 = _as_target(source_w2, target_w2)
+    b2 = _as_target(source_b2, target_b2)
+    head = _as_target(source_head, target_head)
+    head_bias = _as_target(source_head_bias, target_head_bias)
+    secondary_fraction = 1.0 - _NET2WIDER_PRIMARY_FRACTION
+
+    result["actor.0.weight"] = torch.cat((w1, w1), dim=0).clone()
+    result["actor.0.bias"] = torch.cat((b1, b1), dim=0).clone()
+    widened_w2 = torch.cat(
+        (
+            w2 * _NET2WIDER_PRIMARY_FRACTION,
+            w2 * secondary_fraction,
+        ),
+        dim=1,
+    )
+    result["actor.2.weight"] = torch.cat((widened_w2, widened_w2), dim=0).clone()
+    result["actor.2.bias"] = torch.cat((b2, b2), dim=0).clone()
+    result["actor.4.weight"] = torch.cat(
+        (
+            head * _NET2WIDER_PRIMARY_FRACTION,
+            head * secondary_fraction,
+        ),
+        dim=1,
+    ).clone()
+    result["actor.4.bias"] = head_bias.detach().clone()
+    return result
+
+
+def _actor_hidden_dims(policy: object) -> tuple[int, ...]:
+    actor = getattr(policy, "actor", None)
+    if actor is None:
+        return ()
+    linear_layers = [module for module in actor.modules() if isinstance(module, nn.Linear)]
+    return tuple(layer.out_features for layer in linear_layers[:-1])
+
+
 def load_runner_checkpoint_for_warm_start(
     *,
     runner: object,
@@ -941,7 +1059,31 @@ def load_runner_checkpoint_for_warm_start(
     if not hasattr(runner, "current_learning_iteration"):
         raise ValueError("runner does not expose current_learning_iteration.")
 
-    infos = load_fn(checkpoint_path, load_optimizer=False, map_location=map_location)
+    policy = getattr(getattr(runner, "alg", None), "policy", None)
+    if _actor_hidden_dims(policy) == _LARGE_ACTOR_HIDDEN_DIMS:
+        loaded = torch.load(checkpoint_path, weights_only=False, map_location=map_location)
+        if not isinstance(loaded, dict) or not isinstance(loaded.get("model_state_dict"), Mapping):
+            raise ValueError("Warm-start checkpoint does not contain model_state_dict.")
+        source_state = loaded["model_state_dict"]
+        target_state = policy.state_dict()
+        if all(
+            key in target_state and tuple(value.shape) == tuple(target_state[key].shape)
+            for key, value in source_state.items()
+        ) and set(source_state) == set(target_state):
+            policy.load_state_dict(source_state)
+        else:
+            expanded_state = expand_actor_state_dict_net2wider(
+                source_state=source_state,
+                target_state=target_state,
+            )
+            policy.load_state_dict(expanded_state)
+            print(
+                "[INFO]: Expanded warm-start actor with function-preserving Net2Wider "
+                "([256, 128] -> [512, 256])."
+            )
+        infos = loaded.get("infos")
+    else:
+        infos = load_fn(checkpoint_path, load_optimizer=False, map_location=map_location)
     runner.current_learning_iteration = 0
     if maybe_enable_actor_policy_distillation(runner=runner):
         coefficient = float(runner.env.cfg.pure_rl_actor_distillation_coefficient)

@@ -198,9 +198,33 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--poll_s", type=float, default=60.0)
     parser.add_argument("--once", action="store_true", help="Evaluate current checkpoints once and exit.")
     parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help="Evaluate this exact checkpoint instead of scanning <log_dir>/model_*.pt; requires --once.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Evaluation output directory. Defaults to <log_dir>/eval.",
+    )
+    parser.add_argument(
+        "--no-best-artifacts",
+        action="store_true",
+        help="Do not update best_checkpoint files or symlinks in the source run directory.",
+    )
+    parser.add_argument(
         "--no_saved_cfg",
         action="store_true",
         help="Do not load env/agent config from <log_dir>/params/{env,agent}.yaml.",
+    )
+    parser.add_argument(
+        "--actor-hidden-dims",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Explicit actor hidden dimensions for checkpoints whose network differs from the registered default.",
     )
     parser.add_argument(
         "--robot-asset-path",
@@ -235,6 +259,22 @@ def _parse_args() -> argparse.Namespace:
 def _extract_ckpt_index(p: Path) -> int:
     m = re.match(r"model_(\d+)\.pt$", p.name)
     return int(m.group(1)) if m else -1
+
+
+def _resolve_checkpoint_candidates(log_dir: Path, checkpoint: Path | None) -> list[Path]:
+    """Resolve either one explicit checkpoint or the run-directory checkpoint scan."""
+
+    if checkpoint is None:
+        return sorted(
+            (path.resolve() for path in log_dir.glob("model_*.pt")),
+            key=_extract_ckpt_index,
+        )
+    resolved = checkpoint.expanduser().resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Checkpoint does not exist: {resolved}")
+    if _extract_ckpt_index(resolved) < 0:
+        raise ValueError("Explicit checkpoint must be named model_<iteration>.pt.")
+    return [resolved]
 
 
 def _score_row(row: dict) -> float:
@@ -313,6 +353,8 @@ def _report_evaluation_failure(error: BaseException) -> None:
 
 def main():
     args = _parse_args()
+    if args.checkpoint is not None and not bool(args.once):
+        raise ValueError("--checkpoint requires --once so direct evaluation cannot become a watcher.")
     eval_suite = _resolve_eval_suite(args.task, args.eval_suite)
     args.num_envs, args.episodes = _resolve_eval_shape(
         args.task,
@@ -427,7 +469,11 @@ def main():
         usd_dir=args.robot_usd_dir,
     )
 
-    eval_dir = log_dir / "eval"
+    eval_dir = (
+        Path(args.output_dir).expanduser().resolve()
+        if args.output_dir is not None
+        else log_dir / "eval"
+    )
     eval_dir.mkdir(parents=True, exist_ok=True)
     summary_csv = eval_dir / "summary.csv"
 
@@ -475,6 +521,14 @@ def main():
         agent_cfg = load_cfg_from_registry(args.task, "rsl_rl_cfg_entry_point")
         agent_cfg.device = args.device if args.device is not None else agent_cfg.device
         agent_cfg_dict = agent_cfg.to_dict()
+    if args.actor_hidden_dims is not None:
+        actor_hidden_dims = [int(value) for value in args.actor_hidden_dims]
+        if not actor_hidden_dims or any(value <= 0 for value in actor_hidden_dims):
+            raise ValueError("--actor-hidden-dims values must be positive integers.")
+        policy_cfg = agent_cfg_dict.get("policy")
+        if not isinstance(policy_cfg, dict):
+            raise ValueError("Agent configuration does not contain a policy dictionary.")
+        policy_cfg["actor_hidden_dims"] = actor_hidden_dims
     agent_cfg_dict["device"] = args.device if args.device is not None else agent_cfg_dict.get("device", "cuda:0")
 
     eval_cases = build_eval_cases(eval_suite)
@@ -1021,7 +1075,7 @@ def main():
     # main watch loop
     try:
         while True:
-            ckpts = sorted(log_dir.glob("model_*.pt"), key=_extract_ckpt_index)
+            ckpts = _resolve_checkpoint_candidates(log_dir, args.checkpoint)
             new_ckpts = [p for p in ckpts if str(p) not in evaluated]
 
             for ckpt in new_ckpts:
@@ -1029,11 +1083,13 @@ def main():
                 for row in rows:
                     _append_summary_row(summary_csv, row)
                 (eval_dir / f"{Path(ckpt).stem}.json").write_text(json.dumps(rows, indent=2))
-                best_row = refresh_best_checkpoint_artifacts(
-                    log_dir,
-                    summary_csv=summary_csv,
-                    evaluation_contract=evaluation_contract,
-                )
+                best_row = None
+                if not bool(args.no_best_artifacts):
+                    best_row = refresh_best_checkpoint_artifacts(
+                        log_dir,
+                        summary_csv=summary_csv,
+                        evaluation_contract=evaluation_contract,
+                    )
                 evaluated.add(str(ckpt))
                 suite_row = next(row for row in rows if row["case"] == "suite")
                 print(

@@ -660,6 +660,124 @@ def test_build_train_cmd_enables_actor_distillation_only_for_c3a_warm_start(tmp_
         train_and_watch._build_train_cmd(args)
 
 
+def test_c3a_retention_phase_a_preset_freezes_controlled_recipe() -> None:
+    args = train_and_watch.argparse.Namespace(
+        c3a_retention_phase_a=True,
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+        run_name="phase_a",
+        num_envs=None,
+        max_iterations=None,
+        save_interval=None,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        agent_num_mini_batches=None,
+        c2c_strong_climb_probability=None,
+        actor_distillation_coefficient=0.0,
+        source_stage=None,
+        checkpoint=None,
+        load_run="promoted_c2c",
+        portable_root_base=Path("/tmp/phase_a_test"),
+        native_extension_parent=Path("/tmp/native_extensions"),
+        freeze_steps_after_reset=None,
+        mass_kg_override=None,
+        resume=False,
+        concurrent_eval=False,
+        adaptive_task_sampling=False,
+        c2c_recycle_on_recovery=False,
+        load_weights_only=False,
+        native_cpu=False,
+        agent_device=None,
+        train_only=False,
+    )
+
+    resolved = train_and_watch._apply_c3a_retention_phase_a_preset(args)
+
+    assert resolved.num_envs == 256
+    assert resolved.max_iterations == 101
+    assert resolved.save_interval == 25
+    assert resolved.seed == 0
+    assert resolved.agent_num_mini_batches == 16
+    assert resolved.c2c_strong_climb_probability == pytest.approx(0.5)
+    assert resolved.actor_distillation_coefficient == pytest.approx(0.05)
+    assert resolved.source_stage == "c2c"
+    assert resolved.checkpoint == "model_550.pt"
+    assert resolved.load_weights_only is True
+    assert resolved.native_cpu is True
+    assert resolved.agent_device == "cpu"
+    assert resolved.train_only is True
+    assert resolved.concurrent_eval is False
+    command = train_and_watch._build_train_cmd(resolved)
+    assert "--load_weights_only" in command
+    assert "--resume" not in command
+    assert command[command.index("--max_iterations") + 1] == "101"
+    assert "agent.save_interval=25" in command
+    assert "agent.algorithm.num_mini_batches=16" in command
+    assert "env.pure_rl_c2c_strong_climb_probability=0.5" in command
+    assert "env.pure_rl_actor_distillation_coefficient=0.05" in command
+    assert "env.pure_rl_adaptive_task_sampling_enabled=true" not in command
+
+
+def test_c3a_retention_phase_a_preset_rejects_conflicting_experiment() -> None:
+    args = train_and_watch.argparse.Namespace(
+        c3a_retention_phase_a=True,
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+        adaptive_task_sampling=True,
+        resume=False,
+        concurrent_eval=False,
+        c2c_recycle_on_recovery=False,
+    )
+
+    with pytest.raises(ValueError, match="--adaptive-task-sampling"):
+        train_and_watch._apply_c3a_retention_phase_a_preset(args)
+
+
+def test_c3a_large_actor_adds_explicit_capacity_override() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+        run_name="large_actor",
+        num_envs=256,
+        max_iterations=101,
+        save_interval=25,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        resume=False,
+        load_weights_only=True,
+        load_run="promoted_c2c",
+        checkpoint="model_550.pt",
+        portable_root_base=Path("/tmp/large_actor_test"),
+        native_cpu=True,
+        native_extension_parent=Path("/tmp/native_extensions"),
+        agent_device="cpu",
+        agent_num_mini_batches=16,
+        freeze_steps_after_reset=None,
+        c2c_strong_climb_probability=0.5,
+        c2c_recycle_on_recovery=False,
+        adaptive_task_sampling=False,
+        actor_distillation_coefficient=0.05,
+        c3a_large_actor=True,
+        mass_kg_override=None,
+    )
+
+    command = train_and_watch._build_train_cmd(args)
+
+    assert "agent.policy.actor_hidden_dims=[512,256]" in command
+    assert "agent.policy.critic_hidden_dims=[512,256]" not in command
+
+
+def test_c3a_large_actor_requires_c3a_weights_only_warm_start() -> None:
+    args = train_and_watch.argparse.Namespace(
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+        resume=False,
+        load_weights_only=False,
+        c3a_large_actor=True,
+    )
+
+    with pytest.raises(ValueError, match="requires --load_weights_only"):
+        train_and_watch._build_train_cmd(args)
+
+
 def test_measured_pure_rl_defaults_to_accelerated_cpu_training(tmp_path: Path) -> None:
     extension_parent = tmp_path / "native_extensions"
     args = train_and_watch.argparse.Namespace(

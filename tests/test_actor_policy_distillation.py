@@ -103,3 +103,100 @@ def test_actor_policy_distillation_is_disabled_by_default() -> None:
     )()
 
     assert training_utils.maybe_enable_actor_policy_distillation(runner=runner) is False
+
+
+class _CapacityPolicy(nn.Module):
+    is_recurrent = False
+    state_dependent_std = False
+
+    def __init__(self, actor_hidden_dims: tuple[int, int]) -> None:
+        super().__init__()
+        first, second = actor_hidden_dims
+        self.log_std = nn.Parameter(torch.zeros(2))
+        self.actor = nn.Sequential(
+            nn.Linear(5, first),
+            nn.ELU(),
+            nn.Linear(first, second),
+            nn.ELU(),
+            nn.Linear(second, 2),
+        )
+        self.critic = nn.Sequential(
+            nn.Linear(5, 256),
+            nn.ELU(),
+            nn.Linear(256, 128),
+            nn.ELU(),
+            nn.Linear(128, 1),
+        )
+        self.actor_obs_normalizer = nn.Identity()
+        self.obs_groups = {"policy": ["policy"], "critic": ["policy"]}
+
+
+def test_net2wider_actor_state_preserves_source_action_mean_and_critic() -> None:
+    torch.manual_seed(7)
+    source = _CapacityPolicy((256, 128))
+    target = _CapacityPolicy((512, 256))
+    observations = torch.randn(13, 5)
+    source_actions = source.actor(observations).detach()
+    source_values = source.critic(observations).detach()
+
+    expanded = training_utils.expand_actor_state_dict_net2wider(
+        source_state=source.state_dict(),
+        target_state=target.state_dict(),
+    )
+    target.load_state_dict(expanded)
+
+    assert torch.allclose(target.actor(observations), source_actions, atol=1.0e-6, rtol=1.0e-6)
+    assert torch.allclose(target.critic(observations), source_values, atol=0.0, rtol=0.0)
+    assert torch.allclose(target.log_std, source.log_std, atol=0.0, rtol=0.0)
+    assert not torch.allclose(target.actor[2].weight[:, :256], target.actor[2].weight[:, 256:])
+    assert not torch.allclose(target.actor[4].weight[:, :128], target.actor[4].weight[:, 128:])
+
+
+def test_large_actor_warm_start_uses_net2wider_and_resets_iteration(tmp_path: Path) -> None:
+    torch.manual_seed(11)
+    source = _CapacityPolicy((256, 128))
+    target = _CapacityPolicy((512, 256))
+    checkpoint = tmp_path / "model_550.pt"
+    torch.save(
+        {
+            "model_state_dict": source.state_dict(),
+            "optimizer_state_dict": {},
+            "iter": 550,
+            "infos": {"source": "c2c"},
+        },
+        checkpoint,
+    )
+
+    class DummyRunner:
+        def __init__(self) -> None:
+            self.current_learning_iteration = -1
+            self.alg = type("Alg", (), {"policy": target, "symmetry": None})()
+            self.env = type("Env", (), {"cfg": type("Cfg", (), {})()})()
+
+        def load(self, *_args, **_kwargs):
+            raise AssertionError("large actor warm start must not call strict runner.load()")
+
+    observations = torch.randn(9, 5)
+    expected_actions = source.actor(observations).detach()
+    runner = DummyRunner()
+
+    infos = training_utils.load_runner_checkpoint_for_warm_start(
+        runner=runner,
+        checkpoint_path=str(checkpoint),
+        map_location="cpu",
+    )
+
+    assert infos == {"source": "c2c"}
+    assert runner.current_learning_iteration == 0
+    assert torch.allclose(target.actor(observations), expected_actions, atol=1.0e-6, rtol=1.0e-6)
+
+
+def test_net2wider_rejects_non_doubled_actor_width() -> None:
+    source = _CapacityPolicy((256, 128))
+    unsupported_target = _CapacityPolicy((512, 128))
+
+    with pytest.raises(ValueError, match="exact twofold hidden widths"):
+        training_utils.expand_actor_state_dict_net2wider(
+            source_state=source.state_dict(),
+            target_state=unsupported_target.state_dict(),
+        )

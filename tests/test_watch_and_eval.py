@@ -96,6 +96,82 @@ def test_watch_and_eval_parser_accepts_robot_asset_overrides(monkeypatch, tmp_pa
     assert args.robot_usd_dir == str(usd_dir)
 
 
+def test_watch_and_eval_parser_accepts_direct_checkpoint_output(monkeypatch, tmp_path: Path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    checkpoint = tmp_path / "run" / "model_100.pt"
+    output_dir = tmp_path / "authority_eval"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "watch_and_eval.py",
+            "--task",
+            "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+            "--log_dir",
+            str(checkpoint.parent),
+            "--checkpoint",
+            str(checkpoint),
+            "--output-dir",
+            str(output_dir),
+            "--once",
+            "--no-best-artifacts",
+        ],
+    )
+
+    args = watch_and_eval._parse_args()
+
+    assert args.checkpoint == checkpoint
+    assert args.output_dir == output_dir
+    assert args.once is True
+    assert args.no_best_artifacts is True
+
+
+def test_watch_and_eval_parser_accepts_actor_hidden_dims(monkeypatch) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "watch_and_eval.py",
+            "--task",
+            "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+            "--log_dir",
+            "logs/dummy_run",
+            "--actor-hidden-dims",
+            "512",
+            "256",
+        ],
+    )
+
+    args = watch_and_eval._parse_args()
+
+    assert args.actor_hidden_dims == [512, 256]
+
+
+def test_resolve_checkpoint_candidates_prefers_exact_checkpoint(tmp_path: Path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    requested = run_dir / "model_75.pt"
+    ignored = run_dir / "model_100.pt"
+    requested.write_bytes(b"requested")
+    ignored.write_bytes(b"ignored")
+
+    candidates = watch_and_eval._resolve_checkpoint_candidates(run_dir, requested)
+
+    assert candidates == [requested.resolve()]
+
+
+def test_resolve_checkpoint_candidates_rejects_non_model_name(tmp_path: Path) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    checkpoint = tmp_path / "checkpoint.pt"
+    checkpoint.write_bytes(b"bad name")
+
+    with pytest.raises(ValueError, match="model_<iteration>"):
+        watch_and_eval._resolve_checkpoint_candidates(tmp_path, checkpoint)
+
+
 def test_watch_and_eval_applies_robot_asset_overrides(tmp_path: Path) -> None:
     watch_and_eval = _load_watch_and_eval_module()
     asset_path = tmp_path / "robot.urdf"

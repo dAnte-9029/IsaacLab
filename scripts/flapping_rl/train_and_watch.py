@@ -23,6 +23,16 @@ Typical usage:
     --run-name native_cpu_pure_rl \
     --headless
 
+  # Controlled C3a retention Phase A (task-aware PPO + actor distillation 0.05)
+  ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
+    --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0 \
+    --run-name pure_rl_c3a_task_aware_distill005_seed0_101iter \
+    --c3a-retention-phase-a \
+    --load_run <PROMOTED_C2C_RUN> \
+    --checkpoint model_550.pt \
+    --source-checkpoint-path <PROMOTED_C2C_MODEL_550> \
+    --headless
+
 Add `--concurrent-eval` only when the training and watcher processes are
 intentionally allowed to share or use independently assigned compute resources.
 """
@@ -73,6 +83,14 @@ _MEASURED_PURE_RL_DEFAULT_NUM_ENVS = 256
 _MEASURED_PURE_RL_DEFAULT_MAX_ITERATIONS = 500
 _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL = 25
 _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES = 16
+_C3A_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0"
+_C3A_RETENTION_PHASE_A_NUM_ENVS = 256
+_C3A_RETENTION_PHASE_A_MAX_ITERATIONS = 101
+_C3A_RETENTION_PHASE_A_SAVE_INTERVAL = 25
+_C3A_RETENTION_PHASE_A_NUM_MINI_BATCHES = 16
+_C3A_RETENTION_PHASE_A_STRONG_CLIMB_PROBABILITY = 0.5
+_C3A_RETENTION_PHASE_A_DISTILLATION_COEFFICIENT = 0.05
+_C3A_LARGE_ACTOR_HIDDEN_DIMS = (512, 256)
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
@@ -242,6 +260,25 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--c3a-retention-phase-a",
+        action="store_true",
+        help=(
+            "Apply the controlled C3a task-aware PPO plus actor-distillation-0.05 recipe: "
+            "weights-only C2c warm start, seed 0, 256 environments, 16 mini-batches, "
+            "101 iterations, 25-iteration checkpoint cadence, strong-climb probability 0.5, "
+            "and train-only execution. Conflicting overrides fail closed."
+        ),
+    )
+    parser.add_argument(
+        "--c3a-large-actor",
+        action="store_true",
+        help=(
+            "Use the method-2 C3a actor capacity experiment: actor hidden dimensions [512, 256], "
+            "critic unchanged, and function-preserving Net2Wider initialization from the [256, 128] "
+            "C2c source actor. Requires a weights-only C3a warm start."
+        ),
+    )
+    parser.add_argument(
         "--eval-num-envs",
         type=int,
         default=None,
@@ -289,6 +326,92 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--headless", action="store_true")
     return parser.parse_args()
+
+
+def _set_phase_a_value(
+    args: argparse.Namespace,
+    *,
+    name: str,
+    expected: object,
+    option: str,
+) -> None:
+    configured = getattr(args, name, None)
+    if configured is not None and configured != expected:
+        raise ValueError(
+            f"--c3a-retention-phase-a requires {option}={expected}; received {configured}."
+        )
+    setattr(args, name, expected)
+
+
+def _apply_c3a_retention_phase_a_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply the frozen single-variable Phase-A training recipe."""
+
+    if not bool(getattr(args, "c3a_retention_phase_a", False)):
+        return args
+    if str(getattr(args, "task", "")) != _C3A_TASK_ID:
+        raise ValueError("--c3a-retention-phase-a requires the measured CPU-native C3a task.")
+    for name, option in (
+        ("resume", "--resume"),
+        ("concurrent_eval", "--concurrent-eval"),
+        ("adaptive_task_sampling", "--adaptive-task-sampling"),
+        ("c2c_recycle_on_recovery", "--c2c-recycle-on-recovery"),
+    ):
+        if bool(getattr(args, name, False)):
+            raise ValueError(f"--c3a-retention-phase-a cannot be combined with {option}.")
+
+    _set_phase_a_value(
+        args,
+        name="num_envs",
+        expected=_C3A_RETENTION_PHASE_A_NUM_ENVS,
+        option="--num-envs",
+    )
+    _set_phase_a_value(
+        args,
+        name="max_iterations",
+        expected=_C3A_RETENTION_PHASE_A_MAX_ITERATIONS,
+        option="--max-iterations",
+    )
+    _set_phase_a_value(
+        args,
+        name="save_interval",
+        expected=_C3A_RETENTION_PHASE_A_SAVE_INTERVAL,
+        option="--save-interval",
+    )
+    _set_phase_a_value(args, name="seed", expected=0, option="--seed")
+    _set_phase_a_value(
+        args,
+        name="agent_num_mini_batches",
+        expected=_C3A_RETENTION_PHASE_A_NUM_MINI_BATCHES,
+        option="--agent-num-mini-batches",
+    )
+    _set_phase_a_value(
+        args,
+        name="c2c_strong_climb_probability",
+        expected=_C3A_RETENTION_PHASE_A_STRONG_CLIMB_PROBABILITY,
+        option="--c2c-strong-climb-probability",
+    )
+    configured_coefficient = float(getattr(args, "actor_distillation_coefficient", 0.0))
+    if configured_coefficient not in (0.0, _C3A_RETENTION_PHASE_A_DISTILLATION_COEFFICIENT):
+        raise ValueError(
+            "--c3a-retention-phase-a requires --actor-distillation-coefficient=0.05."
+        )
+    args.actor_distillation_coefficient = _C3A_RETENTION_PHASE_A_DISTILLATION_COEFFICIENT
+
+    source_stage = str(getattr(args, "source_stage", "") or "").strip()
+    if source_stage not in ("", "c2c"):
+        raise ValueError("--c3a-retention-phase-a requires --source-stage=c2c.")
+    checkpoint = str(getattr(args, "checkpoint", "") or "").strip()
+    if checkpoint not in ("", "model_550.pt"):
+        raise ValueError("--c3a-retention-phase-a requires --checkpoint=model_550.pt.")
+
+    args.source_stage = "c2c"
+    args.checkpoint = "model_550.pt"
+    args.load_weights_only = True
+    args.native_cpu = True
+    _set_phase_a_value(args, name="agent_device", expected="cpu", option="--agent-device")
+    args.train_only = True
+    args.concurrent_eval = False
+    return args
 
 
 def _extract_ckpt_index(path: Path) -> int:
@@ -568,6 +691,12 @@ def _sim_device(args: argparse.Namespace, role: str) -> str:
 def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     if bool(args.resume) and bool(getattr(args, "load_weights_only", False)):
         raise ValueError("--resume and --load_weights_only cannot both be enabled.")
+    large_actor_enabled = bool(getattr(args, "c3a_large_actor", False))
+    if large_actor_enabled:
+        if spatial_stage_for_task(str(args.task)) != "c3a":
+            raise ValueError("--c3a-large-actor is currently supported only for C3a training.")
+        if not bool(getattr(args, "load_weights_only", False)):
+            raise ValueError("--c3a-large-actor requires --load_weights_only from the promoted C2c actor.")
 
     train_cmd = [
         *_child_entrypoint(args, "scripts/reinforcement_learning/rsl_rl/train.py"),
@@ -633,6 +762,9 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
         train_cmd.append(
             f"env.pure_rl_actor_distillation_coefficient={actor_distillation_coefficient}"
         )
+    if large_actor_enabled:
+        hidden_dims = ",".join(str(value) for value in _C3A_LARGE_ACTOR_HIDDEN_DIMS)
+        train_cmd.append(f"agent.policy.actor_hidden_dims=[{hidden_dims}]")
     if _native_cpu_enabled(args):
         train_cmd.extend(
             [
@@ -733,7 +865,7 @@ def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str
 
 
 def main():
-    args = _parse_args()
+    args = _apply_c3a_retention_phase_a_preset(_parse_args())
     curriculum_source_metadata = _build_curriculum_source_metadata(args)
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)
