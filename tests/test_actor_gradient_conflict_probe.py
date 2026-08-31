@@ -187,6 +187,71 @@ def test_task_aware_ppo_normalizes_per_task_and_stratifies_phases(tmp_path: Path
     assert (tmp_path / "task_aware_ppo.csv").is_file()
 
 
+def test_task_aware_ppo_supports_four_task_c3b_weights(tmp_path: Path) -> None:
+    algorithm = _TaskAwareAlgorithm()
+    c3b_group = torch.full(
+        (1, 2, 1),
+        training_utils.TASK_AWARE_C3B_GROUP,
+        dtype=torch.long,
+    )
+    algorithm.storage.observations = torch.cat(
+        (
+            algorithm.storage.observations,
+            TensorDict(
+                {
+                    "policy": torch.tensor([[[20.0, 21.0], [22.0, 23.0]]]),
+                    training_utils.ACTOR_GRADIENT_PROBE_GROUP_KEY: c3b_group,
+                },
+                batch_size=[1, 2],
+            ),
+        ),
+        dim=1,
+    )
+    for name, values in (
+        ("values", torch.zeros(1, 2, 1)),
+        ("returns", torch.tensor([[[-2.0], [2.0]]])),
+        ("advantages", torch.zeros(1, 2, 1)),
+        ("actions", torch.zeros(1, 2, 1)),
+        ("actions_log_prob", torch.zeros(1, 2, 1)),
+        ("mu", torch.zeros(1, 2, 1)),
+        ("sigma", torch.ones(1, 2, 1)),
+    ):
+        setattr(algorithm.storage, name, torch.cat((getattr(algorithm.storage, name), values), dim=1))
+
+    adapter = training_utils.TaskAwarePpoAdapter(
+        algorithm,
+        output_path=tmp_path / "task_aware_c3b.csv",
+        task_weights=(0.15, 0.20, 0.15, 0.50),
+        minimum_task_samples=2,
+        minimum_phase_samples=2,
+    )
+    metrics = adapter._prepare_advantages()
+
+    assert metrics["task_aware/count_c3b"] == 2.0
+    c3b_mask = adapter._task_masks(
+        algorithm.storage.observations[training_utils.ACTOR_GRADIENT_PROBE_GROUP_KEY].squeeze(-1)
+    )["c3b"]
+    c3b_advantages = algorithm.storage.advantages.squeeze(-1)[c3b_mask]
+    assert c3b_advantages.mean().item() == pytest.approx(0.0, abs=1.0e-6)
+
+
+def test_task_aware_ppo_can_disable_per_rollout_phase_abort(tmp_path: Path) -> None:
+    adapter = training_utils.TaskAwarePpoAdapter(
+        _TaskAwareAlgorithm(),
+        output_path=tmp_path / "task_aware_no_phase_abort.csv",
+        task_weights=(0.2, 0.4, 0.4),
+        minimum_task_samples=2,
+        minimum_phase_samples=0,
+    )
+
+    adapter._validate_phase_coverage(
+        {
+            "task_aware/count_c2c_strong_phase": 0.0,
+            "task_aware/count_c3a_active_phase": 0.0,
+        }
+    )
+
+
 def test_task_aware_ppo_is_disabled_by_default() -> None:
     runner = type(
         "Runner",

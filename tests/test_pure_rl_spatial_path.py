@@ -73,6 +73,30 @@ def test_c3a_c2c_rehearsal_reuses_c2c_geometry_with_climb_weighting() -> None:
     assert config.c2c_rehearsal_task_probabilities == (0.0, 2.0 / 3.0, 1.0 / 3.0)
 
 
+def test_c3b_weak_template_and_strong_climb_probabilities_are_explicit() -> None:
+    config = replace(
+        pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3b"],
+        task_probabilities=(0.0, 0.0, 0.0, 1.0),
+        c3b_weak_template_probability=1.0,
+        c3b_weak_strong_climb_probability=1.0,
+    )
+
+    batch = pure_rl_spatial_path.sample_spatial_path_batch(
+        num_paths=128,
+        stage=config,
+        device="cpu",
+        dtype=torch.float64,
+        generator=torch.Generator(device="cpu").manual_seed(29),
+    )
+
+    assert set(batch.template_id.tolist()) <= {
+        pure_rl_spatial_path.C3B_TURN_THEN_CLIMB_TEMPLATE_ID,
+        pure_rl_spatial_path.C3B_CLIMB_THEN_TURN_TEMPLATE_ID,
+    }
+    assert bool(torch.all(batch.peak_slope_rad >= math.radians(10.0)))
+    assert bool(torch.all(batch.peak_slope_rad <= math.radians(12.0)))
+
+
 def test_sampled_batch_exposes_dense_centerline_and_finite_metadata() -> None:
     batch = _sample(stage="c3c", count=64)
     required_fields = {
@@ -246,6 +270,7 @@ def test_current_c3a_and_c3b_event_contracts_are_isolated_and_sequential() -> No
         atol=0.5,
         rtol=0.0,
     )
+    assert float(torch.amax(c3b.final_event_progress_m[loiter])) <= 135.0
 
 
 def test_dense_path_starts_straight_and_level_with_orthonormal_heading_slope_frame() -> None:
@@ -564,13 +589,16 @@ def test_full_circle_heading_change_is_exempt_only_for_c3b_loiter() -> None:
         )
 
 
-def test_c3c_low_altitude_rows_are_resampled_once_deterministically() -> None:
+def test_low_altitude_rows_are_resampled_deterministically_at_batch_scale() -> None:
     first = _sample(stage="c3c", count=256, seed=8)
     second = _sample(stage="c3c", count=256, seed=8)
 
     assert float(torch.amin(first.points_world_m[:, :, 2])) >= 0.05
     for field in fields(first):
         torch.testing.assert_close(getattr(first, field.name), getattr(second, field.name))
+
+    c3b = _sample(stage="c3b", count=256, seed=0)
+    assert float(torch.amin(c3b.points_world_m[:, :, 2])) >= 0.05
 
     with pytest.raises(RuntimeError, match="altitude"):
         pure_rl_spatial_path.sample_spatial_path_batch(
@@ -1004,6 +1032,21 @@ def test_retention_aware_sampling_returns_toward_baseline_without_deficits() -> 
     )
 
     assert updated == pytest.approx((0.12, 0.38, 0.50))
+
+
+def test_retention_aware_sampling_preserves_a_fixed_simple_task_total() -> None:
+    updated = pure_rl_spatial_path.update_retention_aware_task_probabilities(
+        (0.15, 0.20, 0.15),
+        (0.0, 0.4, 0.0),
+        baseline_probabilities=(0.15, 0.20, 0.15),
+        minimum_probabilities=(0.10, 0.15, 0.10),
+        maximum_probability_change=0.05,
+        probability_total=0.50,
+    )
+
+    assert updated[1] > 0.20
+    assert sum(updated) == pytest.approx(0.50)
+    assert max(abs(value - previous) for value, previous in zip(updated, (0.15, 0.20, 0.15))) <= 0.05
 
 
 def test_probability_step_respects_bounds_and_change_limit() -> None:

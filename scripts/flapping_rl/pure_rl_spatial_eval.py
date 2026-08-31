@@ -9,7 +9,7 @@ from typing import Mapping, Sequence
 
 SPATIAL_EVAL_CONTRACTS: dict[str, str] = {
     "c3a": "pure_rl_spatial_c3a_v2",
-    "c3b": "pure_rl_spatial_c3b_v2",
+    "c3b": "pure_rl_spatial_c3b_v3",
     "c3c": "pure_rl_spatial_c3c_v2",
 }
 
@@ -225,6 +225,59 @@ def summarize_spatial_evaluation(
     return result
 
 
+def compact_spatial_episode_rows(
+    episode_rows: Sequence[Mapping[str, object]],
+    *,
+    expected_cases: Sequence[PureRLSpatialEvaluationCase],
+) -> list[dict[str, object]]:
+    """Return compact, registered per-case metrics without storing full traces."""
+
+    rows_by_id = {str(row.get("case_id", "")): row for row in episode_rows}
+    if len(rows_by_id) != len(episode_rows):
+        raise ValueError("spatial episode rows contain missing or duplicate case IDs.")
+    expected_ids = {case.case_id for case in expected_cases}
+    if set(rows_by_id) != expected_ids:
+        raise ValueError("spatial episode rows do not match the registered evaluation grid.")
+
+    results: list[dict[str, object]] = []
+    for case in expected_cases:
+        row = rows_by_id[case.case_id]
+        horizontal = [abs(value) for value in _finite_sequence(row, "horizontal_normal_error_m")]
+        vertical = [abs(value) for value in _finite_sequence(row, "vertical_normal_error_m")]
+        tangent = _finite_sequence(row, "tangent_velocity_mps")
+        roll_deg = [abs(math.degrees(value)) for value in _finite_sequence(row, "roll_rad")]
+        results.append(
+            {
+                "case_id": case.case_id,
+                "stage_id": case.stage_id,
+                "template_id": case.template_id,
+                "severity_id": case.severity_id,
+                "geometry_roll_deg": case.geometry_roll_deg,
+                "slope_deg": case.slope_deg,
+                "turn_sign": case.turn_sign,
+                "vertical_sign": case.vertical_sign,
+                "heading_rad": case.heading_rad,
+                "flap_phase_rad": case.flap_phase_rad,
+                "episode_duration_s": case.episode_duration_s,
+                "terminated": _strict_bool(row.get("terminated"), name="terminated"),
+                "events_reached": _strict_bool(row.get("events_reached"), name="events_reached"),
+                "success": _strict_bool(row.get("success"), name="success"),
+                "roll_limit_termination": _strict_bool(
+                    row.get("roll_limit_termination"), name="roll_limit_termination"
+                ),
+                "finite_metrics": _strict_bool(row.get("finite_metrics"), name="finite_metrics"),
+                "sample_count": len(horizontal),
+                "mean_abs_horizontal_error_m": _mean(horizontal),
+                "mean_abs_vertical_error_m": _mean(vertical),
+                "p95_abs_horizontal_error_m": _quantile(horizontal, 0.95),
+                "p95_abs_vertical_error_m": _quantile(vertical, 0.95),
+                "reverse_motion_fraction": _mean([float(value < 0.0) for value in tangent]),
+                "p95_abs_roll_deg": _quantile(roll_deg, 0.95),
+            }
+        )
+    return results
+
+
 def row_meets_spatial_promotion_gate(
     row: Mapping[str, object],
     *,
@@ -378,6 +431,7 @@ __all__ = [
     "PureRLSpatialEvaluationCase",
     "PureRLSpatialPromotionGate",
     "build_spatial_evaluation_grid",
+    "compact_spatial_episode_rows",
     "row_meets_spatial_promotion_gate",
     "summarize_spatial_evaluation",
 ]

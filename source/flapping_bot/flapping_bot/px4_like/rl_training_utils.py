@@ -20,6 +20,7 @@ ACTOR_GRADIENT_PROBE_C2C_GROUP = 1
 ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP = 2
 ACTOR_GRADIENT_PROBE_C3A_GROUP = 3
 ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP = 4
+TASK_AWARE_C3B_GROUP = 5
 _LARGE_ACTOR_HIDDEN_DIMS = (512, 256)
 _NET2WIDER_PRIMARY_FRACTION = 0.55
 
@@ -333,7 +334,7 @@ class ActorGradientConflictProbe:
 
 
 class TaskAwarePpoAdapter:
-    """Balance C1/C2c/C3a actor updates while leaving the critic loss unchanged."""
+    """Balance curriculum-task actor updates while leaving the critic loss unchanged."""
 
     def __init__(
         self,
@@ -350,20 +351,26 @@ class TaskAwarePpoAdapter:
             raise ValueError("task-aware PPO requires a policy and rollout storage.")
         if bool(getattr(policy, "is_recurrent", False)):
             raise ValueError("task-aware PPO does not support recurrent policies.")
-        if len(task_weights) != 3:
-            raise ValueError("task-aware PPO requires exactly three C1/C2c/C3a weights.")
+        if len(task_weights) not in (3, 4):
+            raise ValueError("task-aware PPO requires C1/C2c/C3a or C1/C2c/C3a/C3b weights.")
         weights = tuple(float(value) for value in task_weights)
         if any((not math.isfinite(value)) or value <= 0.0 for value in weights):
             raise ValueError("task-aware PPO weights must be finite and positive.")
         weight_sum = sum(weights)
         if not math.isclose(weight_sum, 1.0, rel_tol=0.0, abs_tol=1.0e-6):
             raise ValueError("task-aware PPO weights must sum to one.")
-        for name, value in (
-            ("minimum_task_samples", minimum_task_samples),
-            ("minimum_phase_samples", minimum_phase_samples),
+        if (
+            isinstance(minimum_task_samples, bool)
+            or int(minimum_task_samples) != minimum_task_samples
+            or minimum_task_samples <= 0
         ):
-            if isinstance(value, bool) or int(value) != value or value <= 0:
-                raise ValueError(f"{name} must be a positive integer.")
+            raise ValueError("minimum_task_samples must be a positive integer.")
+        if (
+            isinstance(minimum_phase_samples, bool)
+            or int(minimum_phase_samples) != minimum_phase_samples
+            or minimum_phase_samples < 0
+        ):
+            raise ValueError("minimum_phase_samples must be a non-negative integer.")
 
         self.algorithm = algorithm
         self.storage = storage
@@ -375,15 +382,17 @@ class TaskAwarePpoAdapter:
         self._original_update = algorithm.update
         self._original_generator = storage.mini_batch_generator
 
-    @staticmethod
-    def _task_masks(group: Tensor) -> dict[str, Tensor]:
-        return {
+    def _task_masks(self, group: Tensor) -> dict[str, Tensor]:
+        masks = {
             "c1": group == ACTOR_GRADIENT_PROBE_C1_GROUP,
             "c2c": (group == ACTOR_GRADIENT_PROBE_C2C_GROUP)
             | (group == ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP),
             "c3a": (group == ACTOR_GRADIENT_PROBE_C3A_GROUP)
             | (group == ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP),
         }
+        if len(self.task_weights) == 4:
+            masks["c3b"] = group == TASK_AWARE_C3B_GROUP
+        return masks
 
     def _prepare_advantages(self) -> dict[str, float]:
         group = self.storage.observations[ACTOR_GRADIENT_PROBE_GROUP_KEY].flatten(0, 1).squeeze(-1)
@@ -411,7 +420,9 @@ class TaskAwarePpoAdapter:
             metrics[f"task_aware/empirical_weight_{name}"] = empirical_weight
             metrics[f"task_aware/advantage_scale_{name}"] = scale
 
-        known = masks["c1"] | masks["c2c"] | masks["c3a"]
+        known = torch.zeros_like(group, dtype=torch.bool)
+        for mask in masks.values():
+            known |= mask
         if not bool(torch.all(known)):
             unknown = torch.unique(group[~known]).detach().cpu().tolist()
             raise RuntimeError(f"task-aware PPO received unknown task/phase groups: {unknown}.")
@@ -425,6 +436,8 @@ class TaskAwarePpoAdapter:
         return metrics
 
     def _validate_phase_coverage(self, metrics: dict[str, float]) -> None:
+        if self.minimum_phase_samples == 0:
+            return
         warm_start_guard = getattr(self.algorithm, "ppo_warm_start_guard", None)
         if warm_start_guard is not None and (
             int(warm_start_guard.iteration) < int(warm_start_guard.burn_in_iterations)
@@ -450,15 +463,18 @@ class TaskAwarePpoAdapter:
             self.storage.mu.flatten(0, 1),
             self.storage.sigma.flatten(0, 1),
         )
+        group_ids = [
+            ACTOR_GRADIENT_PROBE_C1_GROUP,
+            ACTOR_GRADIENT_PROBE_C2C_GROUP,
+            ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
+            ACTOR_GRADIENT_PROBE_C3A_GROUP,
+            ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP,
+        ]
+        if len(self.task_weights) == 4:
+            group_ids.append(TASK_AWARE_C3B_GROUP)
         strata = tuple(
             torch.nonzero(group == group_id, as_tuple=False).squeeze(-1)
-            for group_id in (
-                ACTOR_GRADIENT_PROBE_C1_GROUP,
-                ACTOR_GRADIENT_PROBE_C2C_GROUP,
-                ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
-                ACTOR_GRADIENT_PROBE_C3A_GROUP,
-                ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP,
-            )
+            for group_id in group_ids
         )
         for _epoch in range(num_epochs):
             chunks = []
@@ -1038,6 +1054,116 @@ def expand_actor_state_dict_net2wider(
     return result
 
 
+def split_actor_state_dict_from_shared_actor(
+    *,
+    source_state: Mapping[str, Tensor],
+    target_state: Mapping[str, Tensor],
+) -> dict[str, Tensor]:
+    """Map a shared four-action actor into independent frequency and tail trunks.
+
+    Both new trunks receive exact copies of the source hidden layers. The
+    frequency output receives source action row zero and the tail output
+    receives rows one through three. Critic and action-noise state are copied
+    unchanged. Only the registered two-hidden-layer ``[256, 128]`` shape is
+    accepted.
+    """
+
+    source_actor_keys = {
+        "actor.0.weight",
+        "actor.0.bias",
+        "actor.2.weight",
+        "actor.2.bias",
+        "actor.4.weight",
+        "actor.4.bias",
+    }
+    target_actor_keys = {
+        f"actor.{branch}.{suffix}"
+        for branch in ("frequency_actor", "tail_actor")
+        for suffix in (
+            "0.weight",
+            "0.bias",
+            "2.weight",
+            "2.bias",
+            "4.weight",
+            "4.bias",
+        )
+    }
+    if {key for key in source_state if key.startswith("actor.")} != source_actor_keys:
+        raise ValueError("Split warm start requires the registered shared two-hidden-layer actor.")
+    if {key for key in target_state if key.startswith("actor.")} != target_actor_keys:
+        raise ValueError("Split warm start target is not the registered two-trunk actor.")
+
+    source_non_actor = {key for key in source_state if not key.startswith("actor.")}
+    target_non_actor = {key for key in target_state if not key.startswith("actor.")}
+    if source_non_actor != target_non_actor:
+        raise ValueError("Split warm start requires identical non-actor state-dict keys.")
+    for key in source_non_actor:
+        if tuple(source_state[key].shape) != tuple(target_state[key].shape):
+            raise ValueError(f"Split warm start cannot change non-actor parameter shape: {key}.")
+
+    source_shapes = {
+        "actor.0.weight": (256, 555),
+        "actor.0.bias": (256,),
+        "actor.2.weight": (128, 256),
+        "actor.2.bias": (128,),
+        "actor.4.weight": (4, 128),
+        "actor.4.bias": (4,),
+    }
+    if any(tuple(source_state[key].shape) != shape for key, shape in source_shapes.items()):
+        raise ValueError("Split warm start requires the shared [256, 128] four-action actor.")
+
+    expected_target_shapes = {
+        "actor.frequency_actor.0.weight": (256, 555),
+        "actor.frequency_actor.0.bias": (256,),
+        "actor.frequency_actor.2.weight": (128, 256),
+        "actor.frequency_actor.2.bias": (128,),
+        "actor.frequency_actor.4.weight": (1, 128),
+        "actor.frequency_actor.4.bias": (1,),
+        "actor.tail_actor.0.weight": (256, 555),
+        "actor.tail_actor.0.bias": (256,),
+        "actor.tail_actor.2.weight": (128, 256),
+        "actor.tail_actor.2.bias": (128,),
+        "actor.tail_actor.4.weight": (3, 128),
+        "actor.tail_actor.4.bias": (3,),
+    }
+    if any(
+        tuple(target_state[key].shape) != shape
+        for key, shape in expected_target_shapes.items()
+    ):
+        raise ValueError("Split warm start requires two [256, 128] actor trunks.")
+
+    def _as_target(source: Tensor, target: Tensor) -> Tensor:
+        return source.to(device=target.device, dtype=target.dtype).detach().clone()
+
+    result = {key: value.detach().clone() for key, value in target_state.items()}
+    for key in source_non_actor:
+        result[key] = _as_target(source_state[key], target_state[key])
+    for branch in ("frequency_actor", "tail_actor"):
+        for layer in ("0", "2"):
+            for parameter in ("weight", "bias"):
+                source_key = f"actor.{layer}.{parameter}"
+                target_key = f"actor.{branch}.{layer}.{parameter}"
+                result[target_key] = _as_target(source_state[source_key], target_state[target_key])
+
+    result["actor.frequency_actor.4.weight"] = _as_target(
+        source_state["actor.4.weight"][0:1],
+        target_state["actor.frequency_actor.4.weight"],
+    )
+    result["actor.frequency_actor.4.bias"] = _as_target(
+        source_state["actor.4.bias"][0:1],
+        target_state["actor.frequency_actor.4.bias"],
+    )
+    result["actor.tail_actor.4.weight"] = _as_target(
+        source_state["actor.4.weight"][1:4],
+        target_state["actor.tail_actor.4.weight"],
+    )
+    result["actor.tail_actor.4.bias"] = _as_target(
+        source_state["actor.4.bias"][1:4],
+        target_state["actor.tail_actor.4.bias"],
+    )
+    return result
+
+
 def _actor_hidden_dims(policy: object) -> tuple[int, ...]:
     actor = getattr(policy, "actor", None)
     if actor is None:
@@ -1060,7 +1186,33 @@ def load_runner_checkpoint_for_warm_start(
         raise ValueError("runner does not expose current_learning_iteration.")
 
     policy = getattr(getattr(runner, "alg", None), "policy", None)
-    if _actor_hidden_dims(policy) == _LARGE_ACTOR_HIDDEN_DIMS:
+    actor = getattr(policy, "actor", None)
+    split_frequency_actor = bool(
+        getattr(actor, "is_pure_rl_split_frequency_actor", False)
+    )
+    if split_frequency_actor:
+        loaded = torch.load(checkpoint_path, weights_only=False, map_location=map_location)
+        if not isinstance(loaded, dict) or not isinstance(loaded.get("model_state_dict"), Mapping):
+            raise ValueError("Warm-start checkpoint does not contain model_state_dict.")
+        source_state = loaded["model_state_dict"]
+        target_state = policy.state_dict()
+        if set(source_state) == set(target_state) and all(
+            tuple(value.shape) == tuple(target_state[key].shape)
+            for key, value in source_state.items()
+        ):
+            policy.load_state_dict(source_state)
+        else:
+            split_state = split_actor_state_dict_from_shared_actor(
+                source_state=source_state,
+                target_state=target_state,
+            )
+            policy.load_state_dict(split_state)
+            print(
+                "[INFO]: Warm-started independent frequency/tail actor trunks from the "
+                "shared [256, 128] actor."
+            )
+        infos = loaded.get("infos")
+    elif _actor_hidden_dims(policy) == _LARGE_ACTOR_HIDDEN_DIMS:
         loaded = torch.load(checkpoint_path, weights_only=False, map_location=map_location)
         if not isinstance(loaded, dict) or not isinstance(loaded.get("model_state_dict"), Mapping):
             raise ValueError("Warm-start checkpoint does not contain model_state_dict.")

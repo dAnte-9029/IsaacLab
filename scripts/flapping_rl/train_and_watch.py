@@ -33,6 +33,49 @@ Typical usage:
     --source-checkpoint-path <PROMOTED_C2C_MODEL_550> \
     --headless
 
+  # C1-initialized C1+C2c+C3a joint multi-task experiment
+  ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
+    --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0 \
+    --run-name pure_rl_c3a_joint_from_c1_seed0_201iter \
+    --c3a-joint-from-c1 \
+    --load_run <PROMOTED_C1_RUN> \
+    --checkpoint model_1300.pt \
+    --source-stage c1_straight \
+    --source-checkpoint-path <PROMOTED_C1_MODEL_1300> \
+    --headless
+
+  # Same joint recipe with pre-governor requested-frequency smoothness
+  ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
+    --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0 \
+    --run-name pure_rl_c3a_joint_reqfreqsmooth005_seed0_201iter \
+    --c3a-joint-requested-frequency-smoothness \
+    --source-checkpoint-path <PROMOTED_C1_MODEL_1300> \
+    --headless
+
+  # Same joint recipe with L1 total variation on the pre-governor frequency request
+  ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
+    --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0 \
+    --run-name pure_rl_c3a_joint_reqfreqtv010_seed0_201iter \
+    --c3a-joint-requested-frequency-total-variation \
+    --source-checkpoint-path <PROMOTED_C1_MODEL_1300> \
+    --headless
+
+  # Same joint recipe with a penalty on frequency requests rejected by the governor
+  ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
+    --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0 \
+    --run-name pure_rl_c3a_joint_reqappliedgap005_seed0_201iter \
+    --c3a-joint-requested-applied-frequency-gap \
+    --source-checkpoint-path <PROMOTED_C1_MODEL_1300> \
+    --headless
+
+  # Independent slow frequency and full-observation tail actor trunks
+  ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
+    --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0 \
+    --run-name pure_rl_c3a_split_frequency_actor_seed0_201iter \
+    --c3a-split-frequency-actor \
+    --source-checkpoint-path <JOINT_MODEL_200> \
+    --headless
+
 Add `--concurrent-eval` only when the training and watcher processes are
 intentionally allowed to share or use independently assigned compute resources.
 """
@@ -84,13 +127,44 @@ _MEASURED_PURE_RL_DEFAULT_MAX_ITERATIONS = 500
 _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL = 25
 _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES = 16
 _C3A_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0"
+_C3B_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
 _C3A_RETENTION_PHASE_A_NUM_ENVS = 256
 _C3A_RETENTION_PHASE_A_MAX_ITERATIONS = 101
 _C3A_RETENTION_PHASE_A_SAVE_INTERVAL = 25
 _C3A_RETENTION_PHASE_A_NUM_MINI_BATCHES = 16
 _C3A_RETENTION_PHASE_A_STRONG_CLIMB_PROBABILITY = 0.5
 _C3A_RETENTION_PHASE_A_DISTILLATION_COEFFICIENT = 0.05
+_C3A_JOINT_FROM_C1_MAX_ITERATIONS = 201
+_C3A_JOINT_FROM_C1_STRONG_CLIMB_PROBABILITY = 0.5
+_C3A_JOINT_FROM_C1_SOURCE_STAGE = "c1_straight"
+_C3A_JOINT_FROM_C1_SOURCE_RUN = "2026-08-07_05-05-44_curriculum1_overnight_seed2"
+_C3A_JOINT_FROM_C1_CHECKPOINT = "model_1300.pt"
+_C3A_JOINT_REQUESTED_FREQUENCY_SQUARED_DELTA_PENALTY_WEIGHT = 0.05
+_C3A_JOINT_REQUESTED_FREQUENCY_TOTAL_VARIATION_PENALTY_WEIGHT = 0.10
+_C3A_JOINT_REQUESTED_APPLIED_FREQUENCY_GAP_PENALTY_WEIGHT = 0.05
+_C3A_BASE_POLICY_HIDDEN_DIMS = (256, 128)
 _C3A_LARGE_ACTOR_HIDDEN_DIMS = (512, 256)
+_C3A_SPLIT_FREQUENCY_ACTOR_SOURCE_STAGE = "c3a_joint"
+_C3A_SPLIT_FREQUENCY_ACTOR_SOURCE_RUN = (
+    "2026-08-28_15-56-43_pure_rl_c3a_joint_reqappliedgap005_seed0_201iter"
+)
+_C3A_SPLIT_FREQUENCY_ACTOR_CHECKPOINT = "model_200.pt"
+_C3A_SPLIT_FREQUENCY_ACTOR_CLASS_NAME = "PureRLSplitActorCritic"
+_C3A_SPLIT_FREQUENCY_ACTOR_ROUTE = "c3a_split_frequency_actor_v1"
+_C3B_SPLIT_FREQUENCY_ACTOR_SOURCE_STAGE = "c3a"
+_C3B_SPLIT_FREQUENCY_ACTOR_SOURCE_RUN = (
+    "2026-08-29_10-07-47_pure_rl_c3a_split_frequency_actor_seed0_201iter"
+)
+_C3B_SPLIT_FREQUENCY_ACTOR_CHECKPOINT = "model_200.pt"
+_C3B_SPLIT_FREQUENCY_ACTOR_ROUTE = "c3b_split_frequency_actor_v2"
+_C3B_SPLIT_FREQUENCY_ACTOR_MAX_ITERATIONS = 251
+_C3B_ADAPTIVE_SAMPLING_SOURCE_STAGE = "c3b"
+_C3B_ADAPTIVE_SAMPLING_SOURCE_RUN = (
+    "2026-08-29_15-01-17_pure_rl_c3b_split_frequency_actor_v2_seed0_251iter"
+)
+_C3B_ADAPTIVE_SAMPLING_CHECKPOINT = "model_100.pt"
+_C3B_ADAPTIVE_SAMPLING_ROUTE = "c3b_adaptive_sampling_from_model100_v1"
+_C3B_ADAPTIVE_SAMPLING_MAX_ITERATIONS = 101
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
@@ -246,8 +320,9 @@ def _parse_args() -> argparse.Namespace:
         "--adaptive-task-sampling",
         action="store_true",
         help=(
-            "Adapt the C1/C2c/C3a environment mix from completed-episode retention signals. "
-            "Currently supported only for C3a training."
+            "Adapt the C1/C2c/C3a environment mix from completed-episode retention signals; "
+            "C3b additionally adapts weak-template and strong-climb coverage while keeping its "
+            "50 percent complex-task share fixed."
         ),
     )
     parser.add_argument(
@@ -276,6 +351,72 @@ def _parse_args() -> argparse.Namespace:
             "Use the method-2 C3a actor capacity experiment: actor hidden dimensions [512, 256], "
             "critic unchanged, and function-preserving Net2Wider initialization from the [256, 128] "
             "C2c source actor. Requires a weights-only C3a warm start."
+        ),
+    )
+    parser.add_argument(
+        "--c3a-joint-from-c1",
+        action="store_true",
+        help=(
+            "Run the accepted C1-initialized C1+C2c+C3a joint multi-task experiment: "
+            "weights-only promoted-C1 warm start, seed 0, 256 environments, 16 mini-batches, "
+            "201 iterations, 25-iteration checkpoint cadence, strong-climb probability 0.5, "
+            "task-aware PPO with the registered 15/35/50 weights, and no distillation, "
+            "adaptive sampling, or wider actor. Conflicting overrides fail closed."
+        ),
+    )
+    parser.add_argument(
+        "--c3a-joint-requested-frequency-smoothness",
+        action="store_true",
+        help=(
+            "Run the C1-initialized joint recipe with one additional controlled variable: "
+            "a 0.05 penalty on the pre-governor requested frequency-action delta. "
+            "The original --c3a-joint-from-c1 route remains unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--c3a-joint-requested-frequency-total-variation",
+        action="store_true",
+        help=(
+            "Run the C1-initialized joint recipe with one additional controlled variable: "
+            "a 0.10 L1 total-variation penalty on the pre-governor requested frequency action. "
+            "The original joint and squared-smoothness routes remain unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--c3a-joint-requested-applied-frequency-gap",
+        action="store_true",
+        help=(
+            "Run the C1-initialized joint recipe with one additional controlled variable: "
+            "a 0.05 penalty on the absolute gap between the clipped frequency request and "
+            "the governor-applied frequency action. Existing joint reward routes remain unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--c3a-split-frequency-actor",
+        action="store_true",
+        help=(
+            "Warm-start two independent [256, 128] actor trunks from the passing joint model_200: "
+            "frequency uses a cycle-averaged phase-fixed 555-value observation, tail uses the full "
+            "observation, and the existing governor-gap joint recipe remains otherwise unchanged."
+        ),
+    )
+    parser.add_argument(
+        "--c3b-split-frequency-actor",
+        action="store_true",
+        help=(
+            "Run the accepted C3b joint recipe from the promoted C3a split actor: "
+            "fresh optimizer, 15/20/15/50 task weights, bounded warm start, seed 0, "
+            "256 environments, 16 mini-batches, 251 iterations, and 25-iteration saves."
+        ),
+    )
+    parser.add_argument(
+        "--c3b-adaptive-sampling",
+        action="store_true",
+        help=(
+            "Run the controlled C3b adaptive-sampling continuation from the best fixed-mixture "
+            "split actor model_100: fresh optimizer, fixed 15/20/15/50 task-aware PPO objective, "
+            "bounded simple-task reallocation, adaptive weak-template/strong-climb coverage, "
+            "101 iterations, and train-only execution."
         ),
     )
     parser.add_argument(
@@ -328,18 +469,17 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _set_phase_a_value(
+def _set_preset_value(
     args: argparse.Namespace,
     *,
     name: str,
     expected: object,
     option: str,
+    preset_option: str,
 ) -> None:
     configured = getattr(args, name, None)
     if configured is not None and configured != expected:
-        raise ValueError(
-            f"--c3a-retention-phase-a requires {option}={expected}; received {configured}."
-        )
+        raise ValueError(f"{preset_option} requires {option}={expected}; received {configured}.")
     setattr(args, name, expected)
 
 
@@ -359,36 +499,47 @@ def _apply_c3a_retention_phase_a_preset(args: argparse.Namespace) -> argparse.Na
         if bool(getattr(args, name, False)):
             raise ValueError(f"--c3a-retention-phase-a cannot be combined with {option}.")
 
-    _set_phase_a_value(
+    _set_preset_value(
         args,
         name="num_envs",
         expected=_C3A_RETENTION_PHASE_A_NUM_ENVS,
         option="--num-envs",
+        preset_option="--c3a-retention-phase-a",
     )
-    _set_phase_a_value(
+    _set_preset_value(
         args,
         name="max_iterations",
         expected=_C3A_RETENTION_PHASE_A_MAX_ITERATIONS,
         option="--max-iterations",
+        preset_option="--c3a-retention-phase-a",
     )
-    _set_phase_a_value(
+    _set_preset_value(
         args,
         name="save_interval",
         expected=_C3A_RETENTION_PHASE_A_SAVE_INTERVAL,
         option="--save-interval",
+        preset_option="--c3a-retention-phase-a",
     )
-    _set_phase_a_value(args, name="seed", expected=0, option="--seed")
-    _set_phase_a_value(
+    _set_preset_value(
+        args,
+        name="seed",
+        expected=0,
+        option="--seed",
+        preset_option="--c3a-retention-phase-a",
+    )
+    _set_preset_value(
         args,
         name="agent_num_mini_batches",
         expected=_C3A_RETENTION_PHASE_A_NUM_MINI_BATCHES,
         option="--agent-num-mini-batches",
+        preset_option="--c3a-retention-phase-a",
     )
-    _set_phase_a_value(
+    _set_preset_value(
         args,
         name="c2c_strong_climb_probability",
         expected=_C3A_RETENTION_PHASE_A_STRONG_CLIMB_PROBABILITY,
         option="--c2c-strong-climb-probability",
+        preset_option="--c3a-retention-phase-a",
     )
     configured_coefficient = float(getattr(args, "actor_distillation_coefficient", 0.0))
     if configured_coefficient not in (0.0, _C3A_RETENTION_PHASE_A_DISTILLATION_COEFFICIENT):
@@ -408,7 +559,317 @@ def _apply_c3a_retention_phase_a_preset(args: argparse.Namespace) -> argparse.Na
     args.checkpoint = "model_550.pt"
     args.load_weights_only = True
     args.native_cpu = True
-    _set_phase_a_value(args, name="agent_device", expected="cpu", option="--agent-device")
+    _set_preset_value(
+        args,
+        name="agent_device",
+        expected="cpu",
+        option="--agent-device",
+        preset_option="--c3a-retention-phase-a",
+    )
+    args.train_only = True
+    args.concurrent_eval = False
+    return args
+
+
+def _apply_c3a_joint_from_c1_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply the accepted C1-initialized C3a joint multi-task recipe."""
+
+    joint_from_c1 = bool(getattr(args, "c3a_joint_from_c1", False))
+    requested_frequency_smoothness = bool(
+        getattr(args, "c3a_joint_requested_frequency_smoothness", False)
+    )
+    requested_frequency_total_variation = bool(
+        getattr(args, "c3a_joint_requested_frequency_total_variation", False)
+    )
+    requested_applied_frequency_gap = bool(
+        getattr(args, "c3a_joint_requested_applied_frequency_gap", False)
+    )
+    selected_routes = sum(
+        (
+            joint_from_c1,
+            requested_frequency_smoothness,
+            requested_frequency_total_variation,
+            requested_applied_frequency_gap,
+        )
+    )
+    if selected_routes == 0:
+        return args
+    if selected_routes > 1:
+        raise ValueError(
+            "Select only one of --c3a-joint-from-c1, "
+            "--c3a-joint-requested-frequency-smoothness, and "
+            "--c3a-joint-requested-frequency-total-variation, and "
+            "--c3a-joint-requested-applied-frequency-gap."
+        )
+    if requested_applied_frequency_gap:
+        preset_option = "--c3a-joint-requested-applied-frequency-gap"
+    elif requested_frequency_total_variation:
+        preset_option = "--c3a-joint-requested-frequency-total-variation"
+    elif requested_frequency_smoothness:
+        preset_option = "--c3a-joint-requested-frequency-smoothness"
+    else:
+        preset_option = "--c3a-joint-from-c1"
+    args.c3a_joint_from_c1 = True
+    if str(getattr(args, "task", "")) != _C3A_TASK_ID:
+        raise ValueError(f"{preset_option} requires the measured CPU-native C3a task.")
+    for name, option in (
+        ("c3a_retention_phase_a", "--c3a-retention-phase-a"),
+        ("c3a_large_actor", "--c3a-large-actor"),
+        ("c3a_split_frequency_actor", "--c3a-split-frequency-actor"),
+        ("c3b_adaptive_sampling", "--c3b-adaptive-sampling"),
+        ("resume", "--resume"),
+        ("concurrent_eval", "--concurrent-eval"),
+        ("adaptive_task_sampling", "--adaptive-task-sampling"),
+        ("c2c_recycle_on_recovery", "--c2c-recycle-on-recovery"),
+    ):
+        if bool(getattr(args, name, False)):
+            raise ValueError(f"{preset_option} cannot be combined with {option}.")
+
+    _set_preset_value(
+        args,
+        name="num_envs",
+        expected=_MEASURED_PURE_RL_DEFAULT_NUM_ENVS,
+        option="--num-envs",
+        preset_option=preset_option,
+    )
+    _set_preset_value(
+        args,
+        name="max_iterations",
+        expected=_C3A_JOINT_FROM_C1_MAX_ITERATIONS,
+        option="--max-iterations",
+        preset_option=preset_option,
+    )
+    _set_preset_value(
+        args,
+        name="save_interval",
+        expected=_MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL,
+        option="--save-interval",
+        preset_option=preset_option,
+    )
+    _set_preset_value(args, name="seed", expected=0, option="--seed", preset_option=preset_option)
+    _set_preset_value(
+        args,
+        name="agent_num_mini_batches",
+        expected=_MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES,
+        option="--agent-num-mini-batches",
+        preset_option=preset_option,
+    )
+    _set_preset_value(
+        args,
+        name="c2c_strong_climb_probability",
+        expected=_C3A_JOINT_FROM_C1_STRONG_CLIMB_PROBABILITY,
+        option="--c2c-strong-climb-probability",
+        preset_option=preset_option,
+    )
+    _set_preset_value(
+        args,
+        name="agent_device",
+        expected="cpu",
+        option="--agent-device",
+        preset_option=preset_option,
+    )
+
+    if float(getattr(args, "actor_distillation_coefficient", 0.0)) != 0.0:
+        raise ValueError(f"{preset_option} requires --actor-distillation-coefficient=0.")
+    source_stage = str(getattr(args, "source_stage", "") or "").strip()
+    if source_stage not in ("", _C3A_JOINT_FROM_C1_SOURCE_STAGE):
+        raise ValueError(
+            f"{preset_option} requires --source-stage={_C3A_JOINT_FROM_C1_SOURCE_STAGE}."
+        )
+    checkpoint = str(getattr(args, "checkpoint", "") or "").strip()
+    if checkpoint not in ("", _C3A_JOINT_FROM_C1_CHECKPOINT):
+        raise ValueError(
+            f"{preset_option} requires --checkpoint={_C3A_JOINT_FROM_C1_CHECKPOINT}."
+        )
+    load_run = str(getattr(args, "load_run", "") or "").strip()
+    if load_run not in ("", _C3A_JOINT_FROM_C1_SOURCE_RUN):
+        raise ValueError(f"{preset_option} requires --load_run={_C3A_JOINT_FROM_C1_SOURCE_RUN}.")
+
+    args.source_stage = _C3A_JOINT_FROM_C1_SOURCE_STAGE
+    args.load_run = _C3A_JOINT_FROM_C1_SOURCE_RUN
+    args.checkpoint = _C3A_JOINT_FROM_C1_CHECKPOINT
+    args.load_weights_only = True
+    args.native_cpu = True
+    args.train_only = True
+    args.concurrent_eval = False
+    return args
+
+
+def _apply_c3a_split_frequency_actor_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply the controlled independent frequency/tail actor experiment."""
+
+    if not bool(getattr(args, "c3a_split_frequency_actor", False)):
+        return args
+    preset_option = "--c3a-split-frequency-actor"
+    if str(getattr(args, "task", "")) != _C3A_TASK_ID:
+        raise ValueError(f"{preset_option} requires the measured CPU-native C3a task.")
+    for name, option in (
+        ("c3a_retention_phase_a", "--c3a-retention-phase-a"),
+        ("c3a_large_actor", "--c3a-large-actor"),
+        ("c3a_joint_from_c1", "--c3a-joint-from-c1"),
+        ("c3a_joint_requested_frequency_smoothness", "--c3a-joint-requested-frequency-smoothness"),
+        ("c3a_joint_requested_frequency_total_variation", "--c3a-joint-requested-frequency-total-variation"),
+        ("c3a_joint_requested_applied_frequency_gap", "--c3a-joint-requested-applied-frequency-gap"),
+        ("resume", "--resume"),
+        ("concurrent_eval", "--concurrent-eval"),
+        ("adaptive_task_sampling", "--adaptive-task-sampling"),
+        ("c2c_recycle_on_recovery", "--c2c-recycle-on-recovery"),
+    ):
+        if bool(getattr(args, name, False)):
+            raise ValueError(f"{preset_option} cannot be combined with {option}.")
+
+    for name, expected, option in (
+        ("num_envs", _MEASURED_PURE_RL_DEFAULT_NUM_ENVS, "--num-envs"),
+        ("max_iterations", _C3A_JOINT_FROM_C1_MAX_ITERATIONS, "--max-iterations"),
+        ("save_interval", _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL, "--save-interval"),
+        ("seed", 0, "--seed"),
+        ("agent_num_mini_batches", _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES, "--agent-num-mini-batches"),
+        ("c2c_strong_climb_probability", _C3A_JOINT_FROM_C1_STRONG_CLIMB_PROBABILITY, "--c2c-strong-climb-probability"),
+        ("agent_device", "cpu", "--agent-device"),
+    ):
+        _set_preset_value(
+            args,
+            name=name,
+            expected=expected,
+            option=option,
+            preset_option=preset_option,
+        )
+
+    if float(getattr(args, "actor_distillation_coefficient", 0.0)) != 0.0:
+        raise ValueError(f"{preset_option} requires --actor-distillation-coefficient=0.")
+    for name, expected, option in (
+        ("source_stage", _C3A_SPLIT_FREQUENCY_ACTOR_SOURCE_STAGE, "--source-stage"),
+        ("load_run", _C3A_SPLIT_FREQUENCY_ACTOR_SOURCE_RUN, "--load_run"),
+        ("checkpoint", _C3A_SPLIT_FREQUENCY_ACTOR_CHECKPOINT, "--checkpoint"),
+    ):
+        configured = str(getattr(args, name, "") or "").strip()
+        if configured not in ("", expected):
+            raise ValueError(f"{preset_option} requires {option}={expected}.")
+        setattr(args, name, expected)
+
+    args.load_weights_only = True
+    args.native_cpu = True
+    args.train_only = True
+    args.concurrent_eval = False
+    return args
+
+
+def _apply_c3b_split_frequency_actor_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply the frozen C3b split-actor joint training recipe."""
+
+    if not bool(getattr(args, "c3b_split_frequency_actor", False)):
+        return args
+    preset_option = "--c3b-split-frequency-actor"
+    if str(getattr(args, "task", "")) != _C3B_TASK_ID:
+        raise ValueError(f"{preset_option} requires the measured CPU-native C3b task.")
+    for name, option in (
+        ("c3a_retention_phase_a", "--c3a-retention-phase-a"),
+        ("c3a_large_actor", "--c3a-large-actor"),
+        ("c3a_joint_from_c1", "--c3a-joint-from-c1"),
+        ("c3a_joint_requested_frequency_smoothness", "--c3a-joint-requested-frequency-smoothness"),
+        ("c3a_joint_requested_frequency_total_variation", "--c3a-joint-requested-frequency-total-variation"),
+        ("c3a_joint_requested_applied_frequency_gap", "--c3a-joint-requested-applied-frequency-gap"),
+        ("c3a_split_frequency_actor", "--c3a-split-frequency-actor"),
+        ("c3b_adaptive_sampling", "--c3b-adaptive-sampling"),
+        ("resume", "--resume"),
+        ("concurrent_eval", "--concurrent-eval"),
+        ("adaptive_task_sampling", "--adaptive-task-sampling"),
+        ("c2c_recycle_on_recovery", "--c2c-recycle-on-recovery"),
+    ):
+        if bool(getattr(args, name, False)):
+            raise ValueError(f"{preset_option} cannot be combined with {option}.")
+
+    for name, expected, option in (
+        ("num_envs", _MEASURED_PURE_RL_DEFAULT_NUM_ENVS, "--num-envs"),
+        ("max_iterations", _C3B_SPLIT_FREQUENCY_ACTOR_MAX_ITERATIONS, "--max-iterations"),
+        ("save_interval", _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL, "--save-interval"),
+        ("seed", 0, "--seed"),
+        ("agent_num_mini_batches", _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES, "--agent-num-mini-batches"),
+        ("c2c_strong_climb_probability", 0.5, "--c2c-strong-climb-probability"),
+        ("agent_device", "cpu", "--agent-device"),
+    ):
+        _set_preset_value(
+            args,
+            name=name,
+            expected=expected,
+            option=option,
+            preset_option=preset_option,
+        )
+    if float(getattr(args, "actor_distillation_coefficient", 0.0)) != 0.0:
+        raise ValueError(f"{preset_option} requires --actor-distillation-coefficient=0.")
+    for name, expected, option in (
+        ("source_stage", _C3B_SPLIT_FREQUENCY_ACTOR_SOURCE_STAGE, "--source-stage"),
+        ("load_run", _C3B_SPLIT_FREQUENCY_ACTOR_SOURCE_RUN, "--load_run"),
+        ("checkpoint", _C3B_SPLIT_FREQUENCY_ACTOR_CHECKPOINT, "--checkpoint"),
+    ):
+        configured = str(getattr(args, name, "") or "").strip()
+        if configured not in ("", expected):
+            raise ValueError(f"{preset_option} requires {option}={expected}.")
+        setattr(args, name, expected)
+
+    args.load_weights_only = True
+    args.native_cpu = True
+    args.train_only = True
+    args.concurrent_eval = False
+    return args
+
+
+def _apply_c3b_adaptive_sampling_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply the controlled C3b fine-grained adaptive-sampling continuation."""
+
+    if not bool(getattr(args, "c3b_adaptive_sampling", False)):
+        return args
+    preset_option = "--c3b-adaptive-sampling"
+    if str(getattr(args, "task", "")) != _C3B_TASK_ID:
+        raise ValueError(f"{preset_option} requires the measured CPU-native C3b task.")
+    for name, option in (
+        ("c3a_retention_phase_a", "--c3a-retention-phase-a"),
+        ("c3a_large_actor", "--c3a-large-actor"),
+        ("c3a_joint_from_c1", "--c3a-joint-from-c1"),
+        ("c3a_joint_requested_frequency_smoothness", "--c3a-joint-requested-frequency-smoothness"),
+        ("c3a_joint_requested_frequency_total_variation", "--c3a-joint-requested-frequency-total-variation"),
+        ("c3a_joint_requested_applied_frequency_gap", "--c3a-joint-requested-applied-frequency-gap"),
+        ("c3a_split_frequency_actor", "--c3a-split-frequency-actor"),
+        ("c3b_split_frequency_actor", "--c3b-split-frequency-actor"),
+        ("resume", "--resume"),
+        ("concurrent_eval", "--concurrent-eval"),
+        ("adaptive_task_sampling", "--adaptive-task-sampling"),
+        ("c2c_recycle_on_recovery", "--c2c-recycle-on-recovery"),
+    ):
+        if bool(getattr(args, name, False)):
+            raise ValueError(f"{preset_option} cannot be combined with {option}.")
+
+    for name, expected, option in (
+        ("num_envs", _MEASURED_PURE_RL_DEFAULT_NUM_ENVS, "--num-envs"),
+        ("max_iterations", _C3B_ADAPTIVE_SAMPLING_MAX_ITERATIONS, "--max-iterations"),
+        ("save_interval", _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL, "--save-interval"),
+        ("seed", 0, "--seed"),
+        ("agent_num_mini_batches", _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES, "--agent-num-mini-batches"),
+        ("c2c_strong_climb_probability", 0.5, "--c2c-strong-climb-probability"),
+        ("agent_device", "cpu", "--agent-device"),
+    ):
+        _set_preset_value(
+            args,
+            name=name,
+            expected=expected,
+            option=option,
+            preset_option=preset_option,
+        )
+    if float(getattr(args, "actor_distillation_coefficient", 0.0)) != 0.0:
+        raise ValueError(f"{preset_option} requires --actor-distillation-coefficient=0.")
+    for name, expected, option in (
+        ("source_stage", _C3B_ADAPTIVE_SAMPLING_SOURCE_STAGE, "--source-stage"),
+        ("load_run", _C3B_ADAPTIVE_SAMPLING_SOURCE_RUN, "--load_run"),
+        ("checkpoint", _C3B_ADAPTIVE_SAMPLING_CHECKPOINT, "--checkpoint"),
+    ):
+        configured = str(getattr(args, name, "") or "").strip()
+        if configured not in ("", expected):
+            raise ValueError(f"{preset_option} requires {option}={expected}.")
+        setattr(args, name, expected)
+
+    args.adaptive_task_sampling = True
+    args.load_weights_only = True
+    args.native_cpu = True
     args.train_only = True
     args.concurrent_eval = False
     return args
@@ -744,8 +1205,8 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     if bool(getattr(args, "c2c_recycle_on_recovery", False)):
         train_cmd.append("env.pure_rl_c2c_recycle_on_recovery=true")
     if bool(getattr(args, "adaptive_task_sampling", False)):
-        if spatial_stage_for_task(str(args.task)) != "c3a":
-            raise ValueError("Adaptive task sampling is currently supported only for C3a training.")
+        if spatial_stage_for_task(str(args.task)) not in {"c3a", "c3b"}:
+            raise ValueError("Adaptive task sampling is supported only for C3a or C3b training.")
         if strong_climb_probability is None:
             raise ValueError(
                 "Adaptive task sampling requires an explicit --c2c-strong-climb-probability."
@@ -765,6 +1226,45 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
     if large_actor_enabled:
         hidden_dims = ",".join(str(value) for value in _C3A_LARGE_ACTOR_HIDDEN_DIMS)
         train_cmd.append(f"agent.policy.actor_hidden_dims=[{hidden_dims}]")
+    if bool(getattr(args, "c3a_joint_from_c1", False)):
+        hidden_dims = ",".join(str(value) for value in _C3A_BASE_POLICY_HIDDEN_DIMS)
+        train_cmd.extend(
+            [
+                f"agent.policy.actor_hidden_dims=[{hidden_dims}]",
+                f"agent.policy.critic_hidden_dims=[{hidden_dims}]",
+            ]
+        )
+    if bool(getattr(args, "c3a_joint_requested_frequency_smoothness", False)):
+        train_cmd.append(
+            "env.pure_rl_reward_cfg.requested_frequency_action_delta_penalty_weight="
+            f"{_C3A_JOINT_REQUESTED_FREQUENCY_SQUARED_DELTA_PENALTY_WEIGHT}"
+        )
+    if bool(getattr(args, "c3a_joint_requested_frequency_total_variation", False)):
+        train_cmd.extend(
+            [
+                "env.pure_rl_reward_cfg.requested_frequency_action_delta_penalty_mode=absolute",
+                "env.pure_rl_reward_cfg.requested_frequency_action_delta_penalty_weight="
+                f"{_C3A_JOINT_REQUESTED_FREQUENCY_TOTAL_VARIATION_PENALTY_WEIGHT}",
+            ]
+        )
+    if bool(getattr(args, "c3a_joint_requested_applied_frequency_gap", False)):
+        train_cmd.append(
+            "env.pure_rl_reward_cfg.requested_applied_frequency_action_gap_penalty_weight="
+            f"{_C3A_JOINT_REQUESTED_APPLIED_FREQUENCY_GAP_PENALTY_WEIGHT}"
+        )
+    if bool(getattr(args, "c3a_split_frequency_actor", False)) or bool(
+        getattr(args, "c3b_split_frequency_actor", False)
+    ) or bool(getattr(args, "c3b_adaptive_sampling", False)):
+        hidden_dims = ",".join(str(value) for value in _C3A_BASE_POLICY_HIDDEN_DIMS)
+        train_cmd.extend(
+            [
+                f"agent.policy.class_name={_C3A_SPLIT_FREQUENCY_ACTOR_CLASS_NAME}",
+                f"agent.policy.actor_hidden_dims=[{hidden_dims}]",
+                f"agent.policy.critic_hidden_dims=[{hidden_dims}]",
+                "env.pure_rl_reward_cfg.requested_applied_frequency_action_gap_penalty_weight="
+                f"{_C3A_JOINT_REQUESTED_APPLIED_FREQUENCY_GAP_PENALTY_WEIGHT}",
+            ]
+        )
     if _native_cpu_enabled(args):
         train_cmd.extend(
             [
@@ -819,6 +1319,10 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
                 str(_native_asset_cache(args, "watch")),
             ]
         )
+    if bool(getattr(args, "c3a_split_frequency_actor", False)) or bool(
+        getattr(args, "c3b_split_frequency_actor", False)
+    ) or bool(getattr(args, "c3b_adaptive_sampling", False)):
+        watch_cmd.append("--pure-rl-split-frequency-actor")
     if args.headless:
         watch_cmd.append("--headless")
     return watch_cmd
@@ -840,6 +1344,26 @@ def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str
         "c3b": "c3a",
         "c3c": "c3b",
     }[target_stage]
+    joint_from_c1 = bool(getattr(args, "c3a_joint_from_c1", False))
+    split_frequency_actor = bool(getattr(args, "c3a_split_frequency_actor", False))
+    c3b_split_frequency_actor = bool(getattr(args, "c3b_split_frequency_actor", False))
+    c3b_adaptive_sampling = bool(getattr(args, "c3b_adaptive_sampling", False))
+    if c3b_adaptive_sampling:
+        if target_stage != "c3b":
+            raise ValueError("--c3b-adaptive-sampling is valid only for target stage c3b.")
+        expected_source_stage = _C3B_ADAPTIVE_SAMPLING_SOURCE_STAGE
+    elif c3b_split_frequency_actor:
+        if target_stage != "c3b":
+            raise ValueError("--c3b-split-frequency-actor is valid only for target stage c3b.")
+        expected_source_stage = _C3B_SPLIT_FREQUENCY_ACTOR_SOURCE_STAGE
+    elif split_frequency_actor:
+        if target_stage != "c3a":
+            raise ValueError("--c3a-split-frequency-actor is valid only for target stage c3a.")
+        expected_source_stage = _C3A_SPLIT_FREQUENCY_ACTOR_SOURCE_STAGE
+    elif joint_from_c1:
+        if target_stage != "c3a":
+            raise ValueError("--c3a-joint-from-c1 is valid only for target stage c3a.")
+        expected_source_stage = _C3A_JOINT_FROM_C1_SOURCE_STAGE
     source_stage = str(getattr(args, "source_stage", "") or "").strip()
     if source_stage != expected_source_stage:
         raise ValueError(
@@ -852,20 +1376,77 @@ def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str
     checkpoint_path = Path(configured_path).expanduser().resolve()
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"Source checkpoint does not exist: {checkpoint_path}")
+    if split_frequency_actor and (
+        checkpoint_path.name != _C3A_SPLIT_FREQUENCY_ACTOR_CHECKPOINT
+        or checkpoint_path.parent.name != _C3A_SPLIT_FREQUENCY_ACTOR_SOURCE_RUN
+    ):
+        raise ValueError(
+            "--c3a-split-frequency-actor source path must resolve to the passing joint model_200.pt."
+        )
+    if c3b_split_frequency_actor and (
+        checkpoint_path.name != _C3B_SPLIT_FREQUENCY_ACTOR_CHECKPOINT
+        or checkpoint_path.parent.name != _C3B_SPLIT_FREQUENCY_ACTOR_SOURCE_RUN
+    ):
+        raise ValueError(
+            "--c3b-split-frequency-actor source path must resolve to the promoted C3a split model_200.pt."
+        )
+    if c3b_adaptive_sampling and (
+        checkpoint_path.name != _C3B_ADAPTIVE_SAMPLING_CHECKPOINT
+        or checkpoint_path.parent.name != _C3B_ADAPTIVE_SAMPLING_SOURCE_RUN
+    ):
+        raise ValueError(
+            "--c3b-adaptive-sampling source path must resolve to the fixed-mixture C3b model_100.pt."
+        )
+    if joint_from_c1 and (
+        checkpoint_path.name != _C3A_JOINT_FROM_C1_CHECKPOINT
+        or checkpoint_path.parent.name != _C3A_JOINT_FROM_C1_SOURCE_RUN
+    ):
+        raise ValueError(
+            "--c3a-joint-from-c1 source path must resolve to the selected C1 run and model_1300.pt."
+        )
     digest = hashlib.sha256()
     with checkpoint_path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
-    return {
+    metadata = {
         "target_stage": target_stage,
         "source_stage": source_stage,
         "source_checkpoint_path": str(checkpoint_path),
         "source_checkpoint_sha256": digest.hexdigest(),
     }
+    if c3b_adaptive_sampling:
+        metadata["curriculum_route"] = _C3B_ADAPTIVE_SAMPLING_ROUTE
+        metadata["policy_class_name"] = _C3A_SPLIT_FREQUENCY_ACTOR_CLASS_NAME
+    elif c3b_split_frequency_actor:
+        metadata["curriculum_route"] = _C3B_SPLIT_FREQUENCY_ACTOR_ROUTE
+        metadata["policy_class_name"] = _C3A_SPLIT_FREQUENCY_ACTOR_CLASS_NAME
+    elif split_frequency_actor:
+        metadata["curriculum_route"] = _C3A_SPLIT_FREQUENCY_ACTOR_ROUTE
+        metadata["policy_class_name"] = _C3A_SPLIT_FREQUENCY_ACTOR_CLASS_NAME
+    elif joint_from_c1:
+        if bool(getattr(args, "c3a_joint_requested_applied_frequency_gap", False)):
+            metadata["curriculum_route"] = (
+                "c3a_joint_from_c1_requested_applied_frequency_gap_v1"
+            )
+        elif bool(getattr(args, "c3a_joint_requested_frequency_total_variation", False)):
+            metadata["curriculum_route"] = (
+                "c3a_joint_from_c1_requested_frequency_total_variation_v1"
+            )
+        elif bool(getattr(args, "c3a_joint_requested_frequency_smoothness", False)):
+            metadata["curriculum_route"] = (
+                "c3a_joint_from_c1_requested_frequency_smoothness_v1"
+            )
+        else:
+            metadata["curriculum_route"] = "c3a_joint_from_c1_v1"
+    return metadata
 
 
 def main():
     args = _apply_c3a_retention_phase_a_preset(_parse_args())
+    args = _apply_c3a_joint_from_c1_preset(args)
+    args = _apply_c3a_split_frequency_actor_preset(args)
+    args = _apply_c3b_split_frequency_actor_preset(args)
+    args = _apply_c3b_adaptive_sampling_preset(args)
     curriculum_source_metadata = _build_curriculum_source_metadata(args)
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)

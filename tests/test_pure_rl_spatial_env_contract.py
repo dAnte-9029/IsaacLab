@@ -102,6 +102,17 @@ def test_c3_configs_add_only_spatial_stage_and_twenty_second_episode() -> None:
             assert ast.literal_eval(_ann_assign(cfg, "pure_rl_warm_start_guard_enabled").value) is True
             assert ast.literal_eval(_ann_assign(cfg, "pure_rl_actor_gradient_probe_enabled").value) is True
             assert ast.literal_eval(_ann_assign(cfg, "pure_rl_task_aware_ppo_enabled").value) is True
+        elif suffix == "C3b":
+            expected_names.update(
+                {
+                    "pure_rl_warm_start_guard_enabled",
+                    "pure_rl_task_aware_ppo_enabled",
+                    "pure_rl_task_aware_ppo_task_weights",
+                    "pure_rl_task_aware_ppo_minimum_phase_samples",
+                    "pure_rl_adaptive_sampling_minimum_probabilities",
+                    "pure_rl_adaptive_sampling_target_success_rates",
+                }
+            )
         assert _assigned_names(cfg) == expected_names
         assert ast.literal_eval(_ann_assign(cfg, "pure_rl_spatial_stage_id").value) == stage_id
         assert ast.literal_eval(_ann_assign(cfg, "episode_length_s").value) == 20.0
@@ -241,7 +252,7 @@ def test_c3a_task_aware_ppo_is_default_disabled_and_phase_labeled() -> None:
     )
     assert ast.literal_eval(_ann_assign(c3a, "pure_rl_task_aware_ppo_enabled").value) is True
     assert "task_aware_ppo_enabled" in constructor_source
-    assert "spatial_stage.stage_id != 'c3a'" in constructor_source
+    assert "spatial_stage.stage_id not in ('c3a', 'c3b')" in constructor_source
     assert "strong_c2c_phase" in observation_source
     assert "query.turn_activity > 0.0" in observation_source
 
@@ -261,7 +272,28 @@ def test_c3a_enables_bounded_weights_only_warm_start_guard() -> None:
     assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_actor_update_norm_limit").value) == 0.10
     assert ast.literal_eval(_ann_assign(c3a, "pure_rl_warm_start_guard_enabled").value) is True
     assert "warm_start_guard_enabled" in constructor_source
-    assert "spatial_stage.stage_id != 'c3a'" in constructor_source
+    assert "spatial_stage.stage_id not in ('c3a', 'c3b')" in constructor_source
+
+
+def test_c3b_enables_four_task_ppo_and_bounded_warm_start() -> None:
+    module = _module()
+    c3b = _class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLC3bEnvCfg")
+    observation_source = _source(
+        _method(_class(module, "FlappingBotStraightFlightEnv"), "_get_pure_rl_observations")
+    )
+
+    assert ast.literal_eval(_ann_assign(c3b, "pure_rl_task_aware_ppo_enabled").value) is True
+    assert ast.literal_eval(_ann_assign(c3b, "pure_rl_task_aware_ppo_task_weights").value) == (
+        0.15,
+        0.20,
+        0.15,
+        0.50,
+    )
+    assert ast.literal_eval(_ann_assign(c3b, "pure_rl_warm_start_guard_enabled").value) is True
+    assert ast.literal_eval(
+        _ann_assign(c3b, "pure_rl_task_aware_ppo_minimum_phase_samples").value
+    ) == 0
+    assert "TASK_AWARE_C3B_GROUP" in observation_source
 
 
 def test_c3_adaptive_task_sampling_is_opt_in_and_uses_completed_episode_signals() -> None:
@@ -274,7 +306,7 @@ def test_c3_adaptive_task_sampling_is_opt_in_and_uses_completed_episode_signals(
     update_source = _source(_method(env, "_update_pure_rl_adaptive_task_sampling"))
 
     assert ast.literal_eval(_ann_assign(base, "pure_rl_adaptive_task_sampling_enabled").value) is False
-    assert "spatial_stage.stage_id != 'c3a'" in constructor_source
+    assert "spatial_stage.stage_id not in {'c3a', 'c3b'}" in constructor_source
     assert "task_probabilities=self._pure_rl_adaptive_task_probabilities" in reset_source
     assert "self._pure_rl_adaptive_strong_climb_probability" in reset_source
     assert "self._update_pure_rl_adaptive_task_sampling" in dones_source
@@ -283,6 +315,10 @@ def test_c3_adaptive_task_sampling_is_opt_in_and_uses_completed_episode_signals(
     assert "c3a_completed & query.reached_all_events & ~terminated" in update_source
     assert "update_retention_aware_task_probabilities" in update_source
     assert "AdaptiveSampling/c3a_probability" in update_source
+    assert "C3B_TURN_THEN_CLIMB_TEMPLATE_ID" in update_source
+    assert "C3B_CLIMB_THEN_TURN_TEMPLATE_ID" in update_source
+    assert "AdaptiveSampling/c3b_weak_template_probability" in update_source
+    assert "AdaptiveSampling/c3b_weak_strong_climb_probability" in update_source
 
 
 def test_spatial_query_is_cached_once_per_policy_step_and_reset_invalidates_it() -> None:

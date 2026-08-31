@@ -1,4 +1,4 @@
-"""Evaluate C3a checkpoints on frozen C3a, C1, and C2c suites.
+"""Evaluate C3a/C3b checkpoints on their frozen current and retention suites.
 
 Each checkpoint/suite pair runs in its own fresh CPU-native Isaac process. The
 script does not watch a training directory: it evaluates the explicitly named
@@ -28,6 +28,7 @@ _NATIVE_EXTENSION_ID = "omni.flapping_bot.holonomic_constraint"
 _C1_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0"
 _C2C_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0"
 _C3A_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0"
+_C3B_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,28 @@ EVALUATION_SUITES: tuple[EvaluationSuite, ...] = (
 )
 
 
+def _evaluation_suites(spatial_stage: str) -> tuple[EvaluationSuite, ...]:
+    """Return the frozen current-stage and retention suites in execution order."""
+
+    if spatial_stage == "c3a":
+        return EVALUATION_SUITES
+    if spatial_stage != "c3b":
+        raise ValueError(f"Unsupported spatial evaluation stage: {spatial_stage!r}.")
+    return (
+        EvaluationSuite(
+            name="c3b",
+            task=_C3B_TASK,
+            eval_suite="pure_rl_spatial_c3b_v3",
+            evaluation_contract="pure_rl_spatial_c3b_v3",
+            case_count=176,
+            gate_field="promotion_gate_passed",
+        ),
+        EVALUATION_SUITES[0],
+        EVALUATION_SUITES[1],
+        EVALUATION_SUITES[2],
+    )
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -83,11 +106,22 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(
+        "--spatial-stage",
+        choices=("c3a", "c3b"),
+        default="c3a",
+        help="Current spatial stage; C3b additionally evaluates frozen C3a retention.",
+    )
+    parser.add_argument(
         "--actor-hidden-dims",
         type=int,
         nargs="+",
         default=None,
         help="Explicit actor hidden dimensions forwarded to every fresh evaluator.",
+    )
+    parser.add_argument(
+        "--pure-rl-split-frequency-actor",
+        action="store_true",
+        help="Evaluate checkpoints that use the independent frequency/tail actor.",
     )
     parser.add_argument(
         "--native-extension-parent",
@@ -149,6 +183,7 @@ def _build_eval_command(
     native_extension_parent: Path,
     headless: bool,
     actor_hidden_dims: Sequence[int] | None = None,
+    split_frequency_actor: bool = False,
 ) -> list[str]:
     """Build one fresh-process frozen-suite command."""
 
@@ -196,6 +231,8 @@ def _build_eval_command(
     if actor_hidden_dims is not None:
         command.append("--actor-hidden-dims")
         command.extend(str(value) for value in actor_hidden_dims)
+    if split_frequency_actor:
+        command.append("--pure-rl-split-frequency-actor")
     if headless:
         command.append("--headless")
     return command
@@ -257,8 +294,9 @@ def _checkpoint_summary(
     *,
     checkpoint: Path,
     suite_rows: Mapping[str, Mapping[str, object]],
+    suites: Sequence[EvaluationSuite] = EVALUATION_SUITES,
 ) -> dict[str, object]:
-    required = {suite.name for suite in EVALUATION_SUITES}
+    required = {suite.name for suite in suites}
     if set(suite_rows) != required:
         raise ValueError(
             f"Checkpoint summary requires suites {sorted(required)}; received {sorted(suite_rows)}."
@@ -279,21 +317,25 @@ def _checkpoint_summary(
 def _flat_summary_row(result: Mapping[str, object]) -> dict[str, object]:
     suites = result["suites"]
     assert isinstance(suites, Mapping)
+    current_stage = "c3b" if "c3b" in suites else "c3a"
+    current = suites[current_stage]
     c3a = suites["c3a"]
     c1 = suites["c1"]
     c2c = suites["c2c"]
     assert isinstance(c3a, Mapping) and isinstance(c1, Mapping) and isinstance(c2c, Mapping)
     suite_passed = result["suite_passed"]
     assert isinstance(suite_passed, Mapping)
-    return {
+    row = {
         "checkpoint": result["checkpoint"],
         "ppo_iteration": result["ppo_iteration"],
+        "current_stage": current_stage,
+        f"{current_stage}_passed": int(bool(suite_passed[current_stage])),
         "c3a_passed": int(bool(suite_passed["c3a"])),
         "c1_passed": int(bool(suite_passed["c1"])),
         "c2c_passed": int(bool(suite_passed["c2c"])),
         "all_hard_gates_passed": int(bool(result["all_hard_gates_passed"])),
-        "c3a_overall_success_rate": c3a.get("overall_success_rate", ""),
-        "c3a_overall_survival_rate": c3a.get("overall_survival_rate", ""),
+        f"{current_stage}_overall_success_rate": current.get("overall_success_rate", ""),
+        f"{current_stage}_overall_survival_rate": current.get("overall_survival_rate", ""),
         "c1_timeout_rate": c1.get("timeout_rate", ""),
         "c1_termination_rate": c1.get("termination_rate", ""),
         "c1_tail_limit_fraction": c1.get("tail_limit_fraction", ""),
@@ -302,6 +344,10 @@ def _flat_summary_row(result: Mapping[str, object]) -> dict[str, object]:
         "c2c_descent_success_rate": c2c.get("descent_success_rate", ""),
         "c2c_recovery_reached_rate": c2c.get("recovery_reached_rate", ""),
     }
+    if current_stage == "c3b":
+        row["c3a_overall_success_rate"] = c3a.get("overall_success_rate", "")
+        row["c3a_overall_survival_rate"] = c3a.get("overall_survival_rate", "")
+    return row
 
 
 def _write_combined_summaries(output_dir: Path, results: Sequence[Mapping[str, object]]) -> None:
@@ -319,6 +365,7 @@ def _write_combined_summaries(output_dir: Path, results: Sequence[Mapping[str, o
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
+    evaluation_suites = _evaluation_suites(str(args.spatial_stage))
     repo_root = Path(__file__).resolve().parents[2]
     output_dir = args.output_dir.expanduser().resolve()
     extension_parent = (
@@ -363,7 +410,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for checkpoint in checkpoints:
         suite_rows: dict[str, dict[str, object]] = {}
         checkpoint_output = output_dir / checkpoint.stem
-        for suite in EVALUATION_SUITES:
+        for suite in evaluation_suites:
             suite_output = checkpoint_output / suite.name
             result_json = suite_output / f"{checkpoint.stem}.json"
             if result_json.exists() and not bool(args.reuse_existing):
@@ -382,6 +429,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     native_extension_parent=extension_parent,
                     headless=bool(args.headless),
                     actor_hidden_dims=actor_hidden_dims,
+                    split_frequency_actor=bool(args.pure_rl_split_frequency_actor),
                 )
                 print(f"[INFO] Evaluating {checkpoint.name} on {suite.name} in a fresh process:", flush=True)
                 print(" ", " ".join(command), flush=True)
@@ -396,7 +444,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 checkpoint=checkpoint,
                 suite=suite,
             )
-        result = _checkpoint_summary(checkpoint=checkpoint, suite_rows=suite_rows)
+        result = _checkpoint_summary(
+            checkpoint=checkpoint,
+            suite_rows=suite_rows,
+            suites=evaluation_suites,
+        )
         results.append(result)
         (checkpoint_output / "checkpoint_summary.json").write_text(
             json.dumps(result, indent=2) + "\n",

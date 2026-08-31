@@ -25,6 +25,7 @@ C3B_TURN_THEN_DESCENT_TEMPLATE_ID = 6
 C3B_CLIMB_THEN_TURN_TEMPLATE_ID = 7
 C3B_DESCENT_THEN_TURN_TEMPLATE_ID = 8
 C3B_LOITER_TEMPLATE_ID = 9
+_C3B_LOITER_TOTAL_LENGTH_M = 110.0
 C3C_COUPLED_TEMPLATE_ID = 10
 
 _MAX_EVENTS = 4
@@ -37,6 +38,7 @@ _INTERSECTION_VALIDATION_STRIDE = 4
 _INTERSECTION_LOCAL_SAMPLE_RADIUS = 8
 _MINIMUM_NONADJACENT_CLEARANCE_M = 1.5
 _CLEARANCE_VALIDATION_THRESHOLD_M = 2.5
+_MAX_RESAMPLE_ATTEMPTS = 16
 _CLEARANCE_VALIDATION_BATCH_SIZE = 32
 PURE_RL_PREVIEW_TIMES_S: tuple[float, ...] = (0.12, 0.24, 0.36, 0.48, 0.60)
 _LOCAL_PROJECTION_BEHIND_M = 2.0
@@ -61,6 +63,8 @@ class PureRLSpatialStageConfig:
     minimum_altitude_m: float = 0.05
     vertical_slope_deg_range: tuple[float, float] = (4.0, 12.0)
     loiter_radius_m_range: tuple[float, float] = (0.0, 0.0)
+    c3b_weak_template_probability: float = 2.0 / 7.0
+    c3b_weak_strong_climb_probability: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -139,37 +143,47 @@ SPATIAL_STAGE_CONFIGS: dict[str, PureRLSpatialStageConfig] = {
 
 
 def update_retention_aware_task_probabilities(
-    current_probabilities: tuple[float, float, float],
-    ability_deficits: tuple[float, float, float],
+    current_probabilities: tuple[float, ...],
+    ability_deficits: tuple[float, ...],
     *,
-    baseline_probabilities: tuple[float, float, float],
-    minimum_probabilities: tuple[float, float, float],
+    baseline_probabilities: tuple[float, ...],
+    minimum_probabilities: tuple[float, ...],
     maximum_probability_change: float,
-) -> tuple[float, float, float]:
-    """Move C1/C2c/C3a sampling toward the currently weakest abilities."""
+    probability_total: float = 1.0,
+) -> tuple[float, ...]:
+    """Move one bounded probability group toward the currently weakest abilities."""
 
     probability_sets = (
         ("current_probabilities", current_probabilities),
         ("baseline_probabilities", baseline_probabilities),
     )
+    expected_count = len(current_probabilities)
+    if expected_count == 0:
+        raise ValueError("current_probabilities must not be empty.")
+    if not math.isfinite(probability_total) or probability_total <= 0.0:
+        raise ValueError("probability_total must be finite and positive.")
     for name, values in probability_sets:
-        if len(values) != 3 or any(not math.isfinite(value) or value < 0.0 for value in values):
-            raise ValueError(f"{name} must contain three finite non-negative values.")
-        if not math.isclose(sum(values), 1.0, rel_tol=0.0, abs_tol=1.0e-12):
-            raise ValueError(f"{name} must sum to one.")
-    if len(minimum_probabilities) != 3 or any(
+        if len(values) != expected_count or any(
+            not math.isfinite(value) or value < 0.0 for value in values
+        ):
+            raise ValueError(f"{name} must match the probability group with finite non-negative values.")
+        if not math.isclose(sum(values), probability_total, rel_tol=0.0, abs_tol=1.0e-12):
+            qualifier = "one" if probability_total == 1.0 else "probability_total"
+            raise ValueError(f"{name} must sum to {qualifier}.")
+    if len(minimum_probabilities) != expected_count or any(
         not math.isfinite(value) or value < 0.0 for value in minimum_probabilities
     ):
-        raise ValueError("minimum_probabilities must contain three finite non-negative values.")
+        raise ValueError("minimum_probabilities must match the probability group.")
     minimum_sum = sum(minimum_probabilities)
-    if minimum_sum >= 1.0:
-        raise ValueError("minimum_probabilities must sum to less than one.")
+    if minimum_sum >= probability_total:
+        qualifier = "one" if probability_total == 1.0 else "probability_total"
+        raise ValueError(f"minimum_probabilities must sum to less than {qualifier}.")
     if any(current < minimum for current, minimum in zip(current_probabilities, minimum_probabilities)):
         raise ValueError("current_probabilities must satisfy all minimum probabilities.")
-    if len(ability_deficits) != 3 or any(
+    if len(ability_deficits) != expected_count or any(
         not math.isfinite(value) or value < 0.0 for value in ability_deficits
     ):
-        raise ValueError("ability_deficits must contain three finite non-negative values.")
+        raise ValueError("ability_deficits must match the probability group.")
     if not math.isfinite(maximum_probability_change) or maximum_probability_change <= 0.0:
         raise ValueError("maximum_probability_change must be finite and positive.")
 
@@ -177,7 +191,7 @@ def update_retention_aware_task_probabilities(
     if deficit_sum == 0.0:
         desired = baseline_probabilities
     else:
-        remaining_probability = 1.0 - minimum_sum
+        remaining_probability = probability_total - minimum_sum
         desired = tuple(
             minimum + remaining_probability * deficit / deficit_sum
             for minimum, deficit in zip(minimum_probabilities, ability_deficits)
@@ -282,8 +296,10 @@ def sample_spatial_path_batch(
         initial_altitude_m=altitude,
         evaluation_overrides=evaluation_overrides,
     )
-    invalid_rows = _resampleable_invalid_rows(batch, config=config)
-    if bool(torch.any(invalid_rows)):
+    for _attempt in range(_MAX_RESAMPLE_ATTEMPTS):
+        invalid_rows = _resampleable_invalid_rows(batch, config=config)
+        if not bool(torch.any(invalid_rows)):
+            break
         invalid_ids = torch.nonzero(invalid_rows, as_tuple=False).flatten()
         replacement = _sample_spatial_path_batch_once(
             num_paths=invalid_ids.numel(),
@@ -298,10 +314,6 @@ def sample_spatial_path_batch(
                 else tuple(value.index_select(0, invalid_ids) for value in evaluation_overrides)
             ),
         )
-        replacement_invalid = _resampleable_invalid_rows(replacement, config=config)
-        if bool(torch.any(replacement_invalid)):
-            _validate_generated_batch(replacement, config=config)
-            raise RuntimeError("Spatial path replacement remained invalid after one resampling pass.")
         batch = _replace_batch_rows(batch, row_ids=invalid_ids, replacement=replacement)
     _validate_generated_batch(batch, config=config)
     return batch
@@ -808,8 +820,39 @@ def _sample_event_contracts(
             generator=generator,
         )
         event_count[current_rows] = sampled_count[current_rows]
-        local_template = torch.randint(0, 7, (count,), device=device, generator=generator)
-        template_id[current_rows] = local_template[current_rows] + C3B_SAME_DIRECTION_TURNS_TEMPLATE_ID
+        weak_template = torch.rand(count, device=device, dtype=dtype, generator=generator) < float(
+            config.c3b_weak_template_probability
+        )
+        weak_choice = torch.randint(0, 2, (count,), device=device, generator=generator)
+        sampled_weak_template = torch.where(
+            weak_choice == 0,
+            C3B_TURN_THEN_CLIMB_TEMPLATE_ID,
+            C3B_CLIMB_THEN_TURN_TEMPLATE_ID,
+        )
+        other_template_ids = torch.tensor(
+            (
+                C3B_SAME_DIRECTION_TURNS_TEMPLATE_ID,
+                C3B_S_TURNS_TEMPLATE_ID,
+                C3B_TURN_THEN_DESCENT_TEMPLATE_ID,
+                C3B_DESCENT_THEN_TURN_TEMPLATE_ID,
+                C3B_LOITER_TEMPLATE_ID,
+            ),
+            device=device,
+            dtype=torch.int64,
+        )
+        other_choice = torch.randint(
+            0,
+            other_template_ids.numel(),
+            (count,),
+            device=device,
+            generator=generator,
+        )
+        sampled_template = torch.where(
+            weak_template,
+            sampled_weak_template,
+            other_template_ids[other_choice],
+        )
+        template_id[current_rows] = sampled_template[current_rows]
         two_event_rows = current_rows & (
             (template_id == C3B_SAME_DIRECTION_TURNS_TEMPLATE_ID)
             | (template_id == C3B_S_TURNS_TEMPLATE_ID)
@@ -987,6 +1030,38 @@ def _sample_event_amplitudes(
         dtype=dtype,
         generator=generator,
     )
+    current_c3b_weak = (config.stage_id == "c3b") & (
+        (template_id == C3B_TURN_THEN_CLIMB_TEMPLATE_ID)
+        | (template_id == C3B_CLIMB_THEN_TURN_TEMPLATE_ID)
+    )
+    if isinstance(current_c3b_weak, Tensor) and bool(torch.any(current_c3b_weak)):
+        strong_rows = torch.rand(count, device=device, dtype=dtype, generator=generator) < float(
+            config.c3b_weak_strong_climb_probability
+        )
+        ordinary_slope_deg = _sample_uniform(
+            (count, _MAX_EVENTS),
+            (config.vertical_slope_deg_range[0], 10.0),
+            device=device,
+            dtype=dtype,
+            generator=generator,
+        )
+        strong_slope_deg = _sample_uniform(
+            (count, _MAX_EVENTS),
+            (10.0, config.vertical_slope_deg_range[1]),
+            device=device,
+            dtype=dtype,
+            generator=generator,
+        )
+        targeted_slope_deg = torch.where(
+            strong_rows.unsqueeze(1),
+            strong_slope_deg,
+            ordinary_slope_deg,
+        )
+        slope_deg = torch.where(
+            current_c3b_weak.unsqueeze(1) & vertical_mask,
+            targeted_slope_deg,
+            slope_deg,
+        )
     if isinstance(current_c3c, Tensor) and bool(torch.any(current_c3c)):
         row_roll_fraction = row_roll_deg[:, 0] / 20.0
         elliptical_maximum_slope_deg = 10.0 * torch.sqrt(
@@ -1064,9 +1139,14 @@ def _sample_event_layout(
 
     loiter_rows = template_id == C3B_LOITER_TEMPLATE_ID
     if bool(torch.any(loiter_rows)):
+        loiter_half_length_m = 0.5 * _C3B_LOITER_TOTAL_LENGTH_M
         transition_length_m[loiter_rows, 1] = transition_length_m[loiter_rows, 0]
-        plateau_length_m[loiter_rows, 0] = 130.0 - transition_length_m[loiter_rows, 0]
-        plateau_length_m[loiter_rows, 1] = 130.0 - 2.0 * transition_length_m[loiter_rows, 0]
+        plateau_length_m[loiter_rows, 0] = (
+            loiter_half_length_m - transition_length_m[loiter_rows, 0]
+        )
+        plateau_length_m[loiter_rows, 1] = (
+            loiter_half_length_m - 2.0 * transition_length_m[loiter_rows, 0]
+        )
 
     total_event_length_m = torch.where(
         active,
@@ -1096,11 +1176,16 @@ def _sample_event_layout(
     event_start_m = torch.where(active, event_start_m, torch.zeros_like(event_start_m))
     event_end_m = torch.where(active, event_start_m + total_event_length_m, torch.zeros_like(event_start_m))
     if bool(torch.any(loiter_rows)):
-        event_start_m[loiter_rows, 1] = event_start_m[loiter_rows, 0] + 130.0
+        loiter_half_length_m = 0.5 * _C3B_LOITER_TOTAL_LENGTH_M
+        event_start_m[loiter_rows, 1] = event_start_m[loiter_rows, 0] + loiter_half_length_m
         event_end_m[loiter_rows, 0] = (
-            event_start_m[loiter_rows, 0] + 130.0 + transition_length_m[loiter_rows, 0]
+            event_start_m[loiter_rows, 0]
+            + loiter_half_length_m
+            + transition_length_m[loiter_rows, 0]
         )
-        event_end_m[loiter_rows, 1] = event_start_m[loiter_rows, 0] + 260.0
+        event_end_m[loiter_rows, 1] = (
+            event_start_m[loiter_rows, 0] + _C3B_LOITER_TOTAL_LENGTH_M
+        )
     return event_start_m, transition_length_m, plateau_length_m, event_end_m
 
 
@@ -1247,6 +1332,14 @@ def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
             raise ValueError("c3c coupled ranges do not admit the approved elliptical demand bound.")
     if config.stage_id == "c3b" and config.loiter_radius_m_range[0] <= 0.0:
         raise ValueError("c3b loiter_radius_m_range must be positive.")
+    for name, probability in (
+        ("c3b_weak_template_probability", config.c3b_weak_template_probability),
+        ("c3b_weak_strong_climb_probability", config.c3b_weak_strong_climb_probability),
+    ):
+        if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+            raise ValueError(f"{name} must lie in [0, 1].")
+    if config.stage_id == "c3b" and config.vertical_slope_deg_range[0] > 10.0:
+        raise ValueError("c3b vertical_slope_deg_range must include the 10 degree strong-climb split.")
 
 
 def _validate_range(name: str, bounds: tuple[float, float], *, allow_zero: bool) -> None:

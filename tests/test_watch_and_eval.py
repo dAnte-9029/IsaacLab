@@ -149,6 +149,26 @@ def test_watch_and_eval_parser_accepts_actor_hidden_dims(monkeypatch) -> None:
     assert args.actor_hidden_dims == [512, 256]
 
 
+def test_watch_and_eval_parser_accepts_split_frequency_actor(monkeypatch) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "watch_and_eval.py",
+            "--task",
+            "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0",
+            "--log_dir",
+            "logs/dummy_run",
+            "--pure-rl-split-frequency-actor",
+        ],
+    )
+
+    args = watch_and_eval._parse_args()
+
+    assert args.pure_rl_split_frequency_actor is True
+
+
 def test_resolve_checkpoint_candidates_prefers_exact_checkpoint(tmp_path: Path) -> None:
     watch_and_eval = _load_watch_and_eval_module()
     run_dir = tmp_path / "run"
@@ -319,7 +339,7 @@ def test_watch_and_eval_resolves_spatial_task_to_stage_grid_and_shape() -> None:
     watch_and_eval = _load_watch_and_eval_module()
     task = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
     suite = watch_and_eval._resolve_eval_suite(task, "straight_standard")
-    assert suite == "pure_rl_spatial_c3b_v2"
+    assert suite == "pure_rl_spatial_c3b_v3"
     assert watch_and_eval._resolve_eval_shape(task, suite, num_envs=None, episodes=None) == (176, 176)
 
 

@@ -44,7 +44,9 @@ def _evaluation(checkpoint: str, iteration: int, *, stage: str = "c3c", passed: 
         "checkpoint": checkpoint,
         "ppo_iteration": iteration,
         "stage_id": stage,
-        "evaluation_contract": f"pure_rl_spatial_{stage}_v2",
+        "evaluation_contract": (
+            "pure_rl_spatial_c3b_v3" if stage == "c3b" else f"pure_rl_spatial_{stage}_v2"
+        ),
         "grid_complete": True,
         "overall_survival_rate": 0.98 if passed else 0.80,
         "all_event_completion_rate": 0.98,
@@ -80,7 +82,7 @@ def _retention(checkpoint: str, stage: str, *, success_rate: float = 0.96, passe
         "c1_straight": "pure_rl_curriculum1_v2",
         "c2c": "pure_rl_longitudinal_c2c_v2",
         "c3a": "pure_rl_spatial_c3a_v2",
-        "c3b": "pure_rl_spatial_c3b_v2",
+        "c3b": "pure_rl_spatial_c3b_v3",
     }[stage]
     row: dict[str, object] = {
         "checkpoint": checkpoint,

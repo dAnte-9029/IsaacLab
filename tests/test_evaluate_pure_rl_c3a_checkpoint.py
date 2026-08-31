@@ -35,6 +35,7 @@ def test_build_eval_command_is_one_exact_cpu_native_suite(tmp_path: Path) -> Non
         native_extension_parent=extension_parent,
         headless=True,
         actor_hidden_dims=(512, 256),
+        split_frequency_actor=True,
     )
 
     assert command[0] == sys.executable
@@ -50,6 +51,7 @@ def test_build_eval_command_is_one_exact_cpu_native_suite(tmp_path: Path) -> Non
     assert "--headless" in command
     actor_dims_index = command.index("--actor-hidden-dims")
     assert command[actor_dims_index + 1 : actor_dims_index + 3] == ["512", "256"]
+    assert "--pure-rl-split-frequency-actor" in command
     kit_args = command[command.index("--kit_args") + 1]
     assert "--enable omni.flapping_bot.holonomic_constraint" in kit_args
 
@@ -126,6 +128,14 @@ def test_checkpoint_summary_fails_closed_when_one_suite_fails(tmp_path: Path) ->
     assert summary["ppo_iteration"] == 100
     assert summary["suite_passed"] == {"c3a": True, "c1": True, "c2c": False}
     assert summary["all_hard_gates_passed"] is False
+
+
+def test_c3b_suite_adds_current_stage_before_all_retention_suites() -> None:
+    suites = evaluate._evaluation_suites("c3b")
+
+    assert [suite.name for suite in suites] == ["c3b", "c3a", "c1", "c2c"]
+    assert suites[0].evaluation_contract == "pure_rl_spatial_c3b_v3"
+    assert suites[0].case_count == 176
 
 
 def test_checkpoint_iteration_rejects_ambiguous_name(tmp_path: Path) -> None:

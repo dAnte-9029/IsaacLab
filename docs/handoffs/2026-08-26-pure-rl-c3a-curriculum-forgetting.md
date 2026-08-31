@@ -12,19 +12,19 @@
 - 容易导致错误结论的实现和评估陷阱；
 - 下一步最小、可判定的实验是什么。
 
-本文档记录的是 2026-08-26 的状态。已有架构文档、ADR 和 audit 仍是各自主题的详细事实源；本文档只做导航、整合和接续，不替代它们。
+本文档从 2026-08-26 的状态开始，并已追加到 2026-08-29 的 C3a split-actor 正式晋级结果。已有架构文档、ADR 和 audit 仍是各自主题的详细事实源；本文档只做导航、整合和接续，不替代它们。当前结论优先看第 29 节和对应 promotion audit。
 
 ## 2. 当前工作区状态
 
 - 仓库根目录：`/home/zn/IsaacLab`
 - 当前工作树：`/home/zn/IsaacLab/.worktrees/native-multibody-rl`
 - 分支：`feat/native-multibody-rl`
-- 当前提交：`196343dc feat(rl): add task-aware C3a PPO diagnostics`
+- 当前提交：`04ef4c12 feat(rl): add controlled C3a retention experiments`
 - 当前远端：`origin/feat/native-multibody-rl` 与本地提交一致
-- 已跟踪文件在写本文档前是干净的
+- 当前工作树包含尚未提交的 split-actor 实现、评估与文档变更；必须先读 `git status`，不要覆盖或拆散这些改动
 - 本地存在未跟踪的 `*.pid`、`eval/` 和实验结果；它们属于运行产物，不要删除、提交或据其文件名推断实验成功
 
-`docs/PROJECT_STATE.md` 仍是项目总状态入口，但其中“Exact next task”要求评估 bounded-warm-start 的 100/200/300/400 checkpoint。该工作已经完成，因此那一小节已经过期。最新 C3a 遗忘结论和下一步以本文档为准，直到 `PROJECT_STATE.md` 被显式更新。
+`docs/PROJECT_STATE.md` 仍是项目总状态入口，并已更新到 C3a split-actor 晋级和 zero-shot C3b 下一步。实验细节以本文档第 29 节和 promotion audit 为准。
 
 ## 3. 接手后的必读顺序
 
@@ -44,11 +44,13 @@
    - `docs/decisions/ADR-2026-08-13-pure-rl-c3a-actor-distillation-experiment.md`
    - `docs/decisions/ADR-2026-08-13-pure-rl-c3a-retention-aware-sampling.md`
    - `docs/decisions/ADR-2026-08-14-pure-rl-c3a-bounded-warm-start.md`
+   - `docs/decisions/ADR-2026-08-29-pure-rl-split-frequency-actor.md`
 6. 已完成实验 audit：
    - `docs/audits/2026-08-13-pure-rl-c3a-c2c-rehearsal.md`
    - `docs/audits/2026-08-13-pure-rl-c3a-actor-distillation.md`
    - `docs/audits/2026-08-14-pure-rl-c3a-retention-aware-sampling.md`
    - `docs/audits/2026-08-18-pure-rl-c3a-bounded-warm-start.md`
+   - `docs/audits/2026-08-29-pure-rl-c3a-split-actor-promotion.md`
 7. 最后运行 `git status --short --branch` 和 `git log -8 --oneline --decorate`，确认没有比本文档更新的代码或实验记录。
 
 历史 handoff 可用于理解形成过程，但不能覆盖当前结论：
@@ -140,8 +142,8 @@ source/flapping_bot/flapping_bot/direct/flapping_bot/straight_flight_env.py
 | --- | --- | --- |
 | C1 | 水平直飞和基本维稳 | 已有晋级 authority |
 | C2a/C2b/C2c | 水平、爬升、下降及恢复；C2c 是 4--12 度强纵向包线 | C2c 已晋级 |
-| C3a | 独立水平转弯 | 已实现、能学会，但未通过 C1/C2c retention |
-| C3b | 顺序动作事件 | 已实现合同，未授权训练 |
+| C3a | 独立水平转弯 | split actor `model_200.pt` 已由相邻 175/200 全套通过证据正式晋级 |
+| C3b | 顺序动作事件 | 已实现合同；下一步为晋级 C3a 的 zero-shot 评估，尚未训练 |
 | C3c | 转弯与爬升/下降耦合 | 已实现合同，未授权训练 |
 
 C3a 不是从 C2c optimizer 继续训练，而是从正式晋级 C2c checkpoint 进行 **weights-only** 初始化，使用全新的 optimizer 和 iteration 计数。
@@ -153,7 +155,7 @@ logs/rsl_rl/flapping_bot_straight_flight/
 2026-08-12_17-12-48_pure_rl_c2c_seed0_resume500_to550/model_550.pt
 ```
 
-相邻 `model_525.pt` / `model_550.pt` 是已晋级证据。当前不要改用某个 C3a checkpoint 作为新的 source，因为尚无 C3a checkpoint 通过完整晋级合同。
+相邻 `model_525.pt` / `model_550.pt` 是 C2c 已晋级证据，也是历史 C3a 实验的纵向 authority source。C3a 现已由 split actor 的相邻 `model_175.pt` / `model_200.pt` 全套通过证据晋级；后续 C3b 必须使用该 run 的 `model_200.pt` 作为 weights-only source，并按 split actor 类重建 policy，不能当作标准 shared actor 加载。
 
 ### 5.2 C3a 当前训练分布
 
@@ -581,7 +583,8 @@ git status --short --branch
 4. **训练时用 `--train-only`。** 不要让 concurrent evaluator 与训练争用 CPU/Isaac Sim；authority evaluation 事后串行运行。
 5. **wrapper 的退出状态要核实。** 某些 `isaaclab.sh -p` 路径可能没有可靠传播 child exit status；检查 traceback、结果 JSON 和 gate 字段，不要只看 shell 最后一行。
 6. **`model_99` 不是 `model_100`。** 需要 25-iteration 相邻证据时运行 101 iterations。
-7. **weights-only 不是 resume。** C3a 必须从 C2c source actor 复制权重并创建 fresh optimizer；不要同时使用 `--resume`。
+7. **weights-only 不是 resume。** Sequential C3a 从 C2c source actor 复制权重；显式
+   `c3a_joint_from_c1_v1` 路线从已选 C1 source actor 复制权重。两者都必须创建 fresh optimizer，且不得同时使用 `--resume`。
 8. **不要 replay stale PPO transitions。** PPO 仍需 current-policy on-policy rollout；anchor memory 只用于 teacher behavior/KL，不用于旧 PPO surrogate。
 9. **在线 success 不是 frozen success。** 当前 scheduler 可能漏掉 post-recovery tilt；不能根据在线曲线宣布 retention。
 10. **不要从 frozen grid 采 anchor。** 这会泄漏 promotion test 状态。
@@ -611,6 +614,19 @@ git status --short --branch
 - reward、plant、质量属性、控制器增益、action/observation contract 或 frozen evaluation grid 的改变；
 - 新的网络结构或 residual policy 架构。
 
+2026-08-27 用户已明确批准为 `c3a_joint_from_c1_v1` 修改
+`scripts/flapping_rl/train_and_watch.py`、对应测试和文档，并在测试通过后启动训练；该批准不扩展到
+environment、upstream、reward、plant、frozen grid 或其他算法修改。
+
+随后用户基于同轨迹频率动作诊断明确要求执行 requested-frequency smoothness 方案，因此批准范围扩展到
+`pure_rl_reward.py`、正式 `straight_flight_env.py`、对应 launcher/tests 和一份新 ADR。该批准只覆盖
+默认关闭的 governor 前频率请求差分惩罚及其单变量 joint route；不覆盖 plant、555维观测、governor、
+任务采样、网络、PPO schedule 或 frozen grid 的改变。
+
+平方差分实验完成后，用户进一步批准直接在 reward 中惩罚快速跳变，并要求修改、验证后启动训练。
+本次范围只增加同一 governor 前频率请求差分项的 L1 total-variation 模式、显式 launcher route、测试和
+决策文档；原 joint 与平方差分 route 保持可复现，仍不覆盖 plant、观测、governor、网络或 frozen grid。
+
 所有实现都应优先放入 `source/flapping_bot/` 的适当层，保持 batch 维度、device、dtype 和已有 baseline 选择路径。
 
 ## 15. 尚未解决的决定
@@ -618,6 +634,8 @@ git status --short --branch
 - task-aware + distillation 0.05 已完成 seed-0、101-iteration 实验并确认不足以跨过完整 retention gate；结果见第 19 节。
 - 方法 2 的大 actor 实验也已完成 seed-0、101-iteration 训练和冻结评估；它改善了 C1 retention，
   但没有恢复 C2c strong-climb，结果见第 21 节。
+- 用户已批准以 C1 稳定飞行 checkpoint 初始化、联合学习 C1/C2c/C3a 的路线作为当前主实验；
+  冻结定义见第 22 节和 `ADR-2026-08-27-pure-rl-c3a-joint-from-c1.md`。
 - fixed teacher anchors 的最小状态数量和 phase 配额；应先由离线 KL 区分能力决定，而不是先写大型 buffer 框架。
 - actor Gaussian std 是否对当前遗忘有实质贡献；现有实验没有保护 std。
 - GEM-style 约束的具体数值容差、投影实现和 per-task/per-phase 粒度；Phase B 前不应过早冻结设计。
@@ -625,10 +643,12 @@ git status --short --branch
 
 ## 16. Exact next task
 
-方法 2 已完成且没有产生可晋级 checkpoint。不得开始 C3b。下一项代码实验需要用户显式批准：按第 11 节
-Phase B 先生成独立训练分布上的 fixed teacher anchors，并离线检验 strong-climb/recovery teacher-relative KL
-能否区分 promoted source、已知中期 checkpoint 和已知退化 checkpoint。在该判别成立前，不实现 GEM-style
-约束或 residual actor。
+等待已启动的 201-iteration、seed-0
+`c3a_joint_from_c1_requested_frequency_total_variation_v1` 正常结束，不要并发运行 evaluator。
+训练完成后对
+`model_50/75/100/125/150/175/200.pt` 分别运行 fresh CPU-native C3a、C1 和 C2c frozen suites。
+然后重复固定 `+12 deg` 同轨迹响应比较，检查 requested-frequency sign flip、phase harmonic、实际频率和
+高度响应。没有三套均通过的合法相邻 pair 时不得晋级或开始 C3b。
 
 ## 17. Suggested skills
 
@@ -638,7 +658,9 @@ Phase B 先生成独立训练分布上的 fixed teacher anchors，并离线检�
 
 ## 18. 给接手 agent 的一句话
 
-不要把问题重新简化成“多给一些 C2 样本”。当前证据是：C2c 已经 exact rehearsal，C3a 能稳定学会，首步 optimizer shock 已修复，但 `+12 deg` strong-climb/recovery 功能仍被 shared actor 的长期优化改写。task-aware PPO 与 actor distillation `0.05` 的组合已确认不足；用户选择先做单变量 actor-capacity 实验，再决定是否进入 fixed teacher anchor / hard retention constraint。
+不要把问题重新简化成“多给一些 C2 样本”。Sequential C2c-to-C3a 的多种 retention 方法和 wider actor
+均未恢复 `+12 deg` strong climb。当前主实验从同一 lineage 的稳定 C1 source 开始，让 C2c 和 C3a
+共同形成表示，以区分 sequential path-dependent overwrite 与 joint optimization interference。
 
 ## 19. 2026-08-26 Phase A 实际结果
 
@@ -709,3 +731,566 @@ eval_authority_75_100/checkpoint_evaluation.json
 tail-limit 从 `11.44%` 改善到 `3.03%`，但 C2c survival 从 `91.07%` 降到 `89.29%`、climb 从
 `79.17%` 降到 `75.00%`，`+12 deg` 从 `6/16` 降到 `4/16`。因此本次单 seed 实验支持的结论是：
 增加 actor capacity 改善了 C1 retention，但没有解决 C2c strong-climb 遗忘；方法 2 不可晋级。
+
+## 22. 2026-08-27 主实验：C1 初始化的 C1+C2c+C3a joint training
+
+### 22.1 冻结问题和单变量
+
+该实验不是随机初始化，也不是 C2c-to-C3a sequential fine-tuning。它从已选稳定 C1 checkpoint 出发，
+在现有 C3a mixed environment 中同时学习 authoritative C2c 和 C3a：
+
+```text
+C1 stable-flight model_1300.pt
+        -> C1 15% + C2c 35% + C3a 50% joint optimization
+```
+
+与之前 task-aware sequential 实验相比，唯一核心变量是 source initialization 从 promoted C2c
+`model_550.pt` 改为已选 C1 `model_1300.pt`。正式 source 为：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-07_05-05-44_curriculum1_overnight_seed2/model_1300.pt
+```
+
+现有 seed-0 C2a-to-C2c lineage 也从该 checkpoint 开始，因此 joint/sequential 比较共享同一 C1 起点。
+
+### 22.2 冻结训练合同
+
+```text
+route                         c3a_joint_from_c1_v1
+task                          measured CPU-native C3a
+initialization                C1 model_1300.pt weights-only
+optimizer / iteration         fresh / start at 0
+seed                          0
+environments                  256
+steps per environment         48
+mini-batches                  16
+launcher iterations           201, to materialize model_200.pt
+save interval                 25
+C1/C2c/C3a                    0.15 / 0.35 / 0.50
+C2c level/climb/descent       0 / 2/3 / 1/3
+strong climb within climb     0.5
+task-aware PPO                enabled
+bounded warm start            enabled
+gradient probe                enabled
+actor / critic                [256,128] / [256,128]
+distillation                  disabled
+adaptive sampling             disabled
+recycle on recovery           disabled
+wider actor                   disabled
+PCGrad/GEM/EWC/residual        disabled
+watcher                       disabled during training
+```
+
+运行命令：
+
+```bash
+cd /home/zn/IsaacLab/.worktrees/native-multibody-rl
+source /home/zn/anaconda3/etc/profile.d/conda.sh
+conda activate env_isaaclab
+
+SOURCE_RUN="2026-08-07_05-05-44_curriculum1_overnight_seed2"
+SOURCE_CHECKPOINT="$PWD/logs/rsl_rl/flapping_bot_straight_flight/${SOURCE_RUN}/model_1300.pt"
+
+TERM=xterm ./isaaclab.sh -p scripts/flapping_rl/train_and_watch.py \
+  --task Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0 \
+  --run-name pure_rl_c3a_joint_from_c1_seed0_201iter \
+  --c3a-joint-from-c1 \
+  --load_run "$SOURCE_RUN" \
+  --checkpoint model_1300.pt \
+  --source-stage c1_straight \
+  --source-checkpoint-path "$SOURCE_CHECKPOINT" \
+  --headless
+```
+
+### 22.3 冻结评估合同
+
+训练结束后按 fresh process 评估：
+
+```text
+model_50.pt
+model_75.pt
+model_100.pt
+model_125.pt
+model_150.pt
+model_175.pt
+model_200.pt
+```
+
+每个 checkpoint 必须完成 96-case C3a v2、16-case C1 和 112-case C2c v2。需要两个间隔 25 iterations
+的相邻 checkpoint 三套同时通过，并由现有 promotion helper 接受。单 seed 通过只支持该初始化和优化轨迹
+存在兼容 actor，不构成跨 seed、sim-to-real 或一般 continual-learning 结论。
+
+## 23. 2026-08-27 启动记录
+
+测试和静态检查完成后，正式训练已于 2026-08-27 08:00 Asia/Shanghai 后台启动：
+
+```text
+launcher PID: 1105494
+PID file:     /home/zn/IsaacLab/.worktrees/native-multibody-rl/c3a_joint_from_c1_training.pid
+stdout log:   /home/zn/IsaacLab/.worktrees/native-multibody-rl/c3a_joint_from_c1_training.log
+run directory:
+/home/zn/IsaacLab/.worktrees/native-multibody-rl/logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-27_08-00-35_pure_rl_c3a_joint_from_c1_seed0_201iter
+```
+
+启动后已确认：
+
+- launcher、parent Python 和 RSL-RL child 都在独立 session 中存活；
+- 实际 child command 为 CPU、256 env、201 iterations、16 mini-batches、save interval 25；
+- actor/critic 均显式为 `[256,128]`；strong-climb 为 `0.5`；
+- `curriculum_source.json` 记录 `source_stage=c1_straight`、精确 seed-2 C1 `model_1300.pt` 和
+  `curriculum_route=c3a_joint_from_c1_v1`；
+- 保存的 env 配置记录 distillation `0.0`、adaptive sampling false、task-aware PPO、gradient probe 和
+  bounded warm start enabled；
+- iterations 0--2 正确跳过 optimizer update；iteration 3 首个真实 update 的 actor displacement 为
+  `0.01793 < 0.10`，并已包含 1336 个 active strong-climb transition 和 5893 个 active C3a transition；
+- iteration 4/5 继续运行，未见 traceback；此证据只说明启动正常，不是训练完成或 promotion 结果。
+
+本轮代码验证命令：
+
+```bash
+TERM=xterm ./isaaclab.sh -p -m pytest -q \
+  tests/test_train_and_watch.py \
+  tests/test_watch_and_eval.py \
+  tests/test_evaluate_pure_rl_c3a_checkpoint.py \
+  tests/test_actor_policy_distillation.py \
+  tests/test_actor_gradient_conflict_probe.py \
+  tests/test_pure_rl_spatial_env_contract.py
+```
+
+结果：`122 passed`。`git diff --check` 通过。训练尚未完成，冻结评估尚未运行。
+
+## 24. 2026-08-27 joint频率请求振荡与单变量修复
+
+`c3a_joint_from_c1_v1` 已完成训练及七个checkpoint的fresh-process三套评估。iteration 75--200均通过
+C3a和C1，但所有checkpoint都未通过C2c。iteration 175的C2c survival/climb/descent/recovery均为
+`100%`，失败来自路径精度：mean absolute height error `0.6609 m > 0.50 m`，p95 absolute height error
+`1.9065 m > 1.50 m`。
+
+固定heading 0、reset phase 0、`+12 deg` C2c轨迹对比：joint `model_175.pt`在active slope内产生27次
+requested-frequency正负翻转，对应约`3.49 Hz`，与平均实际翼拍`3.43 Hz`一致；重建相位的一阶谐波
+解释约76%的请求变化。promoted C2c `model_550.pt`在相同轨迹保持正请求。joint的90%垂直速度响应
+延迟为`0.567 s`，baseline为`0.25 s`。证据位于：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-27_08-00-35_pure_rl_c3a_joint_from_c1_seed0_201iter/
+response_compare_model550_vs_model175_slope12_h0_p0/
+```
+
+已接受默认关闭的修复：在clipped policy frequency request进入2 Hz/s governor之前，新增
+
+```text
+(0.5 * (request[t] - request[t-1])) ** 2
+```
+
+惩罚。默认weight `0.0`保持旧任务；新route
+`c3a_joint_from_c1_requested_frequency_smoothness_v1`固定weight `0.05`，其余与原joint recipe完全相同。
+实现、替代方案和验证合同见
+`docs/decisions/ADR-2026-08-27-pure-rl-requested-frequency-smoothness.md`。
+
+实现后的纯Tensor reward、launcher和C3合同测试共`178 passed`，`py_compile`与`git diff --check`通过。
+完整6环境C3 Isaac runtime gate持续计算10分钟但未结束，已终止且不计为通过；正式训练fresh-process启动
+已补足集成证据：
+
+```text
+resolved run:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-27_13-53-31_pure_rl_c3a_joint_reqfreqsmooth005_seed0_201iter/
+
+launcher PID file: c3a_joint_reqfreqsmooth005_training.pid
+launcher PID:      1449399
+stdout/stderr:     c3a_joint_reqfreqsmooth005_training.log
+```
+
+`curriculum_source.json`确认`source_stage=c1_straight`、来源为promoted C1 `model_1300.pt`，route为
+`c3a_joint_from_c1_requested_frequency_smoothness_v1`。保存后的`params/env.yaml`确认新惩罚weight为`0.05`、
+strong-climb probability为`0.5`、task-aware PPO开启、distillation为`0.0`且adaptive sampling关闭；
+`params/agent.yaml`确认CPU、16 minibatches和actor/critic `[256, 128]`。训练已产生`model_0.pt`并完成至少
+98,304 timesteps；warm-start actor update norm在已检查更新中为`0.0117--0.0256 < 0.10`，日志中已出现
+requested-frequency penalty/contribution遥测且未见traceback。此证据只证明训练按指定合同正常启动，不代表
+训练完成或通过冻结评估。
+
+## 25. 2026-08-27 平方差分结果与 L1 total-variation 实验
+
+`c3a_joint_from_c1_requested_frequency_smoothness_v1` 的七个 checkpoint 已完成三套 frozen evaluation。
+C1 全部通过；C3a 在 iteration 50/75/150/200 通过；C2c 全部未通过。最接近 gate 的 `model_200.pt`
+通过 survival、climb、descent、recovery 和 cross-track，但 mean/p95 absolute height error 分别为
+`0.54884 m > 0.50 m` 和 `1.57906 m > 1.50 m`。
+
+固定 heading 0、reset phase 0、`+12 deg` 对比中，相对未正则 joint `model_200.pt`，平方差分
+`model_200.pt` 将 clipped request RMS delta 从 `0.3632` 降至 `0.3247`，raw saturation 从 `65.29%`
+降至 `58.59%`，垂直响应延迟从 `0.8667 s` 降至 `0.7667 s`，全轨迹高度 MAE 从 `1.558 m` 降至
+`1.156 m`；但 sign flips 仅从29降至28。promoted C2c在同轨迹为0次flip。因此平方项改善幅值和精度，
+却没有消除高频反转。
+
+下一单变量实验改用同一 normalized delta 的 L1 total variation：
+
+```text
+abs(0.5 * (request[t] - request[t-1]))
+```
+
+显式 route `c3a_joint_from_c1_requested_frequency_total_variation_v1` 固定 weight `0.10`，其余完全复用
+C1初始化 joint recipe。平方项和默认 baseline 均不改变。实现与验证合同见
+`docs/decisions/ADR-2026-08-27-pure-rl-requested-frequency-total-variation.md`。
+
+实现后的 reward/launcher 单元测试、C1/C2/C3 contracts 共 `183 passed`，`py_compile` 和
+`git diff --check` 通过。资源检查时系统有32个可用逻辑核、约80 GB可用内存、约1.0 TB可用磁盘，
+CPU pressure为0且没有残留的本项目训练或评估进程。训练已按 train-only fresh-process 启动：
+
+```text
+resolved run:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-27_21-21-54_pure_rl_c3a_joint_reqfreqtv010_seed0_201iter/
+
+launcher PID file: c3a_joint_reqfreqtv010_training.pid
+launcher PID:      1929498
+training PID:      1929539
+stdout/stderr:     c3a_joint_reqfreqtv010_training.log
+```
+
+`curriculum_source.json`确认route为
+`c3a_joint_from_c1_requested_frequency_total_variation_v1`，source为promoted C1 `model_1300.pt`且
+`source_stage=c1_straight`。保存后的配置确认CPU、256 environments、16 minibatches、actor/critic
+`[256,128]`、strong-climb probability `0.5`、task-aware PPO开启、distillation `0.0`、adaptive sampling
+关闭，以及 requested-frequency delta mode `absolute`、weight `0.10`。`model_0.pt`已生成；前三个
+rollout-only iteration没有optimizer step，第一个PPO update的actor displacement norm为`0.0178 < 0.10`，
+日志已出现L1 penalty/contribution遥测且未见traceback。此证据只证明按冻结合同正常启动，不代表训练完成
+或任何checkpoint通过frozen suites。
+
+## 26. 2026-08-28 governor-gap 单变量实验
+
+L1 total-variation run 的固定 `+12 deg` 诊断仍显示 model 150/175/200 各有 24--27 次
+requested-frequency sign reversal。保存配置确认 `act_lpf_tau_s=0.0`、`act_rate_limit_per_s=0.0`，当前只有
+对称 `2 Hz/s` 的 physical frequency governor 生效。因此本实验不移除 governor，而直接惩罚 governor
+无法执行的请求分量：
+
+```text
+abs(clipped_requested_frequency_action - governor_applied_frequency_action)
+```
+
+新 reward 默认 weight `0.0`；显式 route
+`c3a_joint_from_c1_requested_applied_frequency_gap_v1` 固定 weight `0.05`，并关闭原 request-delta 项。
+其余完全复用 C1 初始化 joint recipe，尤其保持 cubic flap-frequency penalty `0.04`、governor、任务分布、
+网络、PPO schedule 和 frozen gates 不变。该隔离设计先回答 governor-interface mismatch 能否消除 flip；
+若 flip 消失但实际频率仍低且 C2c 失败，再另做 flap-frequency penalty ablation。
+
+实现与验证合同见
+`docs/decisions/ADR-2026-08-28-pure-rl-frequency-governor-gap.md`。训练启动记录应在 targeted tests、
+contract tests、`py_compile`、`git diff --check` 和资源/残留进程检查通过后补充。
+
+### 26.1 实现、验证与启动记录
+
+实现新增默认关闭的 `requested_applied_frequency_action_gap_penalty_weight`、环境 telemetry、显式 launcher
+flag 和独立 provenance route；旧 joint、平方差分和 L1-TV 路线保持可复现。验证结果：
+
+```text
+reward + launcher focused tests: 104 passed
+reward/launcher/watch/eval/distillation/gradient/spatial selected tests: 166 passed
+py_compile: passed
+git diff --check: passed
+```
+
+一个额外扩展合同集合在 pytest collection 时因为未启动 Isaac App 而缺少 `carb`，未计为通过；正式
+fresh-process 启动已覆盖环境接线。资源检查记录 32 个逻辑核、约 110 GB 可用内存和约 1.04 TB 可用磁盘，
+启动前没有本项目并发训练或评估进程。
+
+训练于 2026-08-28 15:56 Asia/Shanghai 在持久 tmux session `c3a_gap_20260828` 中启动：
+
+```text
+launcher PID file: c3a_joint_reqappliedgap005_training.pid
+launcher PID:      2606817
+training PID:      2606849
+stdout/stderr:     c3a_joint_reqappliedgap005_training.log
+run directory:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-28_15-56-43_pure_rl_c3a_joint_reqappliedgap005_seed0_201iter/
+```
+
+`curriculum_source.json` 确认 route 为
+`c3a_joint_from_c1_requested_applied_frequency_gap_v1`，source 为选定 C1 `model_1300.pt` 且
+`source_stage=c1_straight`。保存配置确认 CPU、256 env、201 iterations、16 mini-batches、save interval
+25、actor/critic `[256,128]`、strong-climb probability `0.5`、distillation `0.0`、adaptive sampling false、
+gap weight `0.05`、request-delta weight `0.0`、flap penalty `0.04`，以及 governor 保持对称 `2 Hz/s`。
+`model_0.pt` 和首轮 gap penalty/contribution telemetry 已生成，未见 traceback。
+
+Isaac 启动时因系统 inotify watch 配额出现大量 `errno=28` change-watch 告警；磁盘空间充足，且这些告警
+没有阻止环境构建、配置保存、`model_0.pt` 或训练迭代。训练已交由 tmux 后台继续，本记录只证明正确
+启动，不代表完成或 frozen-suite 结果。
+
+## 27. 2026-08-29 governor-gap 结果与 iteration 225 续训
+
+governor-gap run 的七个 checkpoint 已完成三套 frozen evaluation。`model_200.pt` 是唯一三套同时通过的
+checkpoint：C3a survival/event/success 均为 `100%`，C1 tail-limit fraction 为 `0.86%`，C2c survival
+为 `98.21%`、climb `100%`、descent `95.83%`、recovery `100%`，mean/p95 absolute height error 为
+`0.49187/1.41311 m`。结果位于：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-28_15-56-43_pure_rl_c3a_joint_reqappliedgap005_seed0_201iter/
+eval_authority_50_200_reqappliedgap005/checkpoint_evaluation.json
+```
+
+由于只有一个 all-suite pass，没有合法相邻 pair，不能据此晋级。随后从该 checkpoint 以原 optimizer
+续训到 `model_225.pt`。225 的 C1 和 C2c 均通过，C2c 进一步达到 112/112 survival 和所有 signed-slope
+slice 100% success；但 C3a 出现一个 roll-limit termination，survival `95/96 = 98.958%`，因此 C3a
+gate 失败。结果位于：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_09-15-55_pure_rl_c3a_joint_reqappliedgap005_seed0_resume200_to225/
+eval_authority_225_reqappliedgap005/checkpoint_evaluation.json
+```
+
+该结果说明 iteration 200 后继续训练并非单调改善：纵向精度提高的同时，转弯 robustness 在一个 frozen
+case 上回退。新的结构实验因此从最后一个三套同时通过的原始 `model_200.pt` 做 weights-only 初始化，
+而不从 225 开始。
+
+## 28. 2026-08-29 独立 frequency/tail actor 实验
+
+用户批准从根源隔离 frequency 的 phase 信息路径。实现不是只拆最后一层，而是：
+
+```text
+full phase-aware 555 observation -> independent [256,128] tail trunk -> actions 1:4
+cycle-averaged phase-fixed 555 observation -> independent [256,128] frequency trunk -> action 0
+```
+
+frequency slow observation 用最新实际频率选择 `clamp(round(60/f), 12, 30)` 个 history step，对 sensor 和
+governor-applied action 求均值，四元数重新归一化，把 phase 固定为 `(sin,cos)=(0,1)`，然后重复均值以
+保持 555 维；15 维 path preview 不变。本轮仍以 60 Hz 计算 frequency request，保留 2 Hz/s governor，
+不加入 cycle-level sample-and-hold。完整决策见
+`docs/decisions/ADR-2026-08-29-pure-rl-split-frequency-actor.md`。
+
+严格 warm start 将标准 actor 两层 hidden weights 同时复制给两个 trunk，output row 0 给 frequency，
+rows 1:4 给 tail；critic 和 `log_std` 原样复制，optimizer 为 fresh。显式 route：
+
+```text
+c3a_split_frequency_actor_v1
+source stage/checkpoint  c3a_joint / governor-gap model_200.pt
+iterations              201
+seed/env/minibatches     0 / 256 / 16
+task mix                 15/35/50
+strong climb             0.5
+gap reward               0.05
+actor trunks/critic      [256,128] + [256,128] / [256,128]
+distillation/adaptive    off / off
+governor                 symmetric 2 Hz/s
+```
+
+Pure Tensor、warm-start、launcher、watch/evaluator、gradient、distillation、observation 和 C3 contract
+定向测试共 `153 passed`；`py_compile` 和 `git diff --check` 通过。16-env、4-iteration fresh CPU-native smoke 正常
+注册 `PureRLSplitActorCritic`，从共享 `model_200.pt` 完成严格映射，前三轮只 rollout，iteration 3 首个
+PPO update 的 actor displacement 为 `0.0121 < 0.10`，有 active strong-climb/C3a samples，无 traceback。
+smoke 只证明运行接线，不是性能或消除 flip 的证据。正式训练启动记录见下一小节。
+
+### 28.1 正式训练启动记录
+
+训练于 2026-08-29 10:07 Asia/Shanghai 以脱离终端的 session 启动：
+
+```text
+launcher PID file: c3a_split_frequency_actor_training.pid
+launcher PID:      3222196
+stdout/stderr:     c3a_split_frequency_actor_training.log
+run directory:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_10-07-47_pure_rl_c3a_split_frequency_actor_seed0_201iter/
+```
+
+启动核验确认 launcher 的 PPID 为 1、session ID 为自身 PID，因此关闭当前终端不会终止训练。
+`curriculum_source.json` 确认 route 为 `c3a_split_frequency_actor_v1`、policy class 为
+`PureRLSplitActorCritic`，source stage 为 `c3a_joint`，并严格指向上述三套 frozen suite 同时通过的原始
+governor-gap `model_200.pt`。运行时配置确认 CPU、256 env、201 iterations、16 mini-batches、save
+interval 25、strong-climb probability `0.5`、gap reward `0.05`，以及 actor 两个独立 `[256,128]`
+trunk 和 `[256,128]` critic。
+
+日志确认共享 actor 到独立 frequency/tail trunk 的严格 warm-start 已执行，warm-start guard 前三轮只
+rollout，iteration 3 首个 PPO update 正常完成，actor update norm 为 `0.0211 < 0.10`；`model_0.pt`
+和配置/provenance 文件均已保存，未见 traceback。训练现已交由后台继续；本记录只证明配置正确且首个
+可训练更新成功，不代表训练完成、frequency flip 已消除或任何 checkpoint 通过 frozen suites。
+
+## 29. 2026-08-29 split actor C3a 正式晋级
+
+正式 run：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_10-07-47_pure_rl_c3a_split_frequency_actor_seed0_201iter/
+```
+
+iteration 50--200 的七个 checkpoint 已在独立 fresh CPU-native 进程中完成 C3a、C1 和 C2c frozen
+evaluation。`model_175.pt` 与 `model_200.pt` 构成合法相邻全套通过 pair；标准 promotion helper 返回
+`promoted=true`、`checkpoint=model_200.pt`、`forgetting=false`。因此：
+
+```text
+C3a promoted checkpoint:
+2026-08-29_10-07-47_pure_rl_c3a_split_frequency_actor_seed0_201iter/model_200.pt
+policy class: PureRLSplitActorCritic
+load mode: weights-only
+```
+
+关键冻结结果：
+
+| Checkpoint | C3a survival / success | C1 success / tail-limit | C2c survival / climb / recovery | `+12 deg` | Gate |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `model_175.pt` | 1.000 / 1.000 | 1.000 / 0.08658 | 0.96429 / 0.91667 / 0.96429 | 12/16 | PASS |
+| `model_200.pt` | 1.000 / 1.000 | 1.000 / 0.06267 | 1.000 / 1.000 / 1.000 | 16/16 | PASS |
+
+完整证据和标准晋级结果分别位于：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_10-07-47_pure_rl_c3a_split_frequency_actor_seed0_201iter/
+eval_authority_50_200_split_actor/checkpoint_evaluation.json
+
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_10-07-47_pure_rl_c3a_split_frequency_actor_seed0_201iter/
+eval_authority_50_200_split_actor/promotion_result_175_200.json
+```
+
+固定 `+12 deg` deterministic actor-mean 轨迹上，`model_200.pt` 在 active climb 中没有大幅 frequency
+request 符号翻转，mean absolute step delta 为 `0.01346`；这一结论只覆盖已检查的固定轨迹，不等同于
+多 seed 或实飞鲁棒性证明。正式解释和完整限制见
+`docs/audits/2026-08-29-pure-rl-c3a-split-actor-promotion.md`。
+
+后续课程继续采用累积、fail-closed 晋级：C3b 即使自身 PASS，只要 C1、C2c 或 C3a 任一 frozen suite
+FAIL 或缺失证据，就不能晋级；C3c 同理必须同时保留 C1、C2c、C3a 和 C3b。下一步只做该
+`model_200.pt` 的 zero-shot C3b grid evaluation，再根据失败模式选择 C3b 训练 recipe；尚未启动 C3b
+训练。
+
+## 30. 2026-08-29 C3b v3 合同与首轮 joint training
+
+C3b v2 的 loiter template 在 20 s episode 内结构性不可达：确定性 entry 后 final event 为 `277.5 m`，
+需要平均 `13.875 m/s`，高于 `7 m/s` command 和 `12 m/s` path design speed。其他模板 final event 约为
+`125--133 m`。因此不能把 v2 的 16/16 loiter failure 归因于 actor。
+
+已接受 `pure_rl_spatial_c3b_v3`：只把两段 loiter 总长度从 `260 m` 缩到 `110 m`，确定性 final event
+变为 `127.5 m`；20 s episode、176-case template/slope/turn/heading/phase grid 和所有 gate 均不变。每次
+spatial evaluation 现在还写入 compact per-case JSON，保留 case 输入、termination/event completion 和
+误差摘要，不复制完整 step trace。决策见
+`docs/decisions/ADR-2026-08-29-pure-rl-c3b-v3-joint-training.md`。
+
+promoted C3a split `model_200.pt` 的 corrected zero-shot v3 结果：
+
+```text
+overall survival / event completion / success: 0.81818 / 0.79545 / 0.79545
+mean horizontal / vertical error:             0.29894 / 0.25152 m
+p95 horizontal / vertical error:              0.73217 / 1.01995 m
+template success 3/4/5/6/7/8/9:              12/16, 16/16, 16/32, 32/32,
+                                                 16/32, 32/32, 16/16
+promotion gate:                                FAIL
+```
+
+结果位于：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_10-07-47_pure_rl_c3a_split_frequency_actor_seed0_201iter/
+eval_zero_shot_c3b_v3_split_actor_model200/model_200.json
+```
+
+v3 loiter 16/16 通过，证明旧失败来自 horizon；当前主要缺口是含 climb 的顺序组合，template 5 和 7
+各 16/32，且所有 32 个 termination 都集中在这两类。第一轮训练冻结为显式 route
+`c3b_split_frequency_actor_v1`：promoted C3a weights-only、fresh optimizer、split actor、bounded warm
+start、task-aware PPO `15/20/15/50`、C2c strong climb `0.5`、gap reward `0.05`、seed 0、256 env、16
+mini-batches、251 iterations、save interval 25；distillation/adaptive/PCGrad/GEM 和新 reward 全部关闭。
+
+定向 Pure Tensor/contract/launcher/evaluator tests 首轮 `204 passed`；随后 runtime 启动发现 C3b seed-0
+的 256-row random batch 在一次 replacement 后仍可能包含低于 `0.05 m` 的 descent path，环境按合同
+fail closed，未生成 run。sampler 已改为只对 invalid rows 做至多 16 次确定性 rejection resampling；新增
+seed-0、256-row 回归后相关集合 `155 passed`，`py_compile` 和 `git diff --check` 通过。失败启动日志保留为
+`c3b_split_frequency_actor_failed_start.log`，不能当作训练证据。
+
+正式训练于 2026-08-29 14:30 Asia/Shanghai 脱离终端启动：
+
+```text
+launcher PID file: c3b_split_frequency_actor_training.pid
+launcher PID:      3928520
+training PID:      3928573
+stdout/stderr:     c3b_split_frequency_actor_training.log
+run directory:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_14-30-44_pure_rl_c3b_split_frequency_actor_seed0_251iter/
+```
+
+launcher 的 PPID 为 1 且 session ID 为自身 PID，关闭终端不会终止训练。`curriculum_source.json` 确认
+route、split policy class、`source_stage=c3a` 和 promoted `model_200.pt` 精确 lineage；保存配置确认
+CPU、256 env、251 iterations、16 mini-batches、save interval 25、task weights `0.15/0.20/0.15/0.50`、
+strong climb `0.5`、gap reward `0.05`、distillation/gradient probe off、bounded warm start on。`model_0.pt`
+已生成，iteration 4 首个 trainable warm-start update 的 actor norm 为 `0.0192 < 0.10`，无 traceback。
+训练已交由后台继续，本记录不声称完成或任何 frozen suite PASS。
+
+### 30.1 C3b v1 phase coverage 中止与 v2 修正
+
+上述 v1 run 未完成。在约 iteration 59、`724,992` timesteps 时，当前 rollout 的 active
+`c2c_strong_phase` 只有 4 samples，低于诊断门槛 16，`TaskAwarePpoAdapter` fail closed。最后保存的
+checkpoint 是 `model_50.pt`。这不是 NaN、PhysX failure 或 task group 缺失；C2c task normalization
+本身把普通与 strong rows 合并，phase count 不参与 PPO loss。
+
+最小修正只在 C3b config 把 `pure_rl_task_aware_ppo_minimum_phase_samples` 设为 0：phase count 继续写入
+`task_aware_ppo.csv`，但不再因单个 rollout 的偶发低计数终止；四个 task group 的 minimum samples
+仍为 32，C3a 原 phase minimum 仍为 16。route 因训练语义变化升级为
+`c3b_split_frequency_actor_v2`，并从 promoted C3a 重新开始，不续用 v1 的 partial optimizer。
+
+定向 adapter/env/launcher/path tests 为 `156 passed`，route 更新后的直接集合为 `101 passed`，
+`py_compile` 和 `git diff --check` 通过。v2 于 2026-08-29 15:01 Asia/Shanghai 脱离终端启动：
+
+```text
+launcher PID file: c3b_split_frequency_actor_v2_training.pid
+launcher PID:      4026770
+stdout/stderr:     c3b_split_frequency_actor_v2_training.log
+run directory:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_15-01-17_pure_rl_c3b_split_frequency_actor_v2_seed0_251iter/
+```
+
+`curriculum_source.json` 确认 route 为 v2、source 为 promoted C3a split `model_200.pt`；保存 env config
+确认 phase minimum 0、task minimum 32、四任务权重 `0.15/0.20/0.15/0.50`。首个 trainable update 的
+actor norm 为 `0.0192 < 0.10`。只有越过旧 v1 的 iteration-59 failure point 才能证明 runtime 修正已
+覆盖原故障。v2 在 iteration 59 再次观测到完全相同的 `c2c_strong_phase=4`，正常完成该次更新并进入
+iteration 60；下一 rollout 计数回升到 46，且没有 traceback。因此 runtime 修正已覆盖原故障。训练
+仍在后台继续，此记录不代表训练完成或 frozen suite PASS。
+
+## 31. 2026-08-30 C3b fixed-mixture 结果与 adaptive-ability 实验
+
+C3b v2 已完成，并在独立 fresh CPU-native 进程中评估 iterations 50--250 的九个 checkpoint。没有
+checkpoint 同时通过 C3b v3、C3a、C2c 和 C1。`model_100.pt` 是最佳受控起点：C1、C2c、C3a 全部
+通过，C3b overall success 为 `0.94318`；十个失败全部为 roll-limit termination，集中在含 `+12 deg`
+climb 的 templates 5/7 和特定航向。iteration 175 以后 C2c retention 也开始失败。
+
+完整结果：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-29_15-01-17_pure_rl_c3b_split_frequency_actor_v2_seed0_251iter/
+eval_authority_50_250_c3b_v3/checkpoint_evaluation.json
+```
+
+下一实验不直接进入 C3c，也不改变固定 `15/20/15/50` task-aware PPO 目标。新增显式 route
+`c3b_adaptive_sampling_from_model100_v1`，从 C3b `model_100.pt` weights-only、fresh optimizer 开始，
+训练 101 iterations 并保存 50/75/100。reset sampler 保持 simple/C3b 总量 `50/50`，只做三类有界
+调整：simple 半区内 C1/C2c/C3a 重分配、C3b templates 5/7 占比、templates 5/7 内 `10--12 deg`
+strong-climb 占比。EMA、最低 episode 数、概率下限和单次变化上限全部保留。完整决策见
+`docs/decisions/ADR-2026-08-30-pure-rl-c3b-adaptive-ability-sampling.md`。
+
+该实验的训练 telemetry 只能证明 scheduler 工作；最终仍必须对 50/75/100 跑 C3b v3、C3a、C2c、
+C1 frozen suites，并要求相邻 all-suite passing pair。C3c 在此之前保持未授权训练。
+
+正式训练于 2026-08-30 10:15 Asia/Shanghai 脱离终端启动：
+
+```text
+launcher PID file: c3b_adaptive_sampling_training.pid
+launcher PID:      1097162
+training PID:      1097207
+stdout/stderr:     c3b_adaptive_sampling_training.log
+run directory:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-30_10-15-00_pure_rl_c3b_adaptive_sampling_from100_seed0_101iter/
+```
+
+launcher 的 PPID 为 1 且 session ID 为自身 PID，关闭终端不会终止训练。`curriculum_source.json` 确认
+route 为 `c3b_adaptive_sampling_from_model100_v1`、policy 为 `PureRLSplitActorCritic`、source stage 为
+`c3b`，并精确指向 v2 `model_100.pt`。`model_0.pt` 已生成，iteration 0 完成且无 traceback；初始 reset
+概率为 C1/C2c/C3a/C3b `0.15/0.20/0.15/0.50`，weak-template 概率为 `2/7`，weak strong-climb 概率为
+`0.25`，adaptive update count 为 0，符合基线等价起点。训练已交由后台继续，本记录不声称完成、
+scheduler 已产生收益或任何 frozen suite PASS。

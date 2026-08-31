@@ -40,6 +40,7 @@ from flapping_bot.direct.flapping_bot.pure_rl_spatial_path import (
 )
 from flapping_bot.direct.flapping_bot.straight_flight_env import (
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg,
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLC3bEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3cEnvCfg,
     FlappingBotStraightFlightEnv,
 )
@@ -349,6 +350,70 @@ def test_native_cpu_c3a_adaptive_sampling_runtime_update(tmp_path: Path) -> None
         assert env._pure_rl_adaptive_task_probabilities[1] > initial_probabilities[1]
         assert env._pure_rl_adaptive_strong_climb_probability == pytest.approx(0.6)
         assert extras["log"]["AdaptiveSampling/update_count"] == 1
+    finally:
+        omni.physx.get_physx_simulation_interface().detach_stage()
+        env.close()
+
+
+@pytest.mark.isaacsim_ci
+def test_native_cpu_c3b_adaptive_sampling_runtime_update(tmp_path: Path) -> None:
+    cfg = FlappingBotStraightFlightDeLaurierMeasuredPureRLC3bEnvCfg()
+    cfg.scene.num_envs = 16
+    cfg.scene.env_spacing = 5.0
+    cfg.sim.device = "cpu"
+    cfg.seed = 0
+    cfg.freeze_steps_after_reset = 0
+    cfg.episode_length_s = 100.0
+    cfg.terminate_ground_height = -1.0e6
+    cfg.terminate_tilt_deg = 89.9
+    cfg.terminate_abs_y = 1.0e6
+    cfg.pure_rl_terminate_abs_height_error_m = 1.0e6
+    cfg.pure_rl_c2c_strong_climb_probability = 0.5
+    cfg.pure_rl_adaptive_task_sampling_enabled = True
+    cfg.pure_rl_adaptive_sampling_interval_steps = 1
+    cfg.pure_rl_adaptive_sampling_minimum_episodes = 1
+    cfg.robot = cfg.robot.replace(
+        spawn=cfg.robot.spawn.replace(
+            asset_path=str(
+                _REPO_ROOT
+                / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf"
+            ),
+            usd_dir=str(tmp_path / "generated_assets/flap_robot_552_c3b_adaptive"),
+        )
+    )
+
+    env = FlappingBotStraightFlightEnv(cfg)
+    try:
+        env.reset()
+        assert env._pure_rl_adaptive_completed_counts is not None
+        assert env._pure_rl_adaptive_success_counts is not None
+        assert env._pure_rl_adaptive_completed_counts.shape == (6,)
+        env._pure_rl_adaptive_completed_counts.fill_(1.0)
+        env._pure_rl_adaptive_success_counts.copy_(
+            torch.tensor([1.0, 0.0, 1.0, 0.0, 1.0, 0.0], device=env.device)
+        )
+        initial_probabilities = env._pure_rl_adaptive_task_probabilities
+        initial_weak_probability = env._pure_rl_adaptive_c3b_weak_template_probability
+        initial_weak_strong_probability = (
+            env._pure_rl_adaptive_c3b_weak_strong_climb_probability
+        )
+
+        actions = torch.zeros((16, cfg.action_space), device=env.device)
+        observations, rewards, _terminated, _truncated, extras = env.step(actions)
+
+        _assert_finite("c3b_adaptive_observation", observations["policy"])
+        _assert_finite("c3b_adaptive_reward", rewards)
+        assert env._pure_rl_adaptive_update_count == 1
+        assert sum(env._pure_rl_adaptive_task_probabilities[:3]) == pytest.approx(0.5)
+        assert env._pure_rl_adaptive_task_probabilities[1] > initial_probabilities[1]
+        assert env._pure_rl_adaptive_task_probabilities[3] == pytest.approx(0.5)
+        assert env._pure_rl_adaptive_c3b_weak_template_probability > initial_weak_probability
+        assert (
+            env._pure_rl_adaptive_c3b_weak_strong_climb_probability
+            > initial_weak_strong_probability
+        )
+        assert env._pure_rl_adaptive_strong_climb_probability == pytest.approx(0.6)
+        assert extras["log"]["AdaptiveSampling/c3b_probability"] == pytest.approx(0.5)
     finally:
         omni.physx.get_physx_simulation_interface().detach_stage()
         env.close()

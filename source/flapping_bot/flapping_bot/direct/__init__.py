@@ -9,12 +9,17 @@ Direct workflow environments.
 
 import gymnasium as gym
 
+from flapping_bot.px4_like.pure_rl_split_actor import register_pure_rl_split_actor_critic
+
 from .flapping_bot import (
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3bEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3cEnvCfg,
     FlappingBotStraightFlightEnv,
 )
+
+
+register_pure_rl_split_actor_critic()
 
 
 _RSL_RL_CFG = (

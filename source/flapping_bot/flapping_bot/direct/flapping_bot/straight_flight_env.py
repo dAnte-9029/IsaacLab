@@ -128,6 +128,7 @@ from ...px4_like.rl_training_utils import (
     ACTOR_GRADIENT_PROBE_C3A_GROUP,
     ACTOR_GRADIENT_PROBE_GROUP_KEY,
     ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
+    TASK_AWARE_C3B_GROUP,
     apply_teacher_guided_actions,
     linear_anneal,
     piecewise_linear_anneal,
@@ -172,6 +173,9 @@ from .pure_rl_longitudinal_path import (
     write_longitudinal_path_batch_rows_,
 )
 from .pure_rl_spatial_path import (
+    C3B_CLIMB_THEN_TURN_TEMPLATE_ID,
+    C3B_TURN_THEN_CLIMB_TEMPLATE_ID,
+    CURRENT_SPATIAL_TASK_FAMILY_ID,
     CURRENT_SPATIAL_TASK_FAMILY_ID_C3A,
     REHEARSAL_C1_TASK_FAMILY_ID,
     REHEARSAL_C2C_TASK_FAMILY_ID,
@@ -260,7 +264,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_actor_gradient_probe_interval: int = 1
     pure_rl_actor_gradient_probe_minimum_samples: int = 32
     pure_rl_task_aware_ppo_enabled: bool = False
-    pure_rl_task_aware_ppo_task_weights: tuple[float, float, float] = (0.15, 0.35, 0.50)
+    pure_rl_task_aware_ppo_task_weights: tuple[float, ...] = (0.15, 0.35, 0.50)
     pure_rl_task_aware_ppo_minimum_task_samples: int = 32
     pure_rl_task_aware_ppo_minimum_phase_samples: int = 16
     pure_rl_warm_start_guard_enabled: bool = False
@@ -279,10 +283,13 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_adaptive_sampling_minimum_episodes: int = 16
     pure_rl_adaptive_sampling_max_probability_change: float = 0.05
     pure_rl_adaptive_sampling_minimum_probabilities: tuple[float, float, float] = (0.10, 0.25, 0.30)
-    pure_rl_adaptive_sampling_target_success_rates: tuple[float, float, float] = (0.98, 0.95, 0.95)
+    pure_rl_adaptive_sampling_target_success_rates: tuple[float, ...] = (0.98, 0.95, 0.95)
     pure_rl_adaptive_sampling_c1_tail_limit_target: float = 0.10
     pure_rl_adaptive_strong_climb_probability_bounds: tuple[float, float] = (0.50, 0.85)
     pure_rl_adaptive_strong_climb_max_probability_change: float = 0.10
+    pure_rl_adaptive_c3b_weak_template_probability_bounds: tuple[float, float] = (2.0 / 7.0, 0.85)
+    pure_rl_adaptive_c3b_weak_strong_climb_probability_bounds: tuple[float, float] = (0.25, 0.80)
+    pure_rl_adaptive_c3b_max_probability_change: float = 0.05
     pure_rl_preview_minimum_speed_mps: float = 1.0
     pure_rl_preview_maximum_speed_mps: float = 12.0
     use_pure_rl_curriculum1_reward: bool = False
@@ -1011,6 +1018,19 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLC3bEnvCfg(
 
     pure_rl_spatial_stage_id: str = "c3b"
     episode_length_s: float = 20.0
+    pure_rl_warm_start_guard_enabled: bool = True
+    pure_rl_task_aware_ppo_enabled: bool = True
+    pure_rl_task_aware_ppo_task_weights: tuple[float, ...] = (0.15, 0.20, 0.15, 0.50)
+    pure_rl_task_aware_ppo_minimum_phase_samples: int = 0
+    pure_rl_adaptive_sampling_minimum_probabilities: tuple[float, float, float] = (0.10, 0.15, 0.10)
+    pure_rl_adaptive_sampling_target_success_rates: tuple[float, ...] = (
+        0.98,
+        0.95,
+        0.95,
+        0.95,
+        0.95,
+        0.95,
+    )
 
 
 @configclass
@@ -1140,25 +1160,39 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError("PureRL actor gradient probe minimum samples must be a positive integer.")
         task_aware_ppo_enabled = bool(cfg.pure_rl_task_aware_ppo_enabled)
         if task_aware_ppo_enabled:
-            if spatial_stage is None or spatial_stage.stage_id != "c3a":
-                raise ValueError("PureRL task-aware PPO is currently defined only for C3a training.")
+            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b"):
+                raise ValueError("PureRL task-aware PPO is defined only for C3a/C3b training.")
             task_weights = tuple(float(value) for value in cfg.pure_rl_task_aware_ppo_task_weights)
-            if len(task_weights) != 3 or any(
+            expected_weight_count = 3 if spatial_stage.stage_id == "c3a" else 4
+            if len(task_weights) != expected_weight_count or any(
                 (not math.isfinite(value)) or value <= 0.0 for value in task_weights
             ):
-                raise ValueError("PureRL task-aware PPO requires three finite positive task weights.")
+                raise ValueError(
+                    f"PureRL {spatial_stage.stage_id} task-aware PPO requires "
+                    f"{expected_weight_count} finite positive task weights."
+                )
             if not math.isclose(sum(task_weights), 1.0, rel_tol=0.0, abs_tol=1.0e-6):
                 raise ValueError("PureRL task-aware PPO task weights must sum to one.")
-            for name, value in (
-                ("minimum task samples", cfg.pure_rl_task_aware_ppo_minimum_task_samples),
-                ("minimum phase samples", cfg.pure_rl_task_aware_ppo_minimum_phase_samples),
+            minimum_task_samples = cfg.pure_rl_task_aware_ppo_minimum_task_samples
+            if (
+                isinstance(minimum_task_samples, bool)
+                or int(minimum_task_samples) != minimum_task_samples
+                or minimum_task_samples <= 0
             ):
-                if isinstance(value, bool) or int(value) != value or value <= 0:
-                    raise ValueError(f"PureRL task-aware PPO {name} must be a positive integer.")
+                raise ValueError("PureRL task-aware PPO minimum task samples must be positive.")
+            minimum_phase_samples = cfg.pure_rl_task_aware_ppo_minimum_phase_samples
+            if (
+                isinstance(minimum_phase_samples, bool)
+                or int(minimum_phase_samples) != minimum_phase_samples
+                or minimum_phase_samples < 0
+            ):
+                raise ValueError(
+                    "PureRL task-aware PPO minimum phase samples must be non-negative."
+                )
         warm_start_guard_enabled = bool(cfg.pure_rl_warm_start_guard_enabled)
         if warm_start_guard_enabled:
-            if spatial_stage is None or spatial_stage.stage_id != "c3a":
-                raise ValueError("PureRL warm-start guard is currently defined only for C3a training.")
+            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b"):
+                raise ValueError("PureRL warm-start guard is defined only for C3a/C3b training.")
             burn_in_iterations = cfg.pure_rl_warm_start_burn_in_iterations
             update_iterations = cfg.pure_rl_warm_start_update_iterations
             warmup_epochs = cfg.pure_rl_warm_start_num_learning_epochs
@@ -1193,17 +1227,30 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError("PureRL warm-start actor update norm limit must be finite and positive.")
         adaptive_sampling_enabled = bool(cfg.pure_rl_adaptive_task_sampling_enabled)
         if adaptive_sampling_enabled:
-            if spatial_stage is None or spatial_stage.stage_id != "c3a":
-                raise ValueError("PureRL adaptive task sampling is currently defined only for C3a training.")
-            update_retention_aware_task_probabilities(
-                spatial_stage.task_probabilities,
-                (0.0, 0.0, 0.0),
-                baseline_probabilities=spatial_stage.task_probabilities,
-                minimum_probabilities=cfg.pure_rl_adaptive_sampling_minimum_probabilities,
-                maximum_probability_change=float(
-                    cfg.pure_rl_adaptive_sampling_max_probability_change
-                ),
-            )
+            if spatial_stage is None or spatial_stage.stage_id not in {"c3a", "c3b"}:
+                raise ValueError("PureRL adaptive task sampling is defined only for C3a or C3b training.")
+            if spatial_stage.stage_id == "c3a":
+                update_retention_aware_task_probabilities(
+                    spatial_stage.task_probabilities,
+                    (0.0, 0.0, 0.0),
+                    baseline_probabilities=spatial_stage.task_probabilities,
+                    minimum_probabilities=cfg.pure_rl_adaptive_sampling_minimum_probabilities,
+                    maximum_probability_change=float(
+                        cfg.pure_rl_adaptive_sampling_max_probability_change
+                    ),
+                )
+            else:
+                simple_probabilities = spatial_stage.task_probabilities[:3]
+                update_retention_aware_task_probabilities(
+                    simple_probabilities,
+                    (0.0, 0.0, 0.0),
+                    baseline_probabilities=simple_probabilities,
+                    minimum_probabilities=cfg.pure_rl_adaptive_sampling_minimum_probabilities,
+                    maximum_probability_change=float(
+                        cfg.pure_rl_adaptive_sampling_max_probability_change
+                    ),
+                    probability_total=sum(simple_probabilities),
+                )
             interval_steps = cfg.pure_rl_adaptive_sampling_interval_steps
             minimum_episodes = cfg.pure_rl_adaptive_sampling_minimum_episodes
             if isinstance(interval_steps, bool) or int(interval_steps) != interval_steps or interval_steps <= 0:
@@ -1218,11 +1265,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             if not math.isfinite(ema_alpha) or not 0.0 < ema_alpha <= 1.0:
                 raise ValueError("PureRL adaptive sampling EMA alpha must lie in (0, 1].")
             target_success_rates = cfg.pure_rl_adaptive_sampling_target_success_rates
-            if len(target_success_rates) != 3 or any(
+            expected_target_count = 3 if spatial_stage.stage_id == "c3a" else 6
+            if len(target_success_rates) != expected_target_count or any(
                 not math.isfinite(value) or not 0.0 <= value <= 1.0
                 for value in target_success_rates
             ):
-                raise ValueError("PureRL adaptive target success rates must contain three values in [0, 1].")
+                raise ValueError(
+                    "PureRL adaptive target success rates have the wrong ability count or leave [0, 1]."
+                )
             tail_limit_target = float(cfg.pure_rl_adaptive_sampling_c1_tail_limit_target)
             if not math.isfinite(tail_limit_target) or not 0.0 <= tail_limit_target <= 1.0:
                 raise ValueError("PureRL adaptive C1 tail-limit target must lie in [0, 1].")
@@ -1238,6 +1288,30 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     cfg.pure_rl_adaptive_strong_climb_max_probability_change
                 ),
             )
+            if spatial_stage.stage_id == "c3b":
+                for name, current_probability, bounds in (
+                    (
+                        "weak-template",
+                        spatial_stage.c3b_weak_template_probability,
+                        cfg.pure_rl_adaptive_c3b_weak_template_probability_bounds,
+                    ),
+                    (
+                        "weak-strong-climb",
+                        spatial_stage.c3b_weak_strong_climb_probability,
+                        cfg.pure_rl_adaptive_c3b_weak_strong_climb_probability_bounds,
+                    ),
+                ):
+                    if len(bounds) != 2:
+                        raise ValueError(f"PureRL adaptive C3b {name} bounds must contain two values.")
+                    move_probability_toward(
+                        float(current_probability),
+                        float(bounds[0]),
+                        lower_bound=float(bounds[0]),
+                        upper_bound=float(bounds[1]),
+                        maximum_probability_change=float(
+                            cfg.pure_rl_adaptive_c3b_max_probability_change
+                        ),
+                    )
         if bool(cfg.use_pure_rl_actor_observation):
             if action_interface != DIRECT_TAIL_SURFACE_ACTION:
                 raise ValueError("PureRL actor observations require the direct-tail-surface action interface.")
@@ -1649,10 +1723,20 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._pure_rl_adaptive_strong_climb_probability = float(
             cfg.pure_rl_c2c_strong_climb_probability
         )
+        self._pure_rl_adaptive_c3b_weak_template_probability = (
+            float(spatial_stage.c3b_weak_template_probability)
+            if adaptive_sampling_enabled and spatial_stage is not None
+            else 0.0
+        )
+        self._pure_rl_adaptive_c3b_weak_strong_climb_probability = (
+            float(spatial_stage.c3b_weak_strong_climb_probability)
+            if adaptive_sampling_enabled and spatial_stage is not None
+            else 0.0
+        )
         self._pure_rl_adaptive_next_update_step = int(
             cfg.pure_rl_adaptive_sampling_interval_steps
         )
-        self._pure_rl_adaptive_success_ema: tuple[float, float, float] | None = None
+        self._pure_rl_adaptive_success_ema: tuple[float, ...] | None = None
         self._pure_rl_adaptive_c1_tail_limit_ema: float | None = None
         self._pure_rl_adaptive_update_count = 0
         self._pure_rl_adaptive_episode_steps: Tensor | None = None
@@ -1721,6 +1805,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._pure_rl_sensor_history: Tensor | None = None
         self._pure_rl_action_history: Tensor | None = None
         self._pure_rl_previous_reward_action: Tensor | None = None
+        self._pure_rl_previous_requested_frequency_action: Tensor | None = None
         self._eval_pure_rl_cross_track_error_m: Tensor | None = None
         self._eval_pure_rl_height_error_m: Tensor | None = None
         self._eval_pure_rl_along_track_progress_m: Tensor | None = None
@@ -1906,12 +1991,17 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._pure_rl_spatial_query_cache: PureRLSpatialPathQuery | None = None
             self._pure_rl_spatial_query_step = -1
             if self._pure_rl_adaptive_sampling_enabled:
+                adaptive_ability_count = 3 if self._pure_rl_spatial_stage.stage_id == "c3a" else 6
                 self._pure_rl_adaptive_episode_steps = torch.zeros(N, device=self.device)
                 self._pure_rl_adaptive_episode_tail_limit_steps = torch.zeros(
                     N, device=self.device
                 )
-                self._pure_rl_adaptive_completed_counts = torch.zeros(3, device=self.device)
-                self._pure_rl_adaptive_success_counts = torch.zeros(3, device=self.device)
+                self._pure_rl_adaptive_completed_counts = torch.zeros(
+                    adaptive_ability_count, device=self.device
+                )
+                self._pure_rl_adaptive_success_counts = torch.zeros(
+                    adaptive_ability_count, device=self.device
+                )
                 self._pure_rl_adaptive_c1_tail_limit_fraction_sum = torch.zeros(
                     (), device=self.device
                 )
@@ -1933,6 +2023,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             )
         if bool(self.cfg.use_pure_rl_curriculum1_reward):
             self._pure_rl_previous_reward_action = torch.zeros_like(self._actions)
+            self._pure_rl_previous_requested_frequency_action = torch.zeros(
+                N,
+                device=self.device,
+            )
             self._eval_pure_rl_cross_track_error_m = torch.zeros(N, device=self.device)
             self._eval_pure_rl_height_error_m = torch.zeros(N, device=self.device)
             self._eval_pure_rl_along_track_progress_m = torch.zeros(N, device=self.device)
@@ -4194,6 +4288,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 sampling_stage = replace(
                     sampling_stage,
                     task_probabilities=self._pure_rl_adaptive_task_probabilities,
+                    c3b_weak_template_probability=(
+                        self._pure_rl_adaptive_c3b_weak_template_probability
+                    ),
+                    c3b_weak_strong_climb_probability=(
+                        self._pure_rl_adaptive_c3b_weak_strong_climb_probability
+                    ),
                 )
             sampled_path = sample_spatial_path_batch(
                 num_paths=n,
@@ -4586,6 +4686,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._pure_rl_previous_orientation_wxyz[env_ids, 0] = 1.0
         if self._pure_rl_previous_reward_action is not None:
             self._pure_rl_previous_reward_action[env_ids] = self._act_cmd[env_ids]
+        if self._pure_rl_previous_requested_frequency_action is not None:
+            self._pure_rl_previous_requested_frequency_action[env_ids] = self._actions[env_ids, 0]
         if self._pure_rl_spatial_stage is not None:
             self._pure_rl_spatial_query_cache = None
             self._pure_rl_spatial_query_step = -1
@@ -4695,7 +4797,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         query: PureRLSpatialPathQuery,
         successful_c2c_recovery: Tensor,
     ) -> None:
-        """Update C3a task probabilities from completed on-policy episodes."""
+        """Update C3a/C3b sampling probabilities from completed on-policy episodes."""
 
         if not self._pure_rl_adaptive_sampling_enabled:
             return
@@ -4729,15 +4831,46 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 >= math.radians(float(self.cfg.pure_rl_c2c_strong_climb_minimum_deg))
             )
         )
-        c3a_completed = completed & (
-            task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID_C3A
-        )
-        completed_masks = (c1_completed, strong_c2c_completed, c3a_completed)
-        success_masks = (
-            c1_completed & ~terminated,
-            strong_c2c_completed & successful_c2c_recovery,
-            c3a_completed & query.reached_all_events & ~terminated,
-        )
+        c3a_completed = completed & (task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID_C3A)
+        if self._pure_rl_spatial_stage.stage_id == "c3a":
+            completed_masks = (c1_completed, strong_c2c_completed, c3a_completed)
+            success_masks = (
+                c1_completed & ~terminated,
+                strong_c2c_completed & successful_c2c_recovery,
+                c3a_completed & query.reached_all_events & ~terminated,
+            )
+        else:
+            current_c3b_completed = completed & (
+                task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID
+            )
+            weak_c3b = (
+                self._pure_rl_spatial_path.template_id == C3B_TURN_THEN_CLIMB_TEMPLATE_ID
+            ) | (
+                self._pure_rl_spatial_path.template_id == C3B_CLIMB_THEN_TURN_TEMPLATE_ID
+            )
+            weak_c3b_completed = current_c3b_completed & weak_c3b
+            other_c3b_completed = current_c3b_completed & ~weak_c3b
+            strong_weak_c3b_completed = weak_c3b_completed & (
+                self._pure_rl_spatial_path.peak_slope_rad
+                >= math.radians(float(self.cfg.pure_rl_c2c_strong_climb_minimum_deg))
+            )
+            spatial_success = query.reached_all_events & ~terminated
+            completed_masks = (
+                c1_completed,
+                strong_c2c_completed,
+                c3a_completed,
+                weak_c3b_completed,
+                other_c3b_completed,
+                strong_weak_c3b_completed,
+            )
+            success_masks = (
+                c1_completed & ~terminated,
+                strong_c2c_completed & successful_c2c_recovery,
+                c3a_completed & spatial_success,
+                weak_c3b_completed & spatial_success,
+                other_c3b_completed & spatial_success,
+                strong_weak_c3b_completed & spatial_success,
+            )
         for index, (completed_mask, success_mask) in enumerate(
             zip(completed_masks, success_masks)
         ):
@@ -4783,29 +4916,90 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     )
                 assert self._pure_rl_adaptive_c1_tail_limit_ema is not None
                 targets = self.cfg.pure_rl_adaptive_sampling_target_success_rates
+                deficits = tuple(
+                    max(0.0, target - success)
+                    for target, success in zip(targets, self._pure_rl_adaptive_success_ema)
+                )
                 deficits = (
-                    max(0.0, targets[0] - self._pure_rl_adaptive_success_ema[0])
+                    deficits[0]
                     + max(
                         0.0,
                         self._pure_rl_adaptive_c1_tail_limit_ema
                         - float(self.cfg.pure_rl_adaptive_sampling_c1_tail_limit_target),
                     ),
-                    max(0.0, targets[1] - self._pure_rl_adaptive_success_ema[1]),
-                    max(0.0, targets[2] - self._pure_rl_adaptive_success_ema[2]),
+                    *deficits[1:],
                 )
-                self._pure_rl_adaptive_task_probabilities = (
-                    update_retention_aware_task_probabilities(
-                        self._pure_rl_adaptive_task_probabilities,
-                        deficits,
-                        baseline_probabilities=self._pure_rl_spatial_stage.task_probabilities,
+                if self._pure_rl_spatial_stage.stage_id == "c3a":
+                    self._pure_rl_adaptive_task_probabilities = (
+                        update_retention_aware_task_probabilities(
+                            self._pure_rl_adaptive_task_probabilities,
+                            deficits,
+                            baseline_probabilities=self._pure_rl_spatial_stage.task_probabilities,
+                            minimum_probabilities=(
+                                self.cfg.pure_rl_adaptive_sampling_minimum_probabilities
+                            ),
+                            maximum_probability_change=float(
+                                self.cfg.pure_rl_adaptive_sampling_max_probability_change
+                            ),
+                        )
+                    )
+                else:
+                    simple_total = sum(self._pure_rl_spatial_stage.task_probabilities[:3])
+                    updated_simple = update_retention_aware_task_probabilities(
+                        self._pure_rl_adaptive_task_probabilities[:3],
+                        deficits[:3],
+                        baseline_probabilities=self._pure_rl_spatial_stage.task_probabilities[:3],
                         minimum_probabilities=(
                             self.cfg.pure_rl_adaptive_sampling_minimum_probabilities
                         ),
                         maximum_probability_change=float(
                             self.cfg.pure_rl_adaptive_sampling_max_probability_change
                         ),
+                        probability_total=simple_total,
                     )
-                )
+                    self._pure_rl_adaptive_task_probabilities = (
+                        *updated_simple,
+                        self._pure_rl_spatial_stage.task_probabilities[3],
+                    )
+                    weak_lower, weak_upper = (
+                        self.cfg.pure_rl_adaptive_c3b_weak_template_probability_bounds
+                    )
+                    c3b_deficit_sum = deficits[3] + deficits[4]
+                    desired_weak_probability = self._pure_rl_spatial_stage.c3b_weak_template_probability
+                    if c3b_deficit_sum > 0.0:
+                        desired_weak_probability = weak_lower + (weak_upper - weak_lower) * (
+                            deficits[3] / c3b_deficit_sum
+                        )
+                    self._pure_rl_adaptive_c3b_weak_template_probability = move_probability_toward(
+                        self._pure_rl_adaptive_c3b_weak_template_probability,
+                        desired_weak_probability,
+                        lower_bound=float(weak_lower),
+                        upper_bound=float(weak_upper),
+                        maximum_probability_change=float(
+                            self.cfg.pure_rl_adaptive_c3b_max_probability_change
+                        ),
+                    )
+                    weak_strong_lower, weak_strong_upper = (
+                        self.cfg.pure_rl_adaptive_c3b_weak_strong_climb_probability_bounds
+                    )
+                    weak_strong_deficit_fraction = min(
+                        1.0,
+                        deficits[5] / max(float(targets[5]), 1.0e-6),
+                    )
+                    desired_weak_strong_probability = weak_strong_lower + (
+                        weak_strong_upper - weak_strong_lower
+                    ) * weak_strong_deficit_fraction
+                    self._pure_rl_adaptive_c3b_weak_strong_climb_probability = (
+                        move_probability_toward(
+                            self._pure_rl_adaptive_c3b_weak_strong_climb_probability,
+                            desired_weak_strong_probability,
+                            lower_bound=float(weak_strong_lower),
+                            upper_bound=float(weak_strong_upper),
+                            maximum_probability_change=float(
+                                self.cfg.pure_rl_adaptive_c3b_max_probability_change
+                            ),
+                        )
+                    )
                 strong_lower, strong_upper = (
                     self.cfg.pure_rl_adaptive_strong_climb_probability_bounds
                 )
@@ -4847,6 +5041,18 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 "AdaptiveSampling/update_count": self._pure_rl_adaptive_update_count,
             }
         )
+        if self._pure_rl_spatial_stage.stage_id == "c3b":
+            log.update(
+                {
+                    "AdaptiveSampling/c3b_probability": self._pure_rl_adaptive_task_probabilities[3],
+                    "AdaptiveSampling/c3b_weak_template_probability": (
+                        self._pure_rl_adaptive_c3b_weak_template_probability
+                    ),
+                    "AdaptiveSampling/c3b_weak_strong_climb_probability": (
+                        self._pure_rl_adaptive_c3b_weak_strong_climb_probability
+                    ),
+                }
+            )
         if self._pure_rl_adaptive_success_ema is not None:
             assert self._pure_rl_adaptive_c1_tail_limit_ema is not None
             log.update(
@@ -4863,6 +5069,20 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     ),
                 }
             )
+            if self._pure_rl_spatial_stage.stage_id == "c3b":
+                log.update(
+                    {
+                        "AdaptiveSampling/c3b_weak_success_ema": (
+                            self._pure_rl_adaptive_success_ema[3]
+                        ),
+                        "AdaptiveSampling/c3b_other_success_ema": (
+                            self._pure_rl_adaptive_success_ema[4]
+                        ),
+                        "AdaptiveSampling/c3b_weak_strong_climb_success_ema": (
+                            self._pure_rl_adaptive_success_ema[5]
+                        ),
+                    }
+                )
 
     def _get_pure_rl_observations(self) -> dict[str, Tensor]:
         """Build the normalized 555-value actor observation at policy rate."""
@@ -4959,6 +5179,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             probe_group[task_family_id == REHEARSAL_C1_TASK_FAMILY_ID] = ACTOR_GRADIENT_PROBE_C1_GROUP
             c2c = task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
             probe_group[c2c] = ACTOR_GRADIENT_PROBE_C2C_GROUP
+            probe_group[task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID] = TASK_AWARE_C3B_GROUP
             query = self._query_pure_rl_spatial_path()
             strong_c2c_route = c2c & (
                 self._pure_rl_spatial_path.peak_slope_rad
@@ -5054,6 +5275,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         """Compute and expose the approved geometric straight-flight reward."""
 
         assert self._pure_rl_previous_reward_action is not None
+        assert self._pure_rl_previous_requested_frequency_action is not None
         local_position_w = self._robot.data.root_pos_w - self.scene.env_origins
         ground_velocity_w = self._robot.data.root_lin_vel_w
         roll_rad, pitch_rad, _yaw_rad = euler_xyz_from_quat(self._robot.data.root_quat_w)
@@ -5085,6 +5307,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 frequency_slew_hz_per_s=self._frequency_slew_hz_per_s,
                 applied_action=self._act_cmd,
                 previous_applied_action=self._pure_rl_previous_reward_action,
+                requested_frequency_action=self._actions[:, 0],
+                previous_requested_frequency_action=(
+                    self._pure_rl_previous_requested_frequency_action
+                ),
                 turn_activity=query.turn_activity,
                 config=reward_cfg,
             )
@@ -5115,6 +5341,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 frequency_slew_hz_per_s=self._frequency_slew_hz_per_s,
                 applied_action=self._act_cmd,
                 previous_applied_action=self._pure_rl_previous_reward_action,
+                requested_frequency_action=self._actions[:, 0],
+                previous_requested_frequency_action=(
+                    self._pure_rl_previous_requested_frequency_action
+                ),
                 config=reward_cfg,
             )
         else:
@@ -5146,6 +5376,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 frequency_slew_hz_per_s=self._frequency_slew_hz_per_s,
                 applied_action=self._act_cmd,
                 previous_applied_action=self._pure_rl_previous_reward_action,
+                requested_frequency_action=self._actions[:, 0],
+                previous_requested_frequency_action=(
+                    self._pure_rl_previous_requested_frequency_action
+                ),
                 config=reward_cfg,
             )
         self._debug_last_pure_rl_reward_terms = {
@@ -5158,6 +5392,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             "pitch_envelope_penalty": terms.pitch_envelope_penalty,
             "flap_penalty": terms.flap_penalty,
             "frequency_slew_penalty": terms.frequency_slew_penalty,
+            "requested_frequency_action_delta_penalty": (
+                terms.requested_frequency_action_delta_penalty
+            ),
+            "requested_applied_frequency_action_gap_penalty": (
+                terms.requested_applied_frequency_action_gap_penalty
+            ),
             "tail_action_delta_penalty": terms.tail_action_delta_penalty,
             "tail_action_limit_penalty": terms.tail_action_limit_penalty,
         }
@@ -5213,7 +5453,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         )
         self._eval_pure_rl_frequency_slew_hz_per_s.copy_(self._frequency_slew_hz_per_s)
         self._eval_pure_rl_frequency_governor_limited.copy_(self._frequency_governor_limited)
+        requested_frequency_action_delta = (
+            self._actions[:, 0] - self._pure_rl_previous_requested_frequency_action
+        )
+        requested_frequency_action_sign_flip = (
+            self._actions[:, 0] * self._pure_rl_previous_requested_frequency_action < 0.0
+        )
         self._pure_rl_previous_reward_action.copy_(self._act_cmd)
+        self._pure_rl_previous_requested_frequency_action.copy_(self._actions[:, 0])
 
         if bool(self.cfg.pure_rl_reward_telemetry_enabled):
             log = self.extras.setdefault("log", {})
@@ -5228,6 +5475,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     "PureRLPenalty/pitch_envelope": terms.pitch_envelope_penalty.mean(),
                     "PureRLPenalty/flap": terms.flap_penalty.mean(),
                     "PureRLPenalty/frequency_slew": terms.frequency_slew_penalty.mean(),
+                    "PureRLPenalty/requested_frequency_action_delta": (
+                        terms.requested_frequency_action_delta_penalty.mean()
+                    ),
+                    "PureRLPenalty/requested_applied_frequency_action_gap": (
+                        terms.requested_applied_frequency_action_gap_penalty.mean()
+                    ),
                     "PureRLPenalty/tail_action_delta": terms.tail_action_delta_penalty.mean(),
                     "PureRLPenalty/tail_action_limit": terms.tail_action_limit_penalty.mean(),
                     "PureRLContribution/path": reward_cfg.path_reward_weight * terms.path_reward.mean(),
@@ -5249,6 +5502,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     "PureRLContribution/frequency_slew": (
                         -reward_cfg.frequency_slew_penalty_weight
                         * terms.frequency_slew_penalty.mean()
+                    ),
+                    "PureRLContribution/requested_frequency_action_delta": (
+                        -reward_cfg.requested_frequency_action_delta_penalty_weight
+                        * terms.requested_frequency_action_delta_penalty.mean()
+                    ),
+                    "PureRLContribution/requested_applied_frequency_action_gap": (
+                        -reward_cfg.requested_applied_frequency_action_gap_penalty_weight
+                        * terms.requested_applied_frequency_action_gap_penalty.mean()
                     ),
                     "PureRLContribution/tail_action_delta": (
                         -reward_cfg.tail_action_delta_penalty_weight
@@ -5275,6 +5536,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                     ),
                     "PureRLState/frequency_governor_limited_fraction": (
                         self._frequency_governor_limited.float().mean()
+                    ),
+                    "PureRLState/mean_abs_requested_frequency_action_delta": (
+                        requested_frequency_action_delta.abs().mean()
+                    ),
+                    "PureRLState/requested_frequency_action_sign_flip_fraction": (
+                        requested_frequency_action_sign_flip.float().mean()
                     ),
                 }
             )

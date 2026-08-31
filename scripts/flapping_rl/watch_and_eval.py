@@ -72,6 +72,7 @@ from pure_rl_longitudinal_eval import (
 from pure_rl_spatial_eval import (
     SPATIAL_EVAL_CONTRACTS,
     build_spatial_evaluation_grid,
+    compact_spatial_episode_rows,
     row_meets_spatial_promotion_gate,
     summarize_spatial_evaluation,
 )
@@ -225,6 +226,11 @@ def _parse_args() -> argparse.Namespace:
         nargs="+",
         default=None,
         help="Explicit actor hidden dimensions for checkpoints whose network differs from the registered default.",
+    )
+    parser.add_argument(
+        "--pure-rl-split-frequency-actor",
+        action="store_true",
+        help="Reconstruct the project-local independent frequency/tail PureRL actor.",
     )
     parser.add_argument(
         "--robot-asset-path",
@@ -529,6 +535,11 @@ def main():
         if not isinstance(policy_cfg, dict):
             raise ValueError("Agent configuration does not contain a policy dictionary.")
         policy_cfg["actor_hidden_dims"] = actor_hidden_dims
+    if bool(args.pure_rl_split_frequency_actor):
+        policy_cfg = agent_cfg_dict.get("policy")
+        if not isinstance(policy_cfg, dict):
+            raise ValueError("Agent configuration does not contain a policy dictionary.")
+        policy_cfg["class_name"] = "PureRLSplitActorCritic"
     agent_cfg_dict["device"] = args.device if args.device is not None else agent_cfg_dict.get("device", "cuda:0")
 
     eval_cases = build_eval_cases(eval_suite)
@@ -667,6 +678,19 @@ def main():
                     checkpoint=str(ckpt),
                     ppo_iteration=_extract_ckpt_index(ckpt),
                 )
+                case_output = eval_dir / f"{ckpt.stem}_spatial_cases.json"
+                case_output.write_text(
+                    json.dumps(
+                        compact_spatial_episode_rows(
+                            episode_rows,
+                            expected_cases=registered_cases,
+                        ),
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                row["case_results_path"] = str(case_output)
                 row["case"] = str(case["name"])
                 row["episodes"] = target_episodes
                 row["termination_rate"] = 1.0 - float(row["overall_survival_rate"])

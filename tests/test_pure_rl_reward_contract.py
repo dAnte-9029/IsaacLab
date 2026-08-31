@@ -102,8 +102,10 @@ def test_nominal_terms_have_expected_unit_values_and_weighted_total() -> None:
         "angular_rate",
         "pitch_envelope_penalty",
         "flap_penalty",
-        "frequency_slew_penalty",
-        "tail_action_delta_penalty",
+            "frequency_slew_penalty",
+            "requested_frequency_action_delta_penalty",
+            "requested_applied_frequency_action_gap_penalty",
+            "tail_action_delta_penalty",
         "tail_action_limit_penalty",
         "total",
     }
@@ -253,6 +255,109 @@ def test_physical_frequency_slew_and_full_range_tail_jump_normalize_penalties_to
     assert terms.frequency_slew_penalty.item() == pytest.approx(1.0)
     assert terms.tail_action_delta_penalty.item() == pytest.approx(1.0)
     assert terms.tail_action_limit_penalty.item() == pytest.approx(1.0)
+
+
+def test_requested_frequency_delta_penalizes_pre_governor_sign_flip() -> None:
+    inputs = _reward_inputs(2)
+    inputs["requested_frequency_action"] = torch.tensor([1.0, 0.6], dtype=torch.float64)
+    inputs["previous_requested_frequency_action"] = torch.tensor([-1.0, 0.6], dtype=torch.float64)
+    config = pure_rl_reward.PureRLRewardConfig(
+        requested_frequency_action_delta_penalty_weight=0.05
+    )
+
+    terms = pure_rl_reward.compute_pure_rl_reward_terms(**inputs, config=config)
+
+    torch.testing.assert_close(
+        terms.requested_frequency_action_delta_penalty,
+        torch.tensor([1.0, 0.0], dtype=torch.float64),
+    )
+    assert terms.total_reward[0].item() == pytest.approx(0.75)
+    assert terms.total_reward[1].item() == pytest.approx(0.8)
+
+
+def test_requested_frequency_total_variation_penalizes_repeated_small_changes() -> None:
+    inputs = _reward_inputs(2)
+    inputs["requested_frequency_action"] = torch.tensor([0.5, 0.6], dtype=torch.float64)
+    inputs["previous_requested_frequency_action"] = torch.tensor([-0.5, 0.6], dtype=torch.float64)
+    squared = pure_rl_reward.compute_pure_rl_reward_terms(
+        **inputs,
+        config=pure_rl_reward.PureRLRewardConfig(
+            requested_frequency_action_delta_penalty_weight=0.1,
+            requested_frequency_action_delta_penalty_mode="squared",
+        ),
+    )
+    absolute = pure_rl_reward.compute_pure_rl_reward_terms(
+        **inputs,
+        config=pure_rl_reward.PureRLRewardConfig(
+            requested_frequency_action_delta_penalty_weight=0.1,
+            requested_frequency_action_delta_penalty_mode="absolute",
+        ),
+    )
+
+    torch.testing.assert_close(
+        squared.requested_frequency_action_delta_penalty,
+        torch.tensor([0.25, 0.0], dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        absolute.requested_frequency_action_delta_penalty,
+        torch.tensor([0.5, 0.0], dtype=torch.float64),
+    )
+    assert squared.total_reward[0].item() == pytest.approx(0.775)
+    assert absolute.total_reward[0].item() == pytest.approx(0.75)
+
+
+def test_requested_applied_frequency_gap_penalizes_only_governor_rejection() -> None:
+    inputs = _reward_inputs(3)
+    inputs["requested_frequency_action"] = torch.tensor([0.5, -1.0, 0.2], dtype=torch.float64)
+    inputs["previous_requested_frequency_action"] = inputs[
+        "requested_frequency_action"
+    ].clone()
+    inputs["applied_action"][:, 0] = torch.tensor([0.5, 0.5, -0.3], dtype=torch.float64)
+    config = pure_rl_reward.PureRLRewardConfig(
+        requested_applied_frequency_action_gap_penalty_weight=0.05
+    )
+
+    terms = pure_rl_reward.compute_pure_rl_reward_terms(**inputs, config=config)
+
+    torch.testing.assert_close(
+        terms.requested_applied_frequency_action_gap_penalty,
+        torch.tensor([0.0, 1.5, 0.5], dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        terms.requested_frequency_action_delta_penalty,
+        torch.zeros(3, dtype=torch.float64),
+    )
+    torch.testing.assert_close(
+        terms.total_reward,
+        torch.tensor([0.8, 0.725, 0.775], dtype=torch.float64),
+    )
+
+
+def test_requested_frequency_delta_rejects_unknown_penalty_mode() -> None:
+    config = pure_rl_reward.PureRLRewardConfig(
+        requested_frequency_action_delta_penalty_mode="unknown"
+    )
+
+    with pytest.raises(ValueError, match="must be 'squared' or 'absolute'"):
+        pure_rl_reward.compute_pure_rl_reward_terms(**_reward_inputs(1), config=config)
+
+
+def test_positive_requested_frequency_delta_weight_requires_requested_actions() -> None:
+    config = pure_rl_reward.PureRLRewardConfig(
+        requested_frequency_action_delta_penalty_weight=0.05
+    )
+
+    with pytest.raises(ValueError, match="requires requested frequency actions"):
+        pure_rl_reward.compute_pure_rl_reward_terms(**_reward_inputs(1), config=config)
+
+
+def test_positive_requested_applied_frequency_gap_weight_requires_requested_actions() -> None:
+    config = pure_rl_reward.PureRLRewardConfig(
+        requested_applied_frequency_action_gap_penalty_weight=0.05
+    )
+
+    with pytest.raises(ValueError, match="requires requested frequency actions"):
+        pure_rl_reward.compute_pure_rl_reward_terms(**_reward_inputs(1), config=config)
 
 
 def test_termination_reports_each_cause_and_detects_inverted_attitude() -> None:

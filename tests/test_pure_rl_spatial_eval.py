@@ -52,10 +52,10 @@ def test_spatial_grids_cover_approved_slices() -> None:
     assert all((case.geometry_roll_deg / 20.0) ** 2 + (abs(case.slope_deg) / 10.0) ** 2 <= 1.0 for case in c3c)
 
 
-def test_spatial_stages_use_version_two_evaluation_contracts() -> None:
+def test_spatial_stages_use_registered_evaluation_contracts() -> None:
     assert pure_rl_spatial_eval.SPATIAL_EVAL_CONTRACTS == {
         "c3a": "pure_rl_spatial_c3a_v2",
-        "c3b": "pure_rl_spatial_c3b_v2",
+        "c3b": "pure_rl_spatial_c3b_v3",
         "c3c": "pure_rl_spatial_c3c_v2",
     }
 
@@ -78,6 +78,22 @@ def _row(case, *, success: bool = True, error_m: float = 0.2) -> dict[str, objec
         "roll_limit_termination": False,
         "finite_metrics": True,
     }
+
+
+def test_compact_spatial_episode_rows_preserve_case_inputs_and_metrics() -> None:
+    case = pure_rl_spatial_eval.build_spatial_evaluation_grid("c3b")[0]
+
+    rows = pure_rl_spatial_eval.compact_spatial_episode_rows(
+        [_row(case)],
+        expected_cases=(case,),
+    )
+
+    assert rows[0]["case_id"] == case.case_id
+    assert rows[0]["heading_rad"] == case.heading_rad
+    assert rows[0]["flap_phase_rad"] == case.flap_phase_rad
+    assert rows[0]["slope_deg"] == case.slope_deg
+    assert rows[0]["sample_count"] == 2
+    assert rows[0]["mean_abs_horizontal_error_m"] == pytest.approx(0.2)
 
 
 def test_spatial_summary_passes_all_hard_gates_and_reports_slices() -> None:
