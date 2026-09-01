@@ -77,6 +77,59 @@ def test_quaternion_sign_alignment_keeps_temporal_representation_continuous() ->
     assert float(torch.sum(aligned * normalized_previous, dim=1).item()) > 0.0
 
 
+def test_route_heading_canonical_orientation_is_yaw_invariant_and_sign_unique() -> None:
+    route_heading = torch.tensor([0.0, math.pi, -0.5 * math.pi], dtype=torch.float64)
+    relative_yaw = 0.2
+    pitch = -0.15
+    half_relative_yaw = 0.5 * relative_yaw
+    half_pitch = 0.5 * pitch
+    relative_orientation = torch.tensor(
+        [
+            math.cos(half_relative_yaw) * math.cos(half_pitch),
+            -math.sin(half_relative_yaw) * math.sin(half_pitch),
+            math.cos(half_relative_yaw) * math.sin(half_pitch),
+            math.sin(half_relative_yaw) * math.cos(half_pitch),
+        ],
+        dtype=torch.float64,
+    )
+    world_orientations = []
+    for heading in route_heading:
+        half_heading = 0.5 * heading
+        cosine = torch.cos(half_heading)
+        sine = torch.sin(half_heading)
+        w, x, y, z = relative_orientation
+        world_orientations.append(
+            torch.stack(
+                (
+                    cosine * w - sine * z,
+                    cosine * x - sine * y,
+                    cosine * y + sine * x,
+                    cosine * z + sine * w,
+                )
+            )
+        )
+    world_orientation = torch.stack(world_orientations)
+    world_orientation[1] *= -1.0
+
+    canonical = pure_rl_observation.canonicalize_orientation_to_route_heading(
+        world_orientation,
+        route_heading,
+    )
+
+    expected = relative_orientation.unsqueeze(0).expand_as(canonical)
+    torch.testing.assert_close(canonical, expected, atol=1.0e-12, rtol=1.0e-12)
+    assert bool(torch.all(canonical[:, 0] >= 0.0))
+
+
+def test_route_heading_canonical_orientation_validates_metadata() -> None:
+    orientation = torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float32)
+    with pytest.raises(ValueError, match="same device and dtype"):
+        pure_rl_observation.canonicalize_orientation_to_route_heading(
+            orientation,
+            torch.zeros(1, dtype=torch.float64),
+        )
+
+
 def test_reset_history_repeats_real_sample_and_append_is_oldest_to_newest() -> None:
     reset_sample = torch.tensor([[1.0, 2.0]], dtype=torch.float32)
     history = pure_rl_observation.initialize_raw_history(reset_sample, history_steps=3)

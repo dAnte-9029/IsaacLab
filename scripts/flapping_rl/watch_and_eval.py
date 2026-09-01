@@ -233,6 +233,11 @@ def _parse_args() -> argparse.Namespace:
         help="Reconstruct the project-local independent frequency/tail PureRL actor.",
     )
     parser.add_argument(
+        "--pure-rl-heading-canonical-observation",
+        action="store_true",
+        help="Express PureRL attitude history relative to each episode route heading.",
+    )
+    parser.add_argument(
         "--robot-asset-path",
         type=str,
         default=None,
@@ -508,6 +513,8 @@ def main():
             env_cfg.scene.num_envs = int(args.num_envs)
 
     env_cfg.randomize_commands = False
+    if bool(args.pure_rl_heading_canonical_observation):
+        env_cfg.pure_rl_heading_canonical_observation = True
     _apply_robot_asset_overrides(
         env_cfg,
         asset_path=args.robot_asset_path,

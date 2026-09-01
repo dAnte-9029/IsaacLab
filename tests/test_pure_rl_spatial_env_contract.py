@@ -113,6 +113,15 @@ def test_c3_configs_add_only_spatial_stage_and_twenty_second_episode() -> None:
                     "pure_rl_adaptive_sampling_target_success_rates",
                 }
             )
+        else:
+            expected_names.update(
+                {
+                    "pure_rl_warm_start_guard_enabled",
+                    "pure_rl_task_aware_ppo_enabled",
+                    "pure_rl_task_aware_ppo_task_weights",
+                    "pure_rl_task_aware_ppo_minimum_phase_samples",
+                }
+            )
         assert _assigned_names(cfg) == expected_names
         assert ast.literal_eval(_ann_assign(cfg, "pure_rl_spatial_stage_id").value) == stage_id
         assert ast.literal_eval(_ann_assign(cfg, "episode_length_s").value) == 20.0
@@ -206,6 +215,22 @@ def test_spatial_query_is_explicit_stable_state_and_c3_observation_keeps_555_con
     )
 
 
+def test_heading_canonical_orientation_is_opt_in_and_does_not_change_preview_frame() -> None:
+    module = _module()
+    base = _class(module, "FlappingBotStraightFlightEnvCfg")
+    observation_source = _source(
+        _method(_class(module, "FlappingBotStraightFlightEnv"), "_get_pure_rl_observations")
+    )
+
+    assert ast.literal_eval(
+        _ann_assign(base, "pure_rl_heading_canonical_observation").value
+    ) is False
+    assert "canonicalize_orientation_to_route_heading" in observation_source
+    assert "self._straight_line_heading_rad" in observation_source
+    assert "wind_b = quat_apply_inverse(orientation_world_wxyz, self._wind_w)" in observation_source
+    assert "orientation_world_wxyz=orientation_world_wxyz" in observation_source
+
+
 def test_c3_actor_distillation_is_opt_in_and_kept_outside_policy_observation() -> None:
     module = _module()
     base = _class(module, "FlappingBotStraightFlightEnvCfg")
@@ -252,7 +277,7 @@ def test_c3a_task_aware_ppo_is_default_disabled_and_phase_labeled() -> None:
     )
     assert ast.literal_eval(_ann_assign(c3a, "pure_rl_task_aware_ppo_enabled").value) is True
     assert "task_aware_ppo_enabled" in constructor_source
-    assert "spatial_stage.stage_id not in ('c3a', 'c3b')" in constructor_source
+    assert "spatial_stage.stage_id not in ('c3a', 'c3b', 'c3c', 'c3joint')" in constructor_source
     assert "strong_c2c_phase" in observation_source
     assert "query.turn_activity > 0.0" in observation_source
 
@@ -272,7 +297,7 @@ def test_c3a_enables_bounded_weights_only_warm_start_guard() -> None:
     assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_actor_update_norm_limit").value) == 0.10
     assert ast.literal_eval(_ann_assign(c3a, "pure_rl_warm_start_guard_enabled").value) is True
     assert "warm_start_guard_enabled" in constructor_source
-    assert "spatial_stage.stage_id not in ('c3a', 'c3b')" in constructor_source
+    assert "spatial_stage.stage_id not in ('c3a', 'c3b', 'c3c', 'c3joint')" in constructor_source
 
 
 def test_c3b_enables_four_task_ppo_and_bounded_warm_start() -> None:
@@ -294,6 +319,39 @@ def test_c3b_enables_four_task_ppo_and_bounded_warm_start() -> None:
         _ann_assign(c3b, "pure_rl_task_aware_ppo_minimum_phase_samples").value
     ) == 0
     assert "TASK_AWARE_C3B_GROUP" in observation_source
+
+
+def test_c3c_enables_four_group_joint_ppo_and_bounded_warm_start() -> None:
+    module = _module()
+    c3c = _class(module, "FlappingBotStraightFlightDeLaurierMeasuredPureRLC3cEnvCfg")
+    constructor_source = _source(_method(_class(module, "FlappingBotStraightFlightEnv"), "__init__"))
+
+    assert ast.literal_eval(_ann_assign(c3c, "pure_rl_task_aware_ppo_enabled").value) is True
+    assert ast.literal_eval(_ann_assign(c3c, "pure_rl_task_aware_ppo_task_weights").value) == (
+        0.15,
+        0.20,
+        0.15,
+        0.50,
+    )
+    assert ast.literal_eval(_ann_assign(c3c, "pure_rl_warm_start_guard_enabled").value) is True
+    assert ast.literal_eval(
+        _ann_assign(c3c, "pure_rl_task_aware_ppo_minimum_phase_samples").value
+    ) == 0
+    assert "('c3a', 'c3b', 'c3c', 'c3joint')" in constructor_source
+
+
+def test_full_c3_joint_is_opt_in_and_routes_five_task_groups() -> None:
+    module = _module()
+    base = _class(module, "FlappingBotStraightFlightEnvCfg")
+    env = _class(module, "FlappingBotStraightFlightEnv")
+    constructor_source = _source(_method(env, "__init__"))
+    observation_source = _source(_method(env, "_get_pure_rl_observations"))
+
+    assert ast.literal_eval(_ann_assign(base, "pure_rl_full_c3_joint_training_enabled").value) is False
+    assert "spatial_stage_id = 'c3joint'" in constructor_source
+    assert "'c3joint': 5" in constructor_source
+    assert "C3_JOINT_C3C_TASK_FAMILY_ID" in observation_source
+    assert "TASK_AWARE_C3C_GROUP" in observation_source
 
 
 def test_c3_adaptive_task_sampling_is_opt_in_and_uses_completed_episode_signals() -> None:

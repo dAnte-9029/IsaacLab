@@ -235,6 +235,50 @@ def test_task_aware_ppo_supports_four_task_c3b_weights(tmp_path: Path) -> None:
     assert c3b_advantages.mean().item() == pytest.approx(0.0, abs=1.0e-6)
 
 
+def test_task_aware_ppo_supports_five_task_c3_joint_weights(tmp_path: Path) -> None:
+    algorithm = _TaskAwareAlgorithm()
+    for group_id, returns in (
+        (training_utils.TASK_AWARE_C3B_GROUP, [[[-2.0], [2.0]]]),
+        (training_utils.TASK_AWARE_C3C_GROUP, [[[-3.0], [3.0]]]),
+    ):
+        group = torch.full((1, 2, 1), group_id, dtype=torch.long)
+        algorithm.storage.observations = torch.cat(
+            (
+                algorithm.storage.observations,
+                TensorDict(
+                    {
+                        "policy": torch.zeros(1, 2, 2),
+                        training_utils.ACTOR_GRADIENT_PROBE_GROUP_KEY: group,
+                    },
+                    batch_size=[1, 2],
+                ),
+            ),
+            dim=1,
+        )
+        for name, values in (
+            ("values", torch.zeros(1, 2, 1)),
+            ("returns", torch.tensor(returns)),
+            ("advantages", torch.zeros(1, 2, 1)),
+            ("actions", torch.zeros(1, 2, 1)),
+            ("actions_log_prob", torch.zeros(1, 2, 1)),
+            ("mu", torch.zeros(1, 2, 1)),
+            ("sigma", torch.ones(1, 2, 1)),
+        ):
+            setattr(algorithm.storage, name, torch.cat((getattr(algorithm.storage, name), values), dim=1))
+
+    adapter = training_utils.TaskAwarePpoAdapter(
+        algorithm,
+        output_path=tmp_path / "task_aware_c3_joint.csv",
+        task_weights=(0.15, 0.20, 0.15, 0.25, 0.25),
+        minimum_task_samples=2,
+        minimum_phase_samples=0,
+    )
+    metrics = adapter._prepare_advantages()
+
+    assert metrics["task_aware/count_c3b"] == 2.0
+    assert metrics["task_aware/count_c3c"] == 2.0
+
+
 def test_task_aware_ppo_can_disable_per_rollout_phase_abort(tmp_path: Path) -> None:
     adapter = training_utils.TaskAwarePpoAdapter(
         _TaskAwareAlgorithm(),

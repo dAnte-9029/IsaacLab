@@ -1253,6 +1253,140 @@ def test_c3b_adaptive_sampling_preset_uses_best_fixed_mix_checkpoint(
     assert metadata["policy_class_name"] == "PureRLSplitActorCritic"
 
 
+def test_c3b_yaw_consistency_preset_changes_only_auxiliary_actor_loss(
+    tmp_path: Path,
+) -> None:
+    source_run = "2026-08-29_15-01-17_pure_rl_c3b_split_frequency_actor_v2_seed0_251iter"
+    checkpoint = tmp_path / source_run / "model_100.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"best-fixed-mixture-c3b-model-100")
+    args = train_and_watch.argparse.Namespace(
+        c3b_adaptive_sampling=False,
+        c3b_yaw_consistency=True,
+        c3b_split_frequency_actor=False,
+        c3a_split_frequency_actor=False,
+        c3a_joint_from_c1=False,
+        c3a_joint_requested_frequency_smoothness=False,
+        c3a_joint_requested_frequency_total_variation=False,
+        c3a_joint_requested_applied_frequency_gap=False,
+        c3a_retention_phase_a=False,
+        c3a_large_actor=False,
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0",
+        run_name="pure_rl_c3b_yawconsistency005_from100_seed0_101iter",
+        num_envs=None,
+        max_iterations=None,
+        save_interval=None,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        agent_num_mini_batches=None,
+        c2c_strong_climb_probability=None,
+        actor_distillation_coefficient=0.0,
+        source_stage=None,
+        source_checkpoint_path=checkpoint,
+        checkpoint=None,
+        load_run=None,
+        portable_root_base=tmp_path / "portable",
+        native_extension_parent=tmp_path / "native_extensions",
+        freeze_steps_after_reset=None,
+        mass_kg_override=None,
+        resume=False,
+        concurrent_eval=False,
+        adaptive_task_sampling=False,
+        c2c_recycle_on_recovery=False,
+        load_weights_only=False,
+        native_cpu=False,
+        agent_device=None,
+        train_only=False,
+    )
+
+    resolved = train_and_watch._apply_c3b_adaptive_sampling_preset(args)
+    command = train_and_watch._build_train_cmd(resolved)
+    metadata = train_and_watch._build_curriculum_source_metadata(resolved)
+
+    assert resolved.max_iterations == 101
+    assert resolved.adaptive_task_sampling is True
+    assert resolved.load_weights_only is True
+    assert resolved.load_run == source_run
+    assert resolved.checkpoint == "model_100.pt"
+    assert "env.pure_rl_adaptive_task_sampling_enabled=true" in command
+    assert "env.pure_rl_actor_yaw_consistency_coefficient=0.05" in command
+    assert "agent.policy.class_name=PureRLSplitActorCritic" in command
+    assert metadata is not None
+    assert metadata["curriculum_route"] == (
+        "c3b_adaptive_sampling_yaw_consistency_from_model100_v1"
+    )
+    assert metadata["policy_class_name"] == "PureRLSplitActorCritic"
+
+
+def test_c3b_heading_canonical_preset_changes_only_observation_contract(
+    tmp_path: Path,
+) -> None:
+    source_run = "2026-08-29_15-01-17_pure_rl_c3b_split_frequency_actor_v2_seed0_251iter"
+    checkpoint = tmp_path / source_run / "model_100.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"best-fixed-mixture-c3b-model-100")
+    args = train_and_watch.argparse.Namespace(
+        c3b_adaptive_sampling=False,
+        c3b_yaw_consistency=False,
+        c3b_heading_canonical_observation=True,
+        c3b_split_frequency_actor=False,
+        c3a_split_frequency_actor=False,
+        c3a_joint_from_c1=False,
+        c3a_joint_requested_frequency_smoothness=False,
+        c3a_joint_requested_frequency_total_variation=False,
+        c3a_joint_requested_applied_frequency_gap=False,
+        c3a_retention_phase_a=False,
+        c3a_large_actor=False,
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0",
+        run_name="pure_rl_c3b_headingcanonical_from100_seed0_101iter",
+        num_envs=None,
+        max_iterations=None,
+        save_interval=None,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        agent_num_mini_batches=None,
+        c2c_strong_climb_probability=None,
+        actor_distillation_coefficient=0.0,
+        source_stage=None,
+        source_checkpoint_path=checkpoint,
+        checkpoint=None,
+        load_run=None,
+        portable_root_base=tmp_path / "portable",
+        native_extension_parent=tmp_path / "native_extensions",
+        freeze_steps_after_reset=None,
+        mass_kg_override=None,
+        resume=False,
+        concurrent_eval=False,
+        adaptive_task_sampling=False,
+        c2c_recycle_on_recovery=False,
+        load_weights_only=False,
+        native_cpu=False,
+        agent_device=None,
+        train_only=False,
+    )
+
+    resolved = train_and_watch._apply_c3b_adaptive_sampling_preset(args)
+    command = train_and_watch._build_train_cmd(resolved)
+    metadata = train_and_watch._build_curriculum_source_metadata(resolved)
+
+    assert resolved.max_iterations == 101
+    assert resolved.adaptive_task_sampling is True
+    assert resolved.load_weights_only is True
+    assert resolved.load_run == source_run
+    assert resolved.checkpoint == "model_100.pt"
+    assert "env.pure_rl_adaptive_task_sampling_enabled=true" in command
+    assert "env.pure_rl_heading_canonical_observation=true" in command
+    assert not any("pure_rl_actor_yaw_consistency_coefficient" in value for value in command)
+    assert "agent.policy.class_name=PureRLSplitActorCritic" in command
+    assert metadata is not None
+    assert metadata["curriculum_route"] == (
+        "c3b_adaptive_sampling_heading_canonical_observation_from_model100_v1"
+    )
+    assert metadata["policy_class_name"] == "PureRLSplitActorCritic"
+
+
 @pytest.mark.parametrize(
     ("field", "option"),
     (
@@ -1520,6 +1654,148 @@ def test_spatial_curriculum_source_chain_and_defaults(
     assert train_and_watch._resolved_agent_num_mini_batches(args) == 16
     assert train_and_watch._resolved_max_iterations(args) == 500
     assert train_and_watch._resolved_save_interval(args) == 25
+
+
+def test_c3c_joint_preset_freezes_promoted_c3b_lineage_and_policy(tmp_path: Path) -> None:
+    source_run = "2026-08-31_17-32-50_pure_rl_c3b_headingcanonical_from100_seed0_101iter"
+    checkpoint = tmp_path / source_run / "model_75.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"promoted-c3b-heading-canonical-model-75")
+    args = train_and_watch.argparse.Namespace(
+        c3c_joint_from_promoted_c3b=True,
+        c3b_heading_canonical_observation=False,
+        c3b_yaw_consistency=False,
+        c3b_adaptive_sampling=False,
+        c3b_split_frequency_actor=False,
+        c3a_split_frequency_actor=False,
+        c3a_joint_from_c1=False,
+        c3a_joint_requested_frequency_smoothness=False,
+        c3a_joint_requested_frequency_total_variation=False,
+        c3a_joint_requested_applied_frequency_gap=False,
+        c3a_retention_phase_a=False,
+        c3a_large_actor=False,
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0",
+        run_name="pure_rl_c3c_joint_headingcanonical_from_c3b75_seed0_101iter",
+        num_envs=None,
+        max_iterations=None,
+        save_interval=None,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        agent_num_mini_batches=None,
+        c2c_strong_climb_probability=None,
+        actor_distillation_coefficient=0.0,
+        source_stage=None,
+        source_checkpoint_path=checkpoint,
+        checkpoint=None,
+        load_run=None,
+        portable_root_base=tmp_path / "portable",
+        native_extension_parent=tmp_path / "native_extensions",
+        freeze_steps_after_reset=None,
+        mass_kg_override=None,
+        resume=False,
+        concurrent_eval=False,
+        adaptive_task_sampling=False,
+        c2c_recycle_on_recovery=False,
+        load_weights_only=False,
+        native_cpu=False,
+        agent_device=None,
+        train_only=False,
+    )
+
+    resolved = train_and_watch._apply_c3c_joint_preset(args)
+    command = train_and_watch._build_train_cmd(resolved)
+    metadata = train_and_watch._build_curriculum_source_metadata(resolved)
+
+    assert resolved.num_envs == 256
+    assert resolved.max_iterations == 101
+    assert resolved.save_interval == 25
+    assert resolved.agent_num_mini_batches == 16
+    assert resolved.c2c_strong_climb_probability == pytest.approx(0.5)
+    assert resolved.source_stage == "c3b"
+    assert resolved.load_run == source_run
+    assert resolved.checkpoint == "model_75.pt"
+    assert resolved.load_weights_only is True
+    assert resolved.native_cpu is True
+    assert resolved.agent_device == "cpu"
+    assert resolved.train_only is True
+    assert "agent.policy.class_name=PureRLSplitActorCritic" in command
+    assert "env.pure_rl_heading_canonical_observation=true" in command
+    assert "env.pure_rl_reward_cfg.requested_applied_frequency_action_gap_penalty_weight=0.05" in command
+    assert metadata is not None
+    assert metadata["target_stage"] == "c3c"
+    assert metadata["source_stage"] == "c3b"
+    assert metadata["curriculum_route"] == "c3c_joint_heading_canonical_from_promoted_c3b_v1"
+    assert metadata["policy_class_name"] == "PureRLSplitActorCritic"
+
+
+def test_full_c3_joint_preset_freezes_c2c_lineage_and_five_task_contract(tmp_path: Path) -> None:
+    source_run = "2026-08-12_17-12-48_pure_rl_c2c_seed0_resume500_to550"
+    checkpoint = tmp_path / source_run / "model_550.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"promoted-c2c-model-550")
+    args = train_and_watch.argparse.Namespace(
+        c3_full_joint_from_c2c=True,
+        c3c_joint_from_promoted_c3b=False,
+        c3b_heading_canonical_observation=False,
+        c3b_yaw_consistency=False,
+        c3b_adaptive_sampling=False,
+        c3b_split_frequency_actor=False,
+        c3a_split_frequency_actor=False,
+        c3a_joint_from_c1=False,
+        c3a_joint_requested_frequency_smoothness=False,
+        c3a_joint_requested_frequency_total_variation=False,
+        c3a_joint_requested_applied_frequency_gap=False,
+        c3a_retention_phase_a=False,
+        c3a_large_actor=False,
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0",
+        run_name="pure_rl_c3_full_joint_from_c2c_seed0_301iter",
+        num_envs=None,
+        max_iterations=None,
+        save_interval=None,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        agent_num_mini_batches=None,
+        c2c_strong_climb_probability=None,
+        actor_distillation_coefficient=0.0,
+        source_stage=None,
+        source_checkpoint_path=checkpoint,
+        checkpoint=None,
+        load_run=None,
+        portable_root_base=tmp_path / "portable",
+        native_extension_parent=tmp_path / "native_extensions",
+        freeze_steps_after_reset=None,
+        mass_kg_override=None,
+        resume=False,
+        concurrent_eval=False,
+        adaptive_task_sampling=False,
+        c2c_recycle_on_recovery=False,
+        load_weights_only=False,
+        native_cpu=False,
+        agent_device=None,
+        train_only=False,
+    )
+
+    resolved = train_and_watch._apply_c3_full_joint_preset(args)
+    command = train_and_watch._build_train_cmd(resolved)
+    metadata = train_and_watch._build_curriculum_source_metadata(resolved)
+
+    assert resolved.max_iterations == 301
+    assert resolved.source_stage == "c2c"
+    assert resolved.load_run == source_run
+    assert resolved.checkpoint == "model_550.pt"
+    assert resolved.load_weights_only is True
+    assert resolved.native_cpu is True
+    assert "env.pure_rl_full_c3_joint_training_enabled=true" in command
+    assert "env.pure_rl_task_aware_ppo_task_weights=[0.15,0.2,0.15,0.25,0.25]" in command
+    assert "agent.policy.class_name=PureRLSplitActorCritic" in command
+    assert "env.pure_rl_heading_canonical_observation=true" in command
+    assert metadata is not None
+    assert metadata["target_stage"] == "c3c"
+    assert metadata["source_stage"] == "c2c"
+    assert metadata["curriculum_route"] == "c3_full_joint_heading_canonical_from_promoted_c2c_v1"
+    assert metadata["task_probabilities"] == "0.15,0.2,0.15,0.25,0.25"
 
 
 def test_spatial_curriculum_source_chain_rejects_wrong_stage(tmp_path: Path) -> None:

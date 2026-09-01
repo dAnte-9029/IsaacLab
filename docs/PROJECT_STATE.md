@@ -50,6 +50,17 @@ The first C3b v1 run stopped near iteration 59 because a diagnostic per-rollout 
 
 The completed C3b v2 run was evaluated at iterations 50 through 250 on C3b v3 plus frozen C3a, C2c and C1. No checkpoint passed every suite. `model_100.pt` retained all old suites and was the best C3b candidate, with remaining failures concentrated in templates 5/7 under strong positive climb. C2c retention regressed from iteration 175 onward. The bounded C3b adaptive-ability experiment was launched weights-only from `model_100.pt` on 2026-08-30, keeps the fixed `15/20/15/50` task-aware PPO objective and 50 percent C3b share, and adapts only simple-task reset allocation plus template-5/7 and strong-climb coverage. Its iteration-0 telemetry and source metadata match the frozen route; this is startup evidence, not performance or promotion evidence. See `docs/decisions/ADR-2026-08-30-pure-rl-c3b-adaptive-ability-sampling.md`.
 
+The completed paired global-yaw consistency experiment recovered three C3b cases at iteration 100 but did not reduce matched heading-0/180 action divergence, did not pass C3b, and slightly regressed C2c. The next controlled route therefore changes only the policy attitude representation: every history quaternion is expressed relative to the fixed episode route heading with a unique sign, while world-frame physics and body-frame preview remain unchanged. A 16-environment CPU-native smoke passed, and the 101-iteration seed-0 run was launched weights-only from the same fixed-mixture C3b `model_100.pt` with adaptive sampling and yaw-consistency loss zero. See `docs/decisions/ADR-2026-08-31-pure-rl-heading-canonical-observation.md` and `docs/handoffs/2026-08-26-pure-rl-c3a-curriculum-forgetting.md`.
+
+The route-heading-canonical C3b run subsequently promoted `model_75.pt`, but zero-shot C3c and a
+101-iteration C3c continuation exposed that the four-group C3c sampler was not a complete C3 task
+union. Its best continuation checkpoint retained only 168/176 C3b cases without improving the
+88/96 zero-shot C3c result; later checkpoints degraded C3b further and iteration 100 also failed
+C1. The accepted replacement experiment starts from promoted C2c `model_550.pt` and jointly trains
+C1/C2c/C3a/all-C3b/C3c at fixed `15/20/15/25/25` weights using the final split actor and
+route-heading-canonical observation. Existing staged routes remain available. See
+`docs/decisions/ADR-2026-09-01-pure-rl-full-c3-joint-training.md`.
+
 CPU-native end-to-end PPO scaling was benchmarked at equal work after separating training from checkpoint evaluation. For 245,760 transitions and 1,280 optimizer steps, 64/128/256 environments achieved median 838.0/1462.0/2185.5 steps/s and fixed-work iteration sums of 292.81/167.87/112.20 seconds. The 256-environment, 16-minibatch configuration gives 2.61 times the 64-environment throughput and is validated as the measured PureRL training default. An 80-iteration resumed C2a run processed 983,040 transitions in 7 minutes 37 seconds; adjacent `model_1550.pt` and `model_1575.pt` checkpoints passed both C2a and C1 retention. Measured PureRL launcher defaults are now 256 environments, 16 minibatches, 500 iterations, and a 25-iteration save interval; explicit overrides and non-measured defaults remain available. Sample-equivalent promotion cadence is frozen at 614,400 transitions minimum and 307,200 transitions between evidence. See `docs/decisions/ADR-2026-08-11-pure-rl-accelerated-training-defaults.md` and `docs/audits/2026-08-11-pure-rl-cpu-native-training-acceleration.md`.
 
 Measured PureRL C1/C2/C3 launcher runs now also default to train-only execution so they reproduce the benchmarked process isolation. Checkpoint evaluation runs sequentially in fresh processes; `--concurrent-eval` is an explicit non-authority opt-in, while `--train-only` remains the visible authority flag. Non-measured task defaults are unchanged. See `docs/decisions/ADR-2026-08-12-pure-rl-sequential-evaluation-default.md`.
@@ -141,4 +152,7 @@ Validation on 2026-08-12 passed 219 focused PureRL C1/C2/C3 unit and contract te
 
 ## Exact next task
 
-Complete the bounded `c3b_adaptive_sampling_from_model100_v1` seed-0 experiment, then evaluate checkpoints 50, 75 and 100 in fresh CPU-native processes on C3b v3 plus frozen C3a, C2c and C1. Promote only the later member of an adjacent all-suite passing pair. Preserve the split actor, weights-only C3b `model_100.pt` lineage, fixed 15/20/15/50 task-aware PPO objective and frozen v3 contract; do not treat adaptive telemetry or a C3b-only pass as promotion evidence.
+Let the `c3_full_joint_heading_canonical_from_promoted_c2c_v1` seed-0 run finish without concurrent
+evaluation. Then evaluate candidate checkpoints in fresh CPU-native processes on C3c v2, C3b v3,
+C3a v2, C2c v2 and C1 v2. Promote only the later member of an adjacent all-suite passing pair;
+training telemetry or any single-suite pass remains insufficient.

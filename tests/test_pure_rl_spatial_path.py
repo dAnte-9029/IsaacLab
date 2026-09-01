@@ -55,6 +55,12 @@ def test_spatial_stage_configs_match_approved_ranges_and_probabilities() -> None
     assert configs["c3c"].c2c_rehearsal_task_probabilities == (0.0, 0.5, 0.5)
     assert configs["c3c"].event_count_range == (2, 4)
 
+    assert configs["c3joint"].task_probabilities == (0.15, 0.20, 0.15, 0.25, 0.25)
+    assert configs["c3joint"].geometry_roll_deg_range == (6.0, 17.0)
+    assert configs["c3joint"].coupled_slope_deg_range == (3.0, 10.0)
+    assert configs["c3joint"].event_count_range == (2, 4)
+    assert configs["c3joint"].loiter_radius_m_range == (50.0, 80.0)
+
     for config in configs.values():
         assert config.transition_length_m_range == (8.0, 12.0)
         assert config.guard_speed_mps == pytest.approx(12.0)
@@ -192,6 +198,37 @@ def test_c3c_current_vertical_events_alternate_direction() -> None:
         assert active_signs.numel() >= 1
         if active_signs.numel() > 1:
             torch.testing.assert_close(active_signs[1:], -active_signs[:-1])
+
+
+def test_c3_joint_samples_all_five_families_and_full_spatial_contracts() -> None:
+    batch = _sample(stage="c3joint", count=4096, seed=31)
+    family_ids = set(batch.task_family_id.unique().tolist())
+    assert family_ids == {0, 1, 2, 3, 4}
+
+    c3a = batch.task_family_id == pure_rl_spatial_path.C3_JOINT_C3A_TASK_FAMILY_ID
+    c3b = batch.task_family_id == pure_rl_spatial_path.C3_JOINT_C3B_TASK_FAMILY_ID
+    c3c = batch.task_family_id == pure_rl_spatial_path.C3_JOINT_C3C_TASK_FAMILY_ID
+
+    assert bool(torch.all(batch.template_id[c3a] == pure_rl_spatial_path.ISOLATED_TURN_TEMPLATE_ID))
+    assert set(batch.template_id[c3b].unique().tolist()) == set(range(3, 10))
+    assert bool(torch.all(batch.template_id[c3c] == pure_rl_spatial_path.C3C_COUPLED_TEMPLATE_ID))
+
+    c3b_simultaneous = (torch.abs(batch.curvature_rad_per_m[c3b]) > 0.0) & (
+        torch.abs(batch.slope_rad[c3b]) > 0.0
+    )
+    assert not bool(torch.any(c3b_simultaneous))
+    assert bool(
+        torch.all(
+            torch.any(
+                (torch.abs(batch.curvature_rad_per_m[c3c]) > 0.0)
+                & (torch.abs(batch.slope_rad[c3c]) > 0.0),
+                dim=1,
+            )
+        )
+    )
+    demand = torch.square(batch.peak_geometry_roll_rad[c3c] / math.radians(20.0))
+    demand += torch.square(torch.abs(batch.peak_slope_rad[c3c]) / math.radians(10.0))
+    assert bool(torch.all(demand <= 1.0 + 1.0e-12))
 
 
 def test_current_c3a_and_c3b_event_contracts_are_isolated_and_sequential() -> None:

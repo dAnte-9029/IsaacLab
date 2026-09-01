@@ -36,6 +36,7 @@ def test_build_eval_command_is_one_exact_cpu_native_suite(tmp_path: Path) -> Non
         headless=True,
         actor_hidden_dims=(512, 256),
         split_frequency_actor=True,
+        heading_canonical_observation=True,
     )
 
     assert command[0] == sys.executable
@@ -52,6 +53,7 @@ def test_build_eval_command_is_one_exact_cpu_native_suite(tmp_path: Path) -> Non
     actor_dims_index = command.index("--actor-hidden-dims")
     assert command[actor_dims_index + 1 : actor_dims_index + 3] == ["512", "256"]
     assert "--pure-rl-split-frequency-actor" in command
+    assert "--pure-rl-heading-canonical-observation" in command
     kit_args = command[command.index("--kit_args") + 1]
     assert "--enable omni.flapping_bot.holonomic_constraint" in kit_args
 
@@ -136,6 +138,14 @@ def test_c3b_suite_adds_current_stage_before_all_retention_suites() -> None:
     assert [suite.name for suite in suites] == ["c3b", "c3a", "c1", "c2c"]
     assert suites[0].evaluation_contract == "pure_rl_spatial_c3b_v3"
     assert suites[0].case_count == 176
+
+
+def test_c3c_suite_adds_c3b_and_all_earlier_retention_suites() -> None:
+    suites = evaluate._evaluation_suites("c3c")
+
+    assert [suite.name for suite in suites] == ["c3c", "c3b", "c3a", "c1", "c2c"]
+    assert suites[0].evaluation_contract == "pure_rl_spatial_c3c_v2"
+    assert suites[0].case_count == 96
 
 
 def test_checkpoint_iteration_rejects_ambiguous_name(tmp_path: Path) -> None:

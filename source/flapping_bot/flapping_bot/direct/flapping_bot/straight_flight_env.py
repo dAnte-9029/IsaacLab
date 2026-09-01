@@ -129,6 +129,7 @@ from ...px4_like.rl_training_utils import (
     ACTOR_GRADIENT_PROBE_GROUP_KEY,
     ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
     TASK_AWARE_C3B_GROUP,
+    TASK_AWARE_C3C_GROUP,
     apply_teacher_guided_actions,
     linear_anneal,
     piecewise_linear_anneal,
@@ -155,6 +156,7 @@ from .action_contract import (
 from .pure_rl_observation import (
     PURE_RL_RAW_OBSERVATION_LAYOUT,
     build_raw_sensor_frame,
+    canonicalize_orientation_to_route_heading,
     compute_preview_query_progress_m,
     normalize_actor_observation,
     transform_world_preview_points_to_body,
@@ -173,6 +175,7 @@ from .pure_rl_longitudinal_path import (
     write_longitudinal_path_batch_rows_,
 )
 from .pure_rl_spatial_path import (
+    C3_JOINT_C3C_TASK_FAMILY_ID,
     C3B_CLIMB_THEN_TURN_TEMPLATE_ID,
     C3B_TURN_THEN_CLIMB_TEMPLATE_ID,
     CURRENT_SPATIAL_TASK_FAMILY_ID,
@@ -259,7 +262,10 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_eval_spatial_turn_sign_schedule: tuple[int, ...] | None = None
     pure_rl_longitudinal_stage_id: str | None = None
     pure_rl_spatial_stage_id: str | None = None
+    pure_rl_full_c3_joint_training_enabled: bool = False
     pure_rl_actor_distillation_coefficient: float = 0.0
+    pure_rl_actor_yaw_consistency_coefficient: float = 0.0
+    pure_rl_heading_canonical_observation: bool = False
     pure_rl_actor_gradient_probe_enabled: bool = False
     pure_rl_actor_gradient_probe_interval: int = 1
     pure_rl_actor_gradient_probe_minimum_samples: int = 32
@@ -1041,6 +1047,10 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLC3cEnvCfg(
 
     pure_rl_spatial_stage_id: str = "c3c"
     episode_length_s: float = 20.0
+    pure_rl_warm_start_guard_enabled: bool = True
+    pure_rl_task_aware_ppo_enabled: bool = True
+    pure_rl_task_aware_ppo_task_weights: tuple[float, ...] = (0.15, 0.20, 0.15, 0.50)
+    pure_rl_task_aware_ppo_minimum_phase_samples: int = 0
 
 
 @configclass
@@ -1120,11 +1130,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             if cfg.pure_rl_longitudinal_stage_id is not None
             else None
         )
-        spatial_stage = (
-            resolve_spatial_stage(cfg.pure_rl_spatial_stage_id)
-            if cfg.pure_rl_spatial_stage_id is not None
-            else None
-        )
+        spatial_stage_id = cfg.pure_rl_spatial_stage_id
+        if bool(cfg.pure_rl_full_c3_joint_training_enabled):
+            if spatial_stage_id != "c3c":
+                raise ValueError("Full C3 joint training requires the C3c environment contract.")
+            spatial_stage_id = "c3joint"
+        spatial_stage = resolve_spatial_stage(spatial_stage_id) if spatial_stage_id is not None else None
         if longitudinal_stage is not None and spatial_stage is not None:
             raise ValueError("PureRL longitudinal and spatial stages are mutually exclusive.")
         if longitudinal_stage is not None:
@@ -1144,6 +1155,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             spatial_stage is None or spatial_stage.stage_id != "c3a"
         ):
             raise ValueError("PureRL actor distillation is currently defined only for C3a training.")
+        actor_yaw_consistency_coefficient = float(cfg.pure_rl_actor_yaw_consistency_coefficient)
+        if (
+            not math.isfinite(actor_yaw_consistency_coefficient)
+            or actor_yaw_consistency_coefficient < 0.0
+        ):
+            raise ValueError("PureRL actor yaw consistency coefficient must be finite and non-negative.")
+        if actor_yaw_consistency_coefficient > 0.0 and (
+            spatial_stage is None or spatial_stage.stage_id != "c3b"
+        ):
+            raise ValueError("PureRL actor yaw consistency is currently defined only for C3b training.")
+        if actor_distillation_coefficient > 0.0 and actor_yaw_consistency_coefficient > 0.0:
+            raise ValueError("PureRL actor distillation and yaw consistency are mutually exclusive.")
+        if bool(cfg.pure_rl_heading_canonical_observation) and not bool(
+            cfg.use_pure_rl_actor_observation
+        ):
+            raise ValueError("Heading-canonical orientation requires the PureRL actor observation.")
         actor_gradient_probe_enabled = bool(cfg.pure_rl_actor_gradient_probe_enabled)
         if actor_gradient_probe_enabled:
             if spatial_stage is None or spatial_stage.stage_id != "c3a":
@@ -1160,10 +1187,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError("PureRL actor gradient probe minimum samples must be a positive integer.")
         task_aware_ppo_enabled = bool(cfg.pure_rl_task_aware_ppo_enabled)
         if task_aware_ppo_enabled:
-            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b"):
-                raise ValueError("PureRL task-aware PPO is defined only for C3a/C3b training.")
+            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b", "c3c", "c3joint"):
+                raise ValueError("PureRL task-aware PPO is defined only for C3 spatial training.")
             task_weights = tuple(float(value) for value in cfg.pure_rl_task_aware_ppo_task_weights)
-            expected_weight_count = 3 if spatial_stage.stage_id == "c3a" else 4
+            expected_weight_count = {"c3a": 3, "c3b": 4, "c3c": 4, "c3joint": 5}[
+                spatial_stage.stage_id
+            ]
             if len(task_weights) != expected_weight_count or any(
                 (not math.isfinite(value)) or value <= 0.0 for value in task_weights
             ):
@@ -1191,8 +1220,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 )
         warm_start_guard_enabled = bool(cfg.pure_rl_warm_start_guard_enabled)
         if warm_start_guard_enabled:
-            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b"):
-                raise ValueError("PureRL warm-start guard is defined only for C3a/C3b training.")
+            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b", "c3c", "c3joint"):
+                raise ValueError("PureRL warm-start guard is defined only for C3 spatial training.")
             burn_in_iterations = cfg.pure_rl_warm_start_burn_in_iterations
             update_iterations = cfg.pure_rl_warm_start_update_iterations
             warmup_epochs = cfg.pure_rl_warm_start_num_learning_epochs
@@ -5091,19 +5120,26 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         assert self._pure_rl_previous_orientation_wxyz is not None
         assert self._pure_rl_sensor_history is not None
         assert self._pure_rl_action_history is not None
-        orientation_wxyz = self._robot.data.root_quat_w
+        orientation_world_wxyz = self._robot.data.root_quat_w
+        orientation_actor_wxyz = orientation_world_wxyz
+        if bool(self.cfg.pure_rl_heading_canonical_observation):
+            assert self._straight_line_heading_rad is not None
+            orientation_actor_wxyz = canonicalize_orientation_to_route_heading(
+                orientation_world_wxyz,
+                self._straight_line_heading_rad,
+            )
         ground_velocity_b = self._robot.data.root_lin_vel_b
         angular_velocity_b = self._robot.data.root_ang_vel_b
-        wind_b = quat_apply_inverse(orientation_wxyz, self._wind_w)
+        wind_b = quat_apply_inverse(orientation_world_wxyz, self._wind_w)
         forward_air_velocity_b = ground_velocity_b[:, 0] - wind_b[:, 0]
 
         previous_orientation = torch.where(
             self._pure_rl_history_valid.unsqueeze(1),
             self._pure_rl_previous_orientation_wxyz,
-            orientation_wxyz,
+            orientation_actor_wxyz,
         )
         sensor_frame = build_raw_sensor_frame(
-            orientation_world_wxyz=orientation_wxyz,
+            orientation_world_wxyz=orientation_actor_wxyz,
             ground_velocity_body_mps=ground_velocity_b,
             angular_velocity_body_rad_s=angular_velocity_b,
             forward_air_velocity_body_mps=forward_air_velocity_b,
@@ -5136,7 +5172,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         preview_points_b = transform_world_preview_points_to_body(
             preview_points_world_m=preview_points_w,
             vehicle_position_world_m=local_position_w,
-            orientation_world_wxyz=orientation_wxyz,
+            orientation_world_wxyz=orientation_world_wxyz,
         )
 
         invalid_ids = (~self._pure_rl_history_valid).nonzero(as_tuple=False).squeeze(-1)
@@ -5180,6 +5216,8 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             c2c = task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
             probe_group[c2c] = ACTOR_GRADIENT_PROBE_C2C_GROUP
             probe_group[task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID] = TASK_AWARE_C3B_GROUP
+            if self._pure_rl_spatial_stage.stage_id == "c3joint":
+                probe_group[task_family_id == C3_JOINT_C3C_TASK_FAMILY_ID] = TASK_AWARE_C3C_GROUP
             query = self._query_pure_rl_spatial_path()
             strong_c2c_route = c2c & (
                 self._pure_rl_spatial_path.peak_slope_rad

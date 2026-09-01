@@ -107,6 +107,44 @@ def align_quaternion_sign_to_previous(
     return torch.where(choose_negative, -current, current)
 
 
+def canonicalize_orientation_to_route_heading(
+    orientation_world_wxyz: Tensor,
+    route_heading_rad: Tensor,
+) -> Tensor:
+    """Express world orientation relative to a fixed route heading.
+
+    The returned ``wxyz`` quaternion is ``q_z(-route_heading) * q_world``.
+    Its sign is chosen with a non-negative scalar component so equivalent
+    world headings and the quaternion double cover share one actor input.
+    """
+
+    _validate_matrix("orientation_world_wxyz", orientation_world_wxyz, columns=4)
+    _validate_vector("route_heading_rad", route_heading_rad)
+    _validate_same_batch_and_metadata(
+        "orientation_world_wxyz",
+        orientation_world_wxyz,
+        "route_heading_rad",
+        route_heading_rad,
+    )
+
+    orientation = normalize_quaternion_wxyz(orientation_world_wxyz)
+    half_heading = -0.5 * route_heading_rad
+    cosine = torch.cos(half_heading)
+    sine = torch.sin(half_heading)
+    w, x, y, z = orientation.unbind(dim=1)
+    canonical = torch.stack(
+        (
+            cosine * w - sine * z,
+            cosine * x - sine * y,
+            cosine * y + sine * x,
+            cosine * z + sine * w,
+        ),
+        dim=1,
+    )
+    canonical = normalize_quaternion_wxyz(canonical)
+    return torch.where(canonical[:, 0:1] < 0.0, -canonical, canonical)
+
+
 def build_raw_sensor_frame(
     *,
     orientation_world_wxyz: Tensor,
@@ -460,6 +498,7 @@ __all__ = [
     "append_raw_history",
     "build_raw_actor_observation",
     "build_raw_sensor_frame",
+    "canonicalize_orientation_to_route_heading",
     "compute_preview_query_progress_m",
     "initialize_raw_history",
     "normalize_actor_observation",

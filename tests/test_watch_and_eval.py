@@ -169,6 +169,26 @@ def test_watch_and_eval_parser_accepts_split_frequency_actor(monkeypatch) -> Non
     assert args.pure_rl_split_frequency_actor is True
 
 
+def test_watch_and_eval_parser_accepts_heading_canonical_observation(monkeypatch) -> None:
+    watch_and_eval = _load_watch_and_eval_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "watch_and_eval.py",
+            "--task",
+            "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0",
+            "--log_dir",
+            "logs/dummy_run",
+            "--pure-rl-heading-canonical-observation",
+        ],
+    )
+
+    args = watch_and_eval._parse_args()
+
+    assert args.pure_rl_heading_canonical_observation is True
+
+
 def test_resolve_checkpoint_candidates_prefers_exact_checkpoint(tmp_path: Path) -> None:
     watch_and_eval = _load_watch_and_eval_module()
     run_dir = tmp_path / "run"

@@ -128,6 +128,7 @@ _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL = 25
 _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES = 16
 _C3A_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0"
 _C3B_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
+_C3C_TASK_ID = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0"
 _C3A_RETENTION_PHASE_A_NUM_ENVS = 256
 _C3A_RETENTION_PHASE_A_MAX_ITERATIONS = 101
 _C3A_RETENTION_PHASE_A_SAVE_INTERVAL = 25
@@ -165,6 +166,22 @@ _C3B_ADAPTIVE_SAMPLING_SOURCE_RUN = (
 _C3B_ADAPTIVE_SAMPLING_CHECKPOINT = "model_100.pt"
 _C3B_ADAPTIVE_SAMPLING_ROUTE = "c3b_adaptive_sampling_from_model100_v1"
 _C3B_ADAPTIVE_SAMPLING_MAX_ITERATIONS = 101
+_C3B_YAW_CONSISTENCY_COEFFICIENT = 0.05
+_C3B_YAW_CONSISTENCY_ROUTE = "c3b_adaptive_sampling_yaw_consistency_from_model100_v1"
+_C3B_HEADING_CANONICAL_OBSERVATION_ROUTE = (
+    "c3b_adaptive_sampling_heading_canonical_observation_from_model100_v1"
+)
+_C3C_JOINT_SOURCE_STAGE = "c3b"
+_C3C_JOINT_SOURCE_RUN = "2026-08-31_17-32-50_pure_rl_c3b_headingcanonical_from100_seed0_101iter"
+_C3C_JOINT_CHECKPOINT = "model_75.pt"
+_C3C_JOINT_ROUTE = "c3c_joint_heading_canonical_from_promoted_c3b_v1"
+_C3C_JOINT_MAX_ITERATIONS = 101
+_C3_FULL_JOINT_SOURCE_STAGE = "c2c"
+_C3_FULL_JOINT_SOURCE_RUN = "2026-08-12_17-12-48_pure_rl_c2c_seed0_resume500_to550"
+_C3_FULL_JOINT_CHECKPOINT = "model_550.pt"
+_C3_FULL_JOINT_ROUTE = "c3_full_joint_heading_canonical_from_promoted_c2c_v1"
+_C3_FULL_JOINT_MAX_ITERATIONS = 301
+_C3_FULL_JOINT_TASK_WEIGHTS = (0.15, 0.20, 0.15, 0.25, 0.25)
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
@@ -420,6 +437,41 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--c3b-yaw-consistency",
+        action="store_true",
+        help=(
+            "Run the matched C3b adaptive continuation with one additional variable: "
+            "a 0.05 actor MSE loss between each observation and a paired global-yaw rotation."
+        ),
+    )
+    parser.add_argument(
+        "--c3b-heading-canonical-observation",
+        action="store_true",
+        help=(
+            "Run the matched C3b adaptive continuation with one observation change: "
+            "express all actor attitude quaternions relative to the episode route heading."
+        ),
+    )
+    parser.add_argument(
+        "--c3c-joint-from-promoted-c3b",
+        action="store_true",
+        help=(
+            "Run the bounded C3c joint recipe from promoted heading-canonical C3b model_75: "
+            "fresh optimizer, registered 15/20/15/50 cumulative sampling, split actor, "
+            "heading-canonical observation, task-aware PPO, 101 iterations, and 25-iteration saves."
+        ),
+    )
+    parser.add_argument(
+        "--c3-full-joint-from-c2c",
+        action="store_true",
+        help=(
+            "Train the complete C3 task union directly from promoted C2c: fixed "
+            "15/20/15/25/25 C1/C2c/C3a/C3b/C3c sampling, all C3b templates, "
+            "coupled C3c paths, split actor, heading-canonical observation, fresh optimizer, "
+            "301 iterations, and no adaptive sampling or distillation."
+        ),
+    )
+    parser.add_argument(
         "--eval-num-envs",
         type=int,
         default=None,
@@ -617,6 +669,8 @@ def _apply_c3a_joint_from_c1_preset(args: argparse.Namespace) -> argparse.Namesp
         ("c3a_large_actor", "--c3a-large-actor"),
         ("c3a_split_frequency_actor", "--c3a-split-frequency-actor"),
         ("c3b_adaptive_sampling", "--c3b-adaptive-sampling"),
+        ("c3b_yaw_consistency", "--c3b-yaw-consistency"),
+        ("c3b_heading_canonical_observation", "--c3b-heading-canonical-observation"),
         ("resume", "--resume"),
         ("concurrent_eval", "--concurrent-eval"),
         ("adaptive_task_sampling", "--adaptive-task-sampling"),
@@ -771,6 +825,8 @@ def _apply_c3b_split_frequency_actor_preset(args: argparse.Namespace) -> argpars
         ("c3a_joint_requested_applied_frequency_gap", "--c3a-joint-requested-applied-frequency-gap"),
         ("c3a_split_frequency_actor", "--c3a-split-frequency-actor"),
         ("c3b_adaptive_sampling", "--c3b-adaptive-sampling"),
+        ("c3b_yaw_consistency", "--c3b-yaw-consistency"),
+        ("c3b_heading_canonical_observation", "--c3b-heading-canonical-observation"),
         ("resume", "--resume"),
         ("concurrent_eval", "--concurrent-eval"),
         ("adaptive_task_sampling", "--adaptive-task-sampling"),
@@ -817,9 +873,23 @@ def _apply_c3b_split_frequency_actor_preset(args: argparse.Namespace) -> argpars
 def _apply_c3b_adaptive_sampling_preset(args: argparse.Namespace) -> argparse.Namespace:
     """Apply the controlled C3b fine-grained adaptive-sampling continuation."""
 
-    if not bool(getattr(args, "c3b_adaptive_sampling", False)):
+    adaptive_sampling = bool(getattr(args, "c3b_adaptive_sampling", False))
+    yaw_consistency = bool(getattr(args, "c3b_yaw_consistency", False))
+    heading_canonical = bool(getattr(args, "c3b_heading_canonical_observation", False))
+    selected = sum((adaptive_sampling, yaw_consistency, heading_canonical))
+    if selected == 0:
         return args
-    preset_option = "--c3b-adaptive-sampling"
+    if selected > 1:
+        raise ValueError(
+            "Select only one C3b adaptive continuation preset: sampling, yaw consistency, "
+            "or heading-canonical observation."
+        )
+    if heading_canonical:
+        preset_option = "--c3b-heading-canonical-observation"
+    elif yaw_consistency:
+        preset_option = "--c3b-yaw-consistency"
+    else:
+        preset_option = "--c3b-adaptive-sampling"
     if str(getattr(args, "task", "")) != _C3B_TASK_ID:
         raise ValueError(f"{preset_option} requires the measured CPU-native C3b task.")
     for name, option in (
@@ -868,6 +938,123 @@ def _apply_c3b_adaptive_sampling_preset(args: argparse.Namespace) -> argparse.Na
         setattr(args, name, expected)
 
     args.adaptive_task_sampling = True
+    args.load_weights_only = True
+    args.native_cpu = True
+    args.train_only = True
+    args.concurrent_eval = False
+    return args
+
+
+def _apply_c3c_joint_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply the bounded C3c joint continuation from promoted C3b."""
+
+    if not bool(getattr(args, "c3c_joint_from_promoted_c3b", False)):
+        return args
+    preset_option = "--c3c-joint-from-promoted-c3b"
+    if str(getattr(args, "task", "")) != _C3C_TASK_ID:
+        raise ValueError(f"{preset_option} requires the measured CPU-native C3c task.")
+    for name, option in (
+        ("c3a_retention_phase_a", "--c3a-retention-phase-a"),
+        ("c3a_large_actor", "--c3a-large-actor"),
+        ("c3a_joint_from_c1", "--c3a-joint-from-c1"),
+        ("c3a_split_frequency_actor", "--c3a-split-frequency-actor"),
+        ("c3b_split_frequency_actor", "--c3b-split-frequency-actor"),
+        ("c3b_adaptive_sampling", "--c3b-adaptive-sampling"),
+        ("c3b_yaw_consistency", "--c3b-yaw-consistency"),
+        ("c3b_heading_canonical_observation", "--c3b-heading-canonical-observation"),
+        ("resume", "--resume"),
+        ("concurrent_eval", "--concurrent-eval"),
+        ("adaptive_task_sampling", "--adaptive-task-sampling"),
+        ("c2c_recycle_on_recovery", "--c2c-recycle-on-recovery"),
+    ):
+        if bool(getattr(args, name, False)):
+            raise ValueError(f"{preset_option} cannot be combined with {option}.")
+    for name, expected, option in (
+        ("num_envs", _MEASURED_PURE_RL_DEFAULT_NUM_ENVS, "--num-envs"),
+        ("max_iterations", _C3C_JOINT_MAX_ITERATIONS, "--max-iterations"),
+        ("save_interval", _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL, "--save-interval"),
+        ("seed", 0, "--seed"),
+        ("agent_num_mini_batches", _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES, "--agent-num-mini-batches"),
+        ("c2c_strong_climb_probability", 0.5, "--c2c-strong-climb-probability"),
+        ("agent_device", "cpu", "--agent-device"),
+    ):
+        _set_preset_value(
+            args,
+            name=name,
+            expected=expected,
+            option=option,
+            preset_option=preset_option,
+        )
+    if float(getattr(args, "actor_distillation_coefficient", 0.0)) != 0.0:
+        raise ValueError(f"{preset_option} requires --actor-distillation-coefficient=0.")
+    for name, expected, option in (
+        ("source_stage", _C3C_JOINT_SOURCE_STAGE, "--source-stage"),
+        ("load_run", _C3C_JOINT_SOURCE_RUN, "--load_run"),
+        ("checkpoint", _C3C_JOINT_CHECKPOINT, "--checkpoint"),
+    ):
+        configured = str(getattr(args, name, "") or "").strip()
+        if configured not in ("", expected):
+            raise ValueError(f"{preset_option} requires {option}={expected}.")
+        setattr(args, name, expected)
+    args.load_weights_only = True
+    args.native_cpu = True
+    args.train_only = True
+    args.concurrent_eval = False
+    return args
+
+
+def _apply_c3_full_joint_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply complete C3 joint training from the promoted C2c actor."""
+
+    if not bool(getattr(args, "c3_full_joint_from_c2c", False)):
+        return args
+    preset_option = "--c3-full-joint-from-c2c"
+    if str(getattr(args, "task", "")) != _C3C_TASK_ID:
+        raise ValueError(f"{preset_option} requires the measured CPU-native C3c task.")
+    for name, option in (
+        ("c3a_retention_phase_a", "--c3a-retention-phase-a"),
+        ("c3a_large_actor", "--c3a-large-actor"),
+        ("c3a_joint_from_c1", "--c3a-joint-from-c1"),
+        ("c3a_split_frequency_actor", "--c3a-split-frequency-actor"),
+        ("c3b_split_frequency_actor", "--c3b-split-frequency-actor"),
+        ("c3b_adaptive_sampling", "--c3b-adaptive-sampling"),
+        ("c3b_yaw_consistency", "--c3b-yaw-consistency"),
+        ("c3b_heading_canonical_observation", "--c3b-heading-canonical-observation"),
+        ("c3c_joint_from_promoted_c3b", "--c3c-joint-from-promoted-c3b"),
+        ("resume", "--resume"),
+        ("concurrent_eval", "--concurrent-eval"),
+        ("adaptive_task_sampling", "--adaptive-task-sampling"),
+        ("c2c_recycle_on_recovery", "--c2c-recycle-on-recovery"),
+    ):
+        if bool(getattr(args, name, False)):
+            raise ValueError(f"{preset_option} cannot be combined with {option}.")
+    for name, expected, option in (
+        ("num_envs", _MEASURED_PURE_RL_DEFAULT_NUM_ENVS, "--num-envs"),
+        ("max_iterations", _C3_FULL_JOINT_MAX_ITERATIONS, "--max-iterations"),
+        ("save_interval", _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL, "--save-interval"),
+        ("seed", 0, "--seed"),
+        ("agent_num_mini_batches", _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES, "--agent-num-mini-batches"),
+        ("c2c_strong_climb_probability", 0.5, "--c2c-strong-climb-probability"),
+        ("agent_device", "cpu", "--agent-device"),
+    ):
+        _set_preset_value(
+            args,
+            name=name,
+            expected=expected,
+            option=option,
+            preset_option=preset_option,
+        )
+    if float(getattr(args, "actor_distillation_coefficient", 0.0)) != 0.0:
+        raise ValueError(f"{preset_option} requires --actor-distillation-coefficient=0.")
+    for name, expected, option in (
+        ("source_stage", _C3_FULL_JOINT_SOURCE_STAGE, "--source-stage"),
+        ("load_run", _C3_FULL_JOINT_SOURCE_RUN, "--load_run"),
+        ("checkpoint", _C3_FULL_JOINT_CHECKPOINT, "--checkpoint"),
+    ):
+        configured = str(getattr(args, name, "") or "").strip()
+        if configured not in ("", expected):
+            raise ValueError(f"{preset_option} requires {option}={expected}.")
+        setattr(args, name, expected)
     args.load_weights_only = True
     args.native_cpu = True
     args.train_only = True
@@ -1223,6 +1410,30 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
         train_cmd.append(
             f"env.pure_rl_actor_distillation_coefficient={actor_distillation_coefficient}"
         )
+    if bool(getattr(args, "c3b_yaw_consistency", False)):
+        if spatial_stage_for_task(str(args.task)) != "c3b":
+            raise ValueError("--c3b-yaw-consistency is supported only for C3b training.")
+        if not bool(getattr(args, "load_weights_only", False)):
+            raise ValueError("--c3b-yaw-consistency requires a weights-only warm start.")
+        train_cmd.append(
+            "env.pure_rl_actor_yaw_consistency_coefficient="
+            f"{_C3B_YAW_CONSISTENCY_COEFFICIENT}"
+        )
+    heading_canonical_observation = bool(
+        getattr(args, "c3b_heading_canonical_observation", False)
+    ) or bool(getattr(args, "c3c_joint_from_promoted_c3b", False)) or bool(
+        getattr(args, "c3_full_joint_from_c2c", False)
+    )
+    if heading_canonical_observation:
+        if spatial_stage_for_task(str(args.task)) not in {"c3b", "c3c"}:
+            raise ValueError(
+                "Heading-canonical observation is supported only for C3b/C3c training."
+            )
+        if not bool(getattr(args, "load_weights_only", False)):
+            raise ValueError(
+                "Heading-canonical observation requires a weights-only warm start."
+            )
+        train_cmd.append("env.pure_rl_heading_canonical_observation=true")
     if large_actor_enabled:
         hidden_dims = ",".join(str(value) for value in _C3A_LARGE_ACTOR_HIDDEN_DIMS)
         train_cmd.append(f"agent.policy.actor_hidden_dims=[{hidden_dims}]")
@@ -1252,9 +1463,25 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
             "env.pure_rl_reward_cfg.requested_applied_frequency_action_gap_penalty_weight="
             f"{_C3A_JOINT_REQUESTED_APPLIED_FREQUENCY_GAP_PENALTY_WEIGHT}"
         )
+    if bool(getattr(args, "c3_full_joint_from_c2c", False)):
+        task_weights = ",".join(str(value) for value in _C3_FULL_JOINT_TASK_WEIGHTS)
+        train_cmd.extend(
+            [
+                "env.pure_rl_full_c3_joint_training_enabled=true",
+                f"env.pure_rl_task_aware_ppo_task_weights=[{task_weights}]",
+            ]
+        )
     if bool(getattr(args, "c3a_split_frequency_actor", False)) or bool(
         getattr(args, "c3b_split_frequency_actor", False)
-    ) or bool(getattr(args, "c3b_adaptive_sampling", False)):
+    ) or bool(getattr(args, "c3b_adaptive_sampling", False)) or bool(
+        getattr(args, "c3b_yaw_consistency", False)
+    ) or bool(
+        getattr(args, "c3b_heading_canonical_observation", False)
+    ) or bool(
+        getattr(args, "c3c_joint_from_promoted_c3b", False)
+    ) or bool(
+        getattr(args, "c3_full_joint_from_c2c", False)
+    ):
         hidden_dims = ",".join(str(value) for value in _C3A_BASE_POLICY_HIDDEN_DIMS)
         train_cmd.extend(
             [
@@ -1321,8 +1548,22 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
         )
     if bool(getattr(args, "c3a_split_frequency_actor", False)) or bool(
         getattr(args, "c3b_split_frequency_actor", False)
-    ) or bool(getattr(args, "c3b_adaptive_sampling", False)):
+    ) or bool(getattr(args, "c3b_adaptive_sampling", False)) or bool(
+        getattr(args, "c3b_yaw_consistency", False)
+    ) or bool(
+        getattr(args, "c3b_heading_canonical_observation", False)
+    ) or bool(
+        getattr(args, "c3c_joint_from_promoted_c3b", False)
+    ) or bool(
+        getattr(args, "c3_full_joint_from_c2c", False)
+    ):
         watch_cmd.append("--pure-rl-split-frequency-actor")
+    if bool(getattr(args, "c3b_heading_canonical_observation", False)) or bool(
+        getattr(args, "c3c_joint_from_promoted_c3b", False)
+    ) or bool(
+        getattr(args, "c3_full_joint_from_c2c", False)
+    ):
+        watch_cmd.append("--pure-rl-heading-canonical-observation")
     if args.headless:
         watch_cmd.append("--headless")
     return watch_cmd
@@ -1348,9 +1589,23 @@ def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str
     split_frequency_actor = bool(getattr(args, "c3a_split_frequency_actor", False))
     c3b_split_frequency_actor = bool(getattr(args, "c3b_split_frequency_actor", False))
     c3b_adaptive_sampling = bool(getattr(args, "c3b_adaptive_sampling", False))
-    if c3b_adaptive_sampling:
+    c3b_yaw_consistency = bool(getattr(args, "c3b_yaw_consistency", False))
+    c3b_heading_canonical = bool(
+        getattr(args, "c3b_heading_canonical_observation", False)
+    )
+    c3c_joint = bool(getattr(args, "c3c_joint_from_promoted_c3b", False))
+    c3_full_joint = bool(getattr(args, "c3_full_joint_from_c2c", False))
+    if c3_full_joint:
+        if target_stage != "c3c":
+            raise ValueError("Full C3 joint training is valid only for target stage c3c.")
+        expected_source_stage = _C3_FULL_JOINT_SOURCE_STAGE
+    elif c3c_joint:
+        if target_stage != "c3c":
+            raise ValueError("C3c joint continuation is valid only for target stage c3c.")
+        expected_source_stage = _C3C_JOINT_SOURCE_STAGE
+    elif c3b_adaptive_sampling or c3b_yaw_consistency or c3b_heading_canonical:
         if target_stage != "c3b":
-            raise ValueError("--c3b-adaptive-sampling is valid only for target stage c3b.")
+            raise ValueError("C3b adaptive continuations are valid only for target stage c3b.")
         expected_source_stage = _C3B_ADAPTIVE_SAMPLING_SOURCE_STAGE
     elif c3b_split_frequency_actor:
         if target_stage != "c3b":
@@ -1390,12 +1645,26 @@ def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str
         raise ValueError(
             "--c3b-split-frequency-actor source path must resolve to the promoted C3a split model_200.pt."
         )
-    if c3b_adaptive_sampling and (
+    if (c3b_adaptive_sampling or c3b_yaw_consistency or c3b_heading_canonical) and (
         checkpoint_path.name != _C3B_ADAPTIVE_SAMPLING_CHECKPOINT
         or checkpoint_path.parent.name != _C3B_ADAPTIVE_SAMPLING_SOURCE_RUN
     ):
         raise ValueError(
-            "--c3b-adaptive-sampling source path must resolve to the fixed-mixture C3b model_100.pt."
+            "C3b adaptive continuation source must resolve to the fixed-mixture C3b model_100.pt."
+        )
+    if c3c_joint and (
+        checkpoint_path.name != _C3C_JOINT_CHECKPOINT
+        or checkpoint_path.parent.name != _C3C_JOINT_SOURCE_RUN
+    ):
+        raise ValueError(
+            "C3c joint source must resolve to the promoted heading-canonical C3b model_75.pt."
+        )
+    if c3_full_joint and (
+        checkpoint_path.name != _C3_FULL_JOINT_CHECKPOINT
+        or checkpoint_path.parent.name != _C3_FULL_JOINT_SOURCE_RUN
+    ):
+        raise ValueError(
+            "Full C3 joint source must resolve to the promoted C2c model_550.pt."
         )
     if joint_from_c1 and (
         checkpoint_path.name != _C3A_JOINT_FROM_C1_CHECKPOINT
@@ -1414,8 +1683,24 @@ def _build_curriculum_source_metadata(args: argparse.Namespace) -> dict[str, str
         "source_checkpoint_path": str(checkpoint_path),
         "source_checkpoint_sha256": digest.hexdigest(),
     }
-    if c3b_adaptive_sampling:
-        metadata["curriculum_route"] = _C3B_ADAPTIVE_SAMPLING_ROUTE
+    if c3_full_joint:
+        metadata["curriculum_route"] = _C3_FULL_JOINT_ROUTE
+        metadata["policy_class_name"] = _C3A_SPLIT_FREQUENCY_ACTOR_CLASS_NAME
+        metadata["heading_canonical_observation"] = "true"
+        metadata["task_probabilities"] = ",".join(
+            str(value) for value in _C3_FULL_JOINT_TASK_WEIGHTS
+        )
+    elif c3c_joint:
+        metadata["curriculum_route"] = _C3C_JOINT_ROUTE
+        metadata["policy_class_name"] = _C3A_SPLIT_FREQUENCY_ACTOR_CLASS_NAME
+        metadata["heading_canonical_observation"] = "true"
+    elif c3b_adaptive_sampling or c3b_yaw_consistency or c3b_heading_canonical:
+        if c3b_heading_canonical:
+            metadata["curriculum_route"] = _C3B_HEADING_CANONICAL_OBSERVATION_ROUTE
+        elif c3b_yaw_consistency:
+            metadata["curriculum_route"] = _C3B_YAW_CONSISTENCY_ROUTE
+        else:
+            metadata["curriculum_route"] = _C3B_ADAPTIVE_SAMPLING_ROUTE
         metadata["policy_class_name"] = _C3A_SPLIT_FREQUENCY_ACTOR_CLASS_NAME
     elif c3b_split_frequency_actor:
         metadata["curriculum_route"] = _C3B_SPLIT_FREQUENCY_ACTOR_ROUTE
@@ -1447,6 +1732,8 @@ def main():
     args = _apply_c3a_split_frequency_actor_preset(args)
     args = _apply_c3b_split_frequency_actor_preset(args)
     args = _apply_c3b_adaptive_sampling_preset(args)
+    args = _apply_c3c_joint_preset(args)
+    args = _apply_c3_full_joint_preset(args)
     curriculum_source_metadata = _build_curriculum_source_metadata(args)
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)

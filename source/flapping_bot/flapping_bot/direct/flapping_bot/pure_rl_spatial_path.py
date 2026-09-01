@@ -14,6 +14,9 @@ REHEARSAL_C2C_TASK_FAMILY_ID = 1
 EARLIER_SPATIAL_TASK_FAMILY_ID = 2
 CURRENT_SPATIAL_TASK_FAMILY_ID_C3A = 2
 CURRENT_SPATIAL_TASK_FAMILY_ID = 3
+C3_JOINT_C3A_TASK_FAMILY_ID = 2
+C3_JOINT_C3B_TASK_FAMILY_ID = 3
+C3_JOINT_C3C_TASK_FAMILY_ID = 4
 
 STRAIGHT_TEMPLATE_ID = 0
 LONGITUDINAL_TEMPLATE_ID = 1
@@ -138,6 +141,16 @@ SPATIAL_STAGE_CONFIGS: dict[str, PureRLSpatialStageConfig] = {
         finite_turn_deg_range=(20.0, 20.0),
         coupled_slope_deg_range=(3.0, 10.0),
         event_count_range=(2, 4),
+    ),
+    "c3joint": PureRLSpatialStageConfig(
+        stage_id="c3joint",
+        task_probabilities=(0.15, 0.20, 0.15, 0.25, 0.25),
+        c2c_rehearsal_task_probabilities=(0.0, 0.5, 0.5),
+        geometry_roll_deg_range=(6.0, 17.0),
+        finite_turn_deg_range=(20.0, 20.0),
+        coupled_slope_deg_range=(3.0, 10.0),
+        event_count_range=(2, 4),
+        loiter_radius_m_range=(50.0, 80.0),
     ),
 }
 
@@ -811,15 +824,20 @@ def _sample_event_contracts(
         event_type[current_rows, 0] = _EVENT_TURN
         event_count[current_rows] = 1
         template_id[current_rows] = ISOLATED_TURN_TEMPLATE_ID
-    elif config.stage_id == "c3b":
+
+    c3b_rows = current_rows if config.stage_id == "c3b" else torch.zeros_like(current_rows)
+    if config.stage_id == "c3joint":
+        c3b_rows = task_family_id == C3_JOINT_C3B_TASK_FAMILY_ID
+    if bool(torch.any(c3b_rows)):
+        maximum_c3b_events = 3 if config.stage_id == "c3joint" else config.event_count_range[1]
         sampled_count = torch.randint(
             config.event_count_range[0],
-            config.event_count_range[1] + 1,
+            maximum_c3b_events + 1,
             (count,),
             device=device,
             generator=generator,
         )
-        event_count[current_rows] = sampled_count[current_rows]
+        event_count[c3b_rows] = sampled_count[c3b_rows]
         weak_template = torch.rand(count, device=device, dtype=dtype, generator=generator) < float(
             config.c3b_weak_template_probability
         )
@@ -852,17 +870,17 @@ def _sample_event_contracts(
             sampled_weak_template,
             other_template_ids[other_choice],
         )
-        template_id[current_rows] = sampled_template[current_rows]
-        two_event_rows = current_rows & (
+        template_id[c3b_rows] = sampled_template[c3b_rows]
+        two_event_rows = c3b_rows & (
             (template_id == C3B_SAME_DIRECTION_TURNS_TEMPLATE_ID)
             | (template_id == C3B_S_TURNS_TEMPLATE_ID)
             | (template_id == C3B_LOITER_TEMPLATE_ID)
         )
         event_count[two_event_rows] = 2
         active = torch.arange(_MAX_EVENTS, device=device).unsqueeze(0) < event_count.unsqueeze(1)
-        event_type[current_rows & active[:, 0], 0] = _EVENT_TURN
-        event_type[current_rows & active[:, 1], 1] = _EVENT_TURN
-        third_rows = current_rows & active[:, 2]
+        event_type[c3b_rows & active[:, 0], 0] = _EVENT_TURN
+        event_type[c3b_rows & active[:, 1], 1] = _EVENT_TURN
+        third_rows = c3b_rows & active[:, 2]
         random_third_type = torch.where(
             torch.rand(count, device=device, dtype=dtype, generator=generator) < 0.5,
             _EVENT_TURN,
@@ -874,9 +892,13 @@ def _sample_event_contracts(
             turn_sign=random_turn_sign,
             vertical_sign=random_vertical_sign,
             template_id=template_id,
-            current_rows=current_rows,
+            current_rows=c3b_rows,
         )
-    else:
+
+    c3c_rows = current_rows if config.stage_id == "c3c" else torch.zeros_like(current_rows)
+    if config.stage_id == "c3joint":
+        c3c_rows = task_family_id == C3_JOINT_C3C_TASK_FAMILY_ID
+    if bool(torch.any(c3c_rows)):
         sampled_count = torch.randint(
             config.event_count_range[0],
             config.event_count_range[1] + 1,
@@ -884,12 +906,12 @@ def _sample_event_contracts(
             device=device,
             generator=generator,
         )
-        event_count[current_rows] = sampled_count[current_rows]
-        template_id[current_rows] = C3C_COUPLED_TEMPLATE_ID
+        event_count[c3c_rows] = sampled_count[c3c_rows]
+        template_id[c3c_rows] = C3C_COUPLED_TEMPLATE_ID
         active = torch.arange(_MAX_EVENTS, device=device).unsqueeze(0) < event_count.unsqueeze(1)
-        event_type[current_rows, 0] = _EVENT_COUPLED
+        event_type[c3c_rows, 0] = _EVENT_COUPLED
         later_type = torch.randint(1, 4, (count, _MAX_EVENTS), device=device, generator=generator)
-        later_active = current_rows.unsqueeze(1) & active
+        later_active = c3c_rows.unsqueeze(1) & active
         event_type[:, 1:] = torch.where(later_active[:, 1:], later_type[:, 1:], event_type[:, 1:])
         vertical_event = (event_type == _EVENT_VERTICAL) | (event_type == _EVENT_COUPLED)
         vertical_rank = torch.cumsum(vertical_event.to(dtype=torch.int64), dim=1)
@@ -899,8 +921,9 @@ def _sample_event_contracts(
             first_vertical_sign,
             -first_vertical_sign,
         )
-        random_vertical_sign[current_rows] = alternating_vertical_sign[current_rows]
+        random_vertical_sign[c3c_rows] = alternating_vertical_sign[c3c_rows]
 
+    if config.stage_id == "c3c":
         earlier_c3b_rows = earlier_spatial_rows & (
             torch.rand(count, device=device, dtype=dtype, generator=generator) < 0.5
         )
@@ -998,9 +1021,19 @@ def _sample_event_amplitudes(
             generator=generator,
         )
         roll_deg = torch.where(earlier_c3b_rows.unsqueeze(1), earlier_c3b_roll_deg, roll_deg)
+    if config.stage_id == "c3joint":
+        c3b_rows = task_family_id == C3_JOINT_C3B_TASK_FAMILY_ID
+        c3b_roll_deg = _sample_uniform(
+            (count, _MAX_EVENTS),
+            (10.0, 17.0),
+            device=device,
+            dtype=dtype,
+            generator=generator,
+        )
+        roll_deg = torch.where(c3b_rows.unsqueeze(1), c3b_roll_deg, roll_deg)
 
     loiter_rows = template_id == C3B_LOITER_TEMPLATE_ID
-    if config.stage_id == "c3b":
+    if config.stage_id in ("c3b", "c3joint"):
         radius_m = _sample_uniform(
             (count, 1),
             config.loiter_radius_m_range,
@@ -1011,7 +1044,10 @@ def _sample_event_amplitudes(
         loiter_roll_rad = torch.atan(config.guard_speed_mps**2 / (_GRAVITY_MPS2 * radius_m))
         roll_deg = torch.where(loiter_rows.unsqueeze(1), torch.rad2deg(loiter_roll_rad).expand_as(roll_deg), roll_deg)
 
-    current_c3c = (config.stage_id == "c3c") & (task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID)
+    current_c3c = (
+        ((config.stage_id == "c3c") & (task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID))
+        | ((config.stage_id == "c3joint") & (task_family_id == C3_JOINT_C3C_TASK_FAMILY_ID))
+    )
     if isinstance(current_c3c, Tensor) and bool(torch.any(current_c3c)):
         row_roll_deg = _sample_uniform(
             (count, 1),
@@ -1030,7 +1066,11 @@ def _sample_event_amplitudes(
         dtype=dtype,
         generator=generator,
     )
-    current_c3b_weak = (config.stage_id == "c3b") & (
+    c3b_stage_rows = (
+        ((config.stage_id == "c3b") & (task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID))
+        | ((config.stage_id == "c3joint") & (task_family_id == C3_JOINT_C3B_TASK_FAMILY_ID))
+    )
+    current_c3b_weak = c3b_stage_rows & (
         (template_id == C3B_TURN_THEN_CLIMB_TEMPLATE_ID)
         | (template_id == C3B_CLIMB_THEN_TURN_TEMPLATE_ID)
     )
@@ -1108,10 +1148,10 @@ def _sample_event_layout(
 
     lower_by_row = torch.full((count,), config.finite_turn_deg_range[0], device=device, dtype=dtype)
     upper_by_row = torch.full((count,), config.finite_turn_deg_range[1], device=device, dtype=dtype)
-    if config.stage_id == "c3c":
+    if config.stage_id in ("c3c", "c3joint"):
         earlier_c3a = template_id == ISOLATED_TURN_TEMPLATE_ID
-        earlier_c3b = (template_id == C3B_SAME_DIRECTION_TURNS_TEMPLATE_ID) | (
-            template_id == C3B_S_TURNS_TEMPLATE_ID
+        earlier_c3b = (template_id >= C3B_SAME_DIRECTION_TURNS_TEMPLATE_ID) & (
+            template_id <= C3B_LOITER_TEMPLATE_ID
         )
         lower_by_row = torch.where(earlier_c3a | earlier_c3b, 20.0, lower_by_row)
         upper_by_row = torch.where(earlier_c3a, 50.0, upper_by_row)
@@ -1276,7 +1316,7 @@ def _resolve_initial_altitude(
 
 
 def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
-    expected_probability_count = {"c3a": 3, "c3b": 4, "c3c": 4}
+    expected_probability_count = {"c3a": 3, "c3b": 4, "c3c": 4, "c3joint": 5}
     if config.stage_id not in expected_probability_count:
         raise ValueError(f"Unknown spatial stage: {config.stage_id!r}.")
     if len(config.task_probabilities) != expected_probability_count[config.stage_id]:
@@ -1323,22 +1363,22 @@ def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
     intervals = config.path_length_m / config.sample_spacing_m
     if not math.isclose(intervals, round(intervals), rel_tol=0.0, abs_tol=1.0e-9):
         raise ValueError("path_length_m must be an integer multiple of sample_spacing_m.")
-    if config.stage_id == "c3c":
+    if config.stage_id in ("c3c", "c3joint"):
         if config.coupled_slope_deg_range[0] <= 0.0:
             raise ValueError("c3c coupled_slope_deg_range must be positive.")
         maximum_roll_fraction = config.geometry_roll_deg_range[1] / 20.0
         available_slope_deg = 10.0 * math.sqrt(max(0.0, 1.0 - maximum_roll_fraction**2))
         if config.coupled_slope_deg_range[0] > available_slope_deg:
             raise ValueError("c3c coupled ranges do not admit the approved elliptical demand bound.")
-    if config.stage_id == "c3b" and config.loiter_radius_m_range[0] <= 0.0:
-        raise ValueError("c3b loiter_radius_m_range must be positive.")
+    if config.stage_id in ("c3b", "c3joint") and config.loiter_radius_m_range[0] <= 0.0:
+        raise ValueError("C3b-capable stages require a positive loiter_radius_m_range.")
     for name, probability in (
         ("c3b_weak_template_probability", config.c3b_weak_template_probability),
         ("c3b_weak_strong_climb_probability", config.c3b_weak_strong_climb_probability),
     ):
         if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
             raise ValueError(f"{name} must lie in [0, 1].")
-    if config.stage_id == "c3b" and config.vertical_slope_deg_range[0] > 10.0:
+    if config.stage_id in ("c3b", "c3joint") and config.vertical_slope_deg_range[0] > 10.0:
         raise ValueError("c3b vertical_slope_deg_range must include the 10 degree strong-climb split.")
 
 
@@ -1392,13 +1432,18 @@ def _validate_generated_batch(batch: PureRLSpatialPathBatch, *, config: PureRLSp
         torch.all(batch.slope_rad[:, 0] == 0.0)
     ):
         raise RuntimeError("Generated spatial paths must begin straight and level.")
-    if config.stage_id == "c3b":
+    if config.stage_id in ("c3b", "c3joint"):
         current = batch.task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID
         simultaneous = (batch.curvature_rad_per_m[current] != 0.0) & (batch.slope_rad[current] != 0.0)
         if bool(torch.any(simultaneous)):
             raise RuntimeError("C3b current-stage paths must contain sequential, non-coupled events.")
-    if config.stage_id == "c3c":
-        current = batch.task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID
+    if config.stage_id in ("c3c", "c3joint"):
+        current_family = (
+            CURRENT_SPATIAL_TASK_FAMILY_ID
+            if config.stage_id == "c3c"
+            else C3_JOINT_C3C_TASK_FAMILY_ID
+        )
+        current = batch.task_family_id == current_family
         demand = torch.square(batch.peak_geometry_roll_rad[current] / math.radians(20.0))
         demand += torch.square(torch.abs(batch.peak_slope_rad[current]) / math.radians(10.0))
         if bool(torch.any(demand > 1.0 + 16.0 * torch.finfo(batch.points_world_m.dtype).eps)):

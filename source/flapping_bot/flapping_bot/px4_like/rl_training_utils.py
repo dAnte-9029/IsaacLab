@@ -21,8 +21,12 @@ ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP = 2
 ACTOR_GRADIENT_PROBE_C3A_GROUP = 3
 ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP = 4
 TASK_AWARE_C3B_GROUP = 5
+TASK_AWARE_C3C_GROUP = 6
 _LARGE_ACTOR_HIDDEN_DIMS = (512, 256)
 _NET2WIDER_PRIMARY_FRACTION = 0.55
+_PURE_RL_SENSOR_HISTORY_STEPS = 30
+_PURE_RL_SENSOR_FRAME_DIM = 14
+_PURE_RL_OBSERVATION_DIM = 555
 
 
 class ActorPolicyDistillationAugmentor:
@@ -86,6 +90,84 @@ class ActorPolicyDistillationAugmentor:
         self._teacher_actions = None
         self._mask = None
         return None, augmented_actions
+
+
+def rotate_pure_rl_observation_world_yaw(observation: Tensor, yaw_delta_rad: Tensor) -> Tensor:
+    """Rotate every world-frame attitude sample by a shared per-row yaw delta."""
+
+    if observation.ndim != 2 or observation.shape[1] != _PURE_RL_OBSERVATION_DIM:
+        raise ValueError(
+            f"PureRL yaw consistency requires observation shape (N, {_PURE_RL_OBSERVATION_DIM})."
+        )
+    if yaw_delta_rad.ndim != 1 or yaw_delta_rad.shape[0] != observation.shape[0]:
+        raise ValueError("yaw deltas must have shape (N,).")
+    if not torch.is_floating_point(observation) or not torch.is_floating_point(yaw_delta_rad):
+        raise TypeError("PureRL yaw consistency requires floating-point tensors.")
+
+    rotated = observation.clone()
+    sensor_dim = _PURE_RL_SENSOR_HISTORY_STEPS * _PURE_RL_SENSOR_FRAME_DIM
+    sensor_history = rotated[:, :sensor_dim].reshape(
+        -1,
+        _PURE_RL_SENSOR_HISTORY_STEPS,
+        _PURE_RL_SENSOR_FRAME_DIM,
+    )
+    quaternion = sensor_history[:, :, 0:4].clone()
+    half_yaw = 0.5 * yaw_delta_rad.to(device=observation.device, dtype=observation.dtype)
+    cosine = torch.cos(half_yaw).unsqueeze(1)
+    sine = torch.sin(half_yaw).unsqueeze(1)
+    w, x, y, z = quaternion.unbind(dim=-1)
+    sensor_history[:, :, 0] = cosine * w - sine * z
+    sensor_history[:, :, 1] = cosine * x - sine * y
+    sensor_history[:, :, 2] = cosine * y + sine * x
+    sensor_history[:, :, 3] = cosine * z + sine * w
+    return rotated
+
+
+class ActorYawConsistencyAugmentor:
+    """Pair each actor observation with a globally yaw-rotated equivalent state."""
+
+    def __init__(self, policy: object) -> None:
+        if bool(getattr(policy, "is_recurrent", False)):
+            raise ValueError("Actor yaw consistency does not support recurrent policies.")
+        obs_groups = getattr(policy, "obs_groups", None)
+        if not isinstance(obs_groups, dict) or "policy" not in obs_groups:
+            raise ValueError("policy does not expose the actor observation group.")
+        self.policy_obs_groups = tuple(obs_groups["policy"])
+        if len(self.policy_obs_groups) != 1:
+            raise ValueError("Actor yaw consistency requires one PureRL policy observation group.")
+
+    def __call__(
+        self,
+        *,
+        obs: object | None,
+        actions: Tensor | None,
+        env: object,
+    ) -> tuple[object | None, Tensor | None]:
+        """Return paired observations or invariant mean-action targets for mirror loss."""
+
+        del env
+        if (obs is None) == (actions is None):
+            raise ValueError("exactly one of obs or actions must be provided.")
+        if obs is not None:
+            policy_key = self.policy_obs_groups[0]
+            policy_observation = obs[policy_key]
+            yaw_delta = (
+                2.0 * math.pi * torch.rand(
+                    policy_observation.shape[0],
+                    device=policy_observation.device,
+                    dtype=policy_observation.dtype,
+                )
+                - math.pi
+            )
+            transformed_obs = obs.clone()
+            transformed_obs[policy_key] = rotate_pure_rl_observation_world_yaw(
+                policy_observation,
+                yaw_delta,
+            )
+            return torch.cat((obs, transformed_obs), dim=0), None
+
+        assert actions is not None
+        return None, torch.cat((actions, actions.detach()), dim=0)
 
 
 class ActorGradientConflictProbe:
@@ -351,8 +433,11 @@ class TaskAwarePpoAdapter:
             raise ValueError("task-aware PPO requires a policy and rollout storage.")
         if bool(getattr(policy, "is_recurrent", False)):
             raise ValueError("task-aware PPO does not support recurrent policies.")
-        if len(task_weights) not in (3, 4):
-            raise ValueError("task-aware PPO requires C1/C2c/C3a or C1/C2c/C3a/C3b weights.")
+        if len(task_weights) not in (3, 4, 5):
+            raise ValueError(
+                "task-aware PPO requires C1/C2c/C3a, C1/C2c/C3a/C3b, "
+                "or C1/C2c/C3a/C3b/C3c weights."
+            )
         weights = tuple(float(value) for value in task_weights)
         if any((not math.isfinite(value)) or value <= 0.0 for value in weights):
             raise ValueError("task-aware PPO weights must be finite and positive.")
@@ -390,8 +475,10 @@ class TaskAwarePpoAdapter:
             "c3a": (group == ACTOR_GRADIENT_PROBE_C3A_GROUP)
             | (group == ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP),
         }
-        if len(self.task_weights) == 4:
+        if len(self.task_weights) >= 4:
             masks["c3b"] = group == TASK_AWARE_C3B_GROUP
+        if len(self.task_weights) == 5:
+            masks["c3c"] = group == TASK_AWARE_C3C_GROUP
         return masks
 
     def _prepare_advantages(self) -> dict[str, float]:
@@ -470,8 +557,10 @@ class TaskAwarePpoAdapter:
             ACTOR_GRADIENT_PROBE_C3A_GROUP,
             ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP,
         ]
-        if len(self.task_weights) == 4:
+        if len(self.task_weights) >= 4:
             group_ids.append(TASK_AWARE_C3B_GROUP)
+        if len(self.task_weights) == 5:
+            group_ids.append(TASK_AWARE_C3C_GROUP)
         strata = tuple(
             torch.nonzero(group == group_id, as_tuple=False).squeeze(-1)
             for group_id in group_ids
@@ -689,6 +778,32 @@ def maybe_enable_actor_policy_distillation(*, runner: object) -> bool:
         "use_data_augmentation": False,
         "use_mirror_loss": True,
         "data_augmentation_func": augmentor,
+        "mirror_loss_coeff": coefficient,
+        "_env": env,
+    }
+    return True
+
+
+def maybe_enable_actor_yaw_consistency(*, runner: object) -> bool:
+    """Attach paired global-yaw actor consistency through PPO's auxiliary-loss hook."""
+
+    env = getattr(runner, "env", None)
+    algorithm = getattr(runner, "alg", None)
+    cfg = getattr(env, "cfg", None)
+    coefficient = float(getattr(cfg, "pure_rl_actor_yaw_consistency_coefficient", 0.0))
+    if coefficient == 0.0:
+        return False
+    if not math.isfinite(coefficient) or coefficient < 0.0:
+        raise ValueError("actor yaw consistency coefficient must be finite and non-negative.")
+    if algorithm is None or getattr(algorithm, "policy", None) is None:
+        raise ValueError("runner does not expose a PPO policy for actor yaw consistency.")
+    if getattr(algorithm, "symmetry", None) is not None:
+        raise ValueError("actor yaw consistency cannot share PPO's auxiliary symmetry-loss slot.")
+
+    algorithm.symmetry = {
+        "use_data_augmentation": False,
+        "use_mirror_loss": True,
+        "data_augmentation_func": ActorYawConsistencyAugmentor(algorithm.policy),
         "mirror_loss_coeff": coefficient,
         "_env": env,
     }
@@ -1241,6 +1356,12 @@ def load_runner_checkpoint_for_warm_start(
         coefficient = float(runner.env.cfg.pure_rl_actor_distillation_coefficient)
         print(
             "[INFO]: Enabled frozen actor policy distillation after warm start "
+            f"(coefficient={coefficient:g})."
+        )
+    if maybe_enable_actor_yaw_consistency(runner=runner):
+        coefficient = float(runner.env.cfg.pure_rl_actor_yaw_consistency_coefficient)
+        print(
+            "[INFO]: Enabled paired global-yaw actor consistency after warm start "
             f"(coefficient={coefficient:g})."
         )
     if maybe_enable_ppo_warm_start_guard(runner=runner):

@@ -1294,3 +1294,156 @@ route 为 `c3b_adaptive_sampling_from_model100_v1`、policy 为 `PureRLSplitActo
 概率为 C1/C2c/C3a/C3b `0.15/0.20/0.15/0.50`，weak-template 概率为 `2/7`，weak strong-climb 概率为
 `0.25`，adaptive update count 为 0，符合基线等价起点。训练已交由后台继续，本记录不声称完成、
 scheduler 已产生收益或任何 frozen suite PASS。
+
+## 32. 2026-08-31 C3b paired global-yaw consistency 实验
+
+heading-0/heading-180 matched transition 诊断显示：相同 body-relative C3b template 在不同 global yaw
+下可以从相同初始 path error 产生不同 actor action，并在 heading 180 集中触发 templates 5/7 roll-limit
+失败。因此本轮不改 sampler 或 observation contract，先做单变量因果实验：对每个 PPO actor observation
+随机采样一个 `[-pi, pi]` global-yaw delta，将 30 帧 world quaternion 全部左乘同一个 yaw rotation，
+其余 body-frame state、action history 和 path preview 保持不变，并以原 mean action 为一致性目标。
+auxiliary actor MSE coefficient 为 `0.05`；critic 和原始 PPO batch 不做 augmentation。完整决策见
+`docs/decisions/ADR-2026-08-31-pure-rl-c3b-yaw-consistency.md`。
+
+纯函数、PPO hook、launcher、spatial env 和 split actor 定向测试共 `109 passed`，`git diff --check`
+通过。16-env、4-iteration fresh CPU-native smoke 完成，iteration 3 首个真实 update 的 symmetry loss
+为 `0.0269`，actor displacement 为 `0.0121 < 0.10`，无 traceback 或 non-finite value。该 smoke 只证明
+运行接线，不是性能证据。
+
+正式实验从与 adaptive baseline 相同的 fixed-mixture C3b v2 `model_100.pt` weights-only、fresh optimizer
+启动；adaptive sampler、split actor、task-aware PPO `15/20/15/50`、reward、seed 0、256 env、16
+mini-batches、101 iterations 和 save interval 25 均不变。2026-08-31 13:49 Asia/Shanghai 脱离终端启动：
+
+```text
+launcher PID file: c3b_yaw_consistency_training.pid
+launcher PID:      2201303
+training PID:      2201368
+stdout/stderr:     c3b_yaw_consistency_training.log
+run directory:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-31_13-49-30_pure_rl_c3b_yawconsistency005_from100_seed0_101iter/
+```
+
+launcher 的 PPID 为 1、session ID 为自身 PID。`curriculum_source.json` 确认 route 为
+`c3b_adaptive_sampling_yaw_consistency_from_model100_v1`、source stage 为 `c3b`、policy 为
+`PureRLSplitActorCritic`，并精确指向 v2 `model_100.pt`。保存配置确认 consistency coefficient `0.05`、
+adaptive sampling 开启、101 iterations 和 16 mini-batches。`model_0.pt` 已生成且 iteration 0 无
+traceback；在 frozen C1/C2c/C3a/C3b evaluation 完成前不声称有收益或可 promotion。
+
+### 32.1 训练与 frozen evaluation 结果
+
+训练正常完成，return code 为 0，`model_50/75/100.pt` 均存在。随后用
+`evaluate_pure_rl_c3a_checkpoint.py --spatial-stage c3b --pure-rl-split-frequency-actor` 对三个 checkpoint
+逐 checkpoint、逐 suite 启动 12 个 fresh CPU-native Isaac 进程。权威汇总：
+
+```text
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-31_13-49-30_pure_rl_c3b_yawconsistency005_from100_seed0_101iter/
+eval_authority_50_100_c3b_v3_yaw_consistency/checkpoint_evaluation.json
+```
+
+与同 source、同 adaptive 配置但无 consistency 的 baseline 比较：
+
+```text
+iteration   baseline C3b   yaw-consistency C3b   roll-limit   C3a   C1    C2c
+50          0.94318        0.92045               8 -> 14      PASS  PASS  PASS
+75          0.90909        0.89773              16 -> 18      PASS  PASS  PASS
+100         0.93750        0.95455              11 -> 6       PASS  PASS  PASS
+```
+
+三点都没有通过 C3b gate，因此没有 all-suite passing checkpoint，更没有相邻 passing pair，不能 promotion。
+model 100 是唯一显示正收益的点：C3b 从 165/176 提升到 168/176，baseline 的 11 个失败中恢复 3 个且
+没有新增失败；恢复的是 template 5 的 heading 270 两个 phase，以及 heading 90 一个 phase。剩余 8 个
+失败全部集中在 heading 180、`+12 deg`、templates 5/7；其中 6 个仍是 roll-limit，另外两个存活到
+20 s 但没有完成所有事件。C3a 和 C1 在三个 checkpoint 都完整通过。C2c 虽均过 gate，但 baseline
+三个点的 survival/climb success 都是 1.0，而 consistency 的 50/75 点为 `0.96429/0.91667`，100 点为
+`0.99107/0.97917`，说明 auxiliary loss 不是无代价改善。
+
+### 32.2 matched heading trace 与结论边界
+
+为直接检查机制，对 baseline model 100 和 yaw-consistency model 100 分别运行 template 5/7、heading
+0/180、`+12 deg`、turn sign -1、phase 0 的 fresh-process matched trace：
+
+```text
+eval/c3b_transition_heading_diagnostic_adaptive100_v1/comparison.json
+eval/c3b_transition_heading_diagnostic_yawconsistency100_v1/comparison.json
+```
+
+两者的 heading-0 control 均完成，heading-180 template 5 均约 13 s roll-limit，template 7 均约 6.4 s
+在 turn onset 前 roll-limit。reset 首帧四动作的 heading-180 minus heading-0 RMS 差异没有下降：baseline
+为 `0.234636`，consistency 为 `0.249338`。正式训练的 mean symmetry loss 到 iteration 100 仍为
+`0.0193`，没有趋近于零。
+
+因此本实验的受支持结论是：paired global-yaw consistency 0.05 在单 seed 的 late checkpoint 恢复了
+3/176 C3b frozen cases并减少 roll-limit，但收益非单调，C2c 略退化，而且没有消除 h180 action/state
+分叉或通过 C3b gate。不能把改善归因表述为已学会严格 yaw invariance；单 seed 也不能排除优化随机性。
+若继续此方向，下一步应先针对 quaternion double-cover / heading-180 boundary 检查 observation
+canonicalization 或显式 `q`/`-q` consistency，而不是直接提高 coefficient；提高 coefficient 可能进一步
+放大早期 C3b 和 C2c 退化。
+
+## 33. 2026-08-31 route-heading-canonical observation 实验
+
+用户批准从 observation 表示层消除无关的 global-yaw 自由度。新增默认关闭的
+`pure_rl_heading_canonical_observation`：送入 30 帧 policy history 的姿态改为
+
+```text
+q_route_body = q_z(-route_heading) * q_world_body
+```
+
+其中 `route_heading` 是 episode 初始路径切向航向，不是飞机当前 yaw，因此相对航向误差仍被保留。
+规范化后统一选择非负 scalar quaternion sign，避免 heading 180 附近的 `q/-q` 双覆盖分叉。世界四元数
+仍用于物理、风速、reward、termination 和 body-frame path preview；维度保持 555。完整决策见
+`docs/decisions/ADR-2026-08-31-pure-rl-heading-canonical-observation.md`。
+
+该 route 仅改变 observation，保持 adaptive sampler、split actor、task-aware PPO `15/20/15/50`、
+governor-gap reward、bounded warm start、source、seed 和训练预算不变；paired yaw-consistency coefficient
+显式为 `0.0`。训练和 frozen evaluator 都必须显式开启 canonical flag。
+
+定向 observation/env/launcher/watch/evaluator/split-actor 测试共 `169 passed`，`py_compile` 和
+`git diff --check` 通过。16-env、4-iteration fresh CPU-native smoke 生成 `model_3.pt`，保存配置确认
+canonical observation 开启、yaw consistency 为 0；iteration 3 首个真实 PPO update 的 actor
+displacement 为 `0.0122 < 0.10`，无 traceback 或 non-finite value。
+
+正式训练于 2026-08-31 17:32 Asia/Shanghai 脱离终端启动：
+
+```text
+launcher PID file: c3b_heading_canonical_training.pid
+launcher PID:      2811024
+stdout/stderr:     c3b_heading_canonical_training.log
+run directory:
+logs/rsl_rl/flapping_bot_straight_flight/
+2026-08-31_17-32-50_pure_rl_c3b_headingcanonical_from100_seed0_101iter/
+```
+
+launcher 的 PPID 为 1、session ID 为自身。`curriculum_source.json` 确认 route 为
+`c3b_adaptive_sampling_heading_canonical_observation_from_model100_v1`、policy 为
+`PureRLSplitActorCritic`、source stage 为 C3b，并精确指向 fixed-mixture v2 `model_100.pt`。保存配置确认
+CPU、256 env、101 iterations、16 minibatches、canonical observation true、yaw consistency 0、adaptive
+sampling true 和 governor-gap weight 0.05。iteration 3 首个正式 update 的 actor norm 为
+`0.0218 < 0.10`，iteration 4 继续正常运行。训练现已交由后台继续；本记录不声称训练完成、frozen suite
+通过或 C3b promotion。
+
+## 34. 2026-09-01 完整 C3 joint training 决策
+
+route-heading-canonical C3b run 的 `model_75.pt` 已由标准 helper 正式晋级。该 checkpoint 的 fresh
+C3c v2 zero-shot 为 `88/96`；失败只出现在 high-severity right-turn + climb。随后从该 checkpoint
+进行的 101-iteration C3c continuation 没有提高这一结果：iteration 50/75/100 的 C3c 分别为
+`88/96`、`80/96`、`80/96`，C3b 则从 `168/176` 下降到 `152/176` 和 `116/176`，iteration 100
+还因 tail-limit fraction `0.1335 > 0.10` 失去 C1 gate。没有 checkpoint 可 promotion。
+
+代码检查确认旧 C3c sampler 的 `15% earlier spatial` 不是完整 C3a+C3b rehearsal：它只包含 isolated
+C3a turn 和两个基础 C3b multi-turn templates，不包含完整 turn/vertical transitions 与 loiter。因此
+C3c 不是 C3b 的训练超集。
+
+用户批准停止把 C3a/C3b/C3c 当作依次 fine-tune 的策略阶段。新增显式
+`--c3-full-joint-from-c2c` route，从 promoted C2c `model_550.pt` weights-only、fresh optimizer 开始，
+使用最终 `PureRLSplitActorCritic`、route-heading-canonical observation 和固定五组 task-aware PPO：
+
+```text
+C1 / C2c / C3a / C3b / C3c = 0.15 / 0.20 / 0.15 / 0.25 / 0.25
+```
+
+C3b bucket 覆盖全部七个 sequential templates，C3c bucket 独立覆盖 coupled paths。adaptive sampling、
+distillation、yaw-consistency、EWC、新 head 和 reward 修改均关闭。正式判断仍要求相邻 checkpoint
+同时通过 fresh C3c/C3b/C3a/C2c/C1 suites。完整决策见
+`docs/decisions/ADR-2026-09-01-pure-rl-full-c3-joint-training.md`。

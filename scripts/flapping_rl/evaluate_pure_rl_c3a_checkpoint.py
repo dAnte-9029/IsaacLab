@@ -1,4 +1,4 @@
-"""Evaluate C3a/C3b checkpoints on their frozen current and retention suites.
+"""Evaluate C3a/C3b/C3c checkpoints on frozen current and retention suites.
 
 Each checkpoint/suite pair runs in its own fresh CPU-native Isaac process. The
 script does not watch a training directory: it evaluates the explicitly named
@@ -29,6 +29,7 @@ _C1_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-Direct-v0"
 _C2C_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C2c-Direct-v0"
 _C3A_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3a-Direct-v0"
 _C3B_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
+_C3C_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0"
 
 
 @dataclass(frozen=True)
@@ -78,20 +79,29 @@ def _evaluation_suites(spatial_stage: str) -> tuple[EvaluationSuite, ...]:
 
     if spatial_stage == "c3a":
         return EVALUATION_SUITES
-    if spatial_stage != "c3b":
+    if spatial_stage not in ("c3b", "c3c"):
         raise ValueError(f"Unsupported spatial evaluation stage: {spatial_stage!r}.")
+    c3b_suite = EvaluationSuite(
+        name="c3b",
+        task=_C3B_TASK,
+        eval_suite="pure_rl_spatial_c3b_v3",
+        evaluation_contract="pure_rl_spatial_c3b_v3",
+        case_count=176,
+        gate_field="promotion_gate_passed",
+    )
+    retention_suites = (c3b_suite, EVALUATION_SUITES[0], EVALUATION_SUITES[1], EVALUATION_SUITES[2])
+    if spatial_stage == "c3b":
+        return retention_suites
     return (
         EvaluationSuite(
-            name="c3b",
-            task=_C3B_TASK,
-            eval_suite="pure_rl_spatial_c3b_v3",
-            evaluation_contract="pure_rl_spatial_c3b_v3",
-            case_count=176,
+            name="c3c",
+            task=_C3C_TASK,
+            eval_suite="pure_rl_spatial_c3c_v2",
+            evaluation_contract="pure_rl_spatial_c3c_v2",
+            case_count=96,
             gate_field="promotion_gate_passed",
         ),
-        EVALUATION_SUITES[0],
-        EVALUATION_SUITES[1],
-        EVALUATION_SUITES[2],
+        *retention_suites,
     )
 
 
@@ -107,9 +117,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument(
         "--spatial-stage",
-        choices=("c3a", "c3b"),
+        choices=("c3a", "c3b", "c3c"),
         default="c3a",
-        help="Current spatial stage; C3b additionally evaluates frozen C3a retention.",
+        help="Current spatial stage; later stages add every earlier frozen spatial suite.",
     )
     parser.add_argument(
         "--actor-hidden-dims",
@@ -122,6 +132,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--pure-rl-split-frequency-actor",
         action="store_true",
         help="Evaluate checkpoints that use the independent frequency/tail actor.",
+    )
+    parser.add_argument(
+        "--pure-rl-heading-canonical-observation",
+        action="store_true",
+        help="Evaluate with route-heading-canonical PureRL attitude observations.",
     )
     parser.add_argument(
         "--native-extension-parent",
@@ -184,6 +199,7 @@ def _build_eval_command(
     headless: bool,
     actor_hidden_dims: Sequence[int] | None = None,
     split_frequency_actor: bool = False,
+    heading_canonical_observation: bool = False,
 ) -> list[str]:
     """Build one fresh-process frozen-suite command."""
 
@@ -233,6 +249,8 @@ def _build_eval_command(
         command.extend(str(value) for value in actor_hidden_dims)
     if split_frequency_actor:
         command.append("--pure-rl-split-frequency-actor")
+    if heading_canonical_observation:
+        command.append("--pure-rl-heading-canonical-observation")
     if headless:
         command.append("--headless")
     return command
@@ -317,7 +335,7 @@ def _checkpoint_summary(
 def _flat_summary_row(result: Mapping[str, object]) -> dict[str, object]:
     suites = result["suites"]
     assert isinstance(suites, Mapping)
-    current_stage = "c3b" if "c3b" in suites else "c3a"
+    current_stage = "c3c" if "c3c" in suites else ("c3b" if "c3b" in suites else "c3a")
     current = suites[current_stage]
     c3a = suites["c3a"]
     c1 = suites["c1"]
@@ -344,9 +362,15 @@ def _flat_summary_row(result: Mapping[str, object]) -> dict[str, object]:
         "c2c_descent_success_rate": c2c.get("descent_success_rate", ""),
         "c2c_recovery_reached_rate": c2c.get("recovery_reached_rate", ""),
     }
-    if current_stage == "c3b":
+    if current_stage in ("c3b", "c3c"):
         row["c3a_overall_success_rate"] = c3a.get("overall_success_rate", "")
         row["c3a_overall_survival_rate"] = c3a.get("overall_survival_rate", "")
+    if current_stage == "c3c":
+        c3b = suites["c3b"]
+        assert isinstance(c3b, Mapping)
+        row["c3b_passed"] = int(bool(suite_passed["c3b"]))
+        row["c3b_overall_success_rate"] = c3b.get("overall_success_rate", "")
+        row["c3b_overall_survival_rate"] = c3b.get("overall_survival_rate", "")
     return row
 
 
@@ -430,6 +454,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     headless=bool(args.headless),
                     actor_hidden_dims=actor_hidden_dims,
                     split_frequency_actor=bool(args.pure_rl_split_frequency_actor),
+                    heading_canonical_observation=bool(
+                        args.pure_rl_heading_canonical_observation
+                    ),
                 )
                 print(f"[INFO] Evaluating {checkpoint.name} on {suite.name} in a fresh process:", flush=True)
                 print(" ", " ".join(command), flush=True)
