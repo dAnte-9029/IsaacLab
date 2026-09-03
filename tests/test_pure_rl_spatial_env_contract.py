@@ -348,7 +348,11 @@ def test_full_c3_joint_is_opt_in_and_routes_five_task_groups() -> None:
     observation_source = _source(_method(env, "_get_pure_rl_observations"))
 
     assert ast.literal_eval(_ann_assign(base, "pure_rl_full_c3_joint_training_enabled").value) is False
+    assert ast.literal_eval(
+        _ann_assign(base, "pure_rl_c3joint_hard_slice_sampling_enabled").value
+    ) is False
     assert "spatial_stage_id = 'c3joint'" in constructor_source
+    assert "C3 joint hard-slice sampling requires full C3 joint training." in constructor_source
     assert "'c3joint': 5" in constructor_source
     assert "C3_JOINT_C3C_TASK_FAMILY_ID" in observation_source
     assert "TASK_AWARE_C3C_GROUP" in observation_source

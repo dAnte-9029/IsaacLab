@@ -60,6 +60,10 @@ def test_spatial_stage_configs_match_approved_ranges_and_probabilities() -> None
     assert configs["c3joint"].coupled_slope_deg_range == (3.0, 10.0)
     assert configs["c3joint"].event_count_range == (2, 4)
     assert configs["c3joint"].loiter_radius_m_range == (50.0, 80.0)
+    assert configs["c3joint"].c3joint_hard_slice_sampling_enabled is False
+    assert configs["c3joint"].c3joint_c3b_hard_slice_probability == pytest.approx(0.50)
+    assert configs["c3joint"].c3joint_c3c_high_climb_probability == pytest.approx(0.40)
+    assert configs["c3joint"].c3joint_c3c_high_demand_range == (0.80, 1.00)
 
     for config in configs.values():
         assert config.transition_length_m_range == (8.0, 12.0)
@@ -182,7 +186,7 @@ def test_c3c_current_vertical_events_alternate_direction() -> None:
         pure_rl_spatial_path.CURRENT_SPATIAL_TASK_FAMILY_ID,
         dtype=torch.int64,
     )
-    event_type, _, _, _, vertical_sign = pure_rl_spatial_path._sample_event_contracts(
+    event_type, _, _, _, vertical_sign, _ = pure_rl_spatial_path._sample_event_contracts(
         task_family_id=task_family_id,
         config=pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3c"],
         device=torch.device("cpu"),
@@ -229,6 +233,94 @@ def test_c3_joint_samples_all_five_families_and_full_spatial_contracts() -> None
     demand = torch.square(batch.peak_geometry_roll_rad[c3c] / math.radians(20.0))
     demand += torch.square(torch.abs(batch.peak_slope_rad[c3c]) / math.radians(10.0))
     assert bool(torch.all(demand <= 1.0 + 1.0e-12))
+
+
+def test_c3_joint_hard_slice_sampling_targets_continuous_failure_neighborhoods() -> None:
+    config = replace(
+        pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3joint"],
+        c3joint_hard_slice_sampling_enabled=True,
+    )
+    batch = pure_rl_spatial_path.sample_spatial_path_batch(
+        num_paths=2048,
+        stage=config,
+        device="cpu",
+        dtype=torch.float64,
+        generator=torch.Generator().manual_seed(20260902),
+    )
+
+    c3b = batch.task_family_id == pure_rl_spatial_path.C3_JOINT_C3B_TASK_FAMILY_ID
+    c3b_hard = (
+        batch.hard_slice_id
+        == pure_rl_spatial_path.C3_JOINT_HARD_SLICE_C3B_STRONG_CLIMB
+    )
+    assert 0.40 <= c3b_hard[c3b].to(torch.float64).mean().item() <= 0.60
+    assert set(batch.template_id[c3b_hard].unique().tolist()) == {
+        pure_rl_spatial_path.C3B_TURN_THEN_CLIMB_TEMPLATE_ID,
+        pure_rl_spatial_path.C3B_CLIMB_THEN_TURN_TEMPLATE_ID,
+    }
+    assert set(batch.turn_sign[c3b_hard].unique().tolist()) == {-1.0, 1.0}
+    assert bool(torch.all(batch.peak_slope_rad[c3b_hard] >= math.radians(10.0)))
+    assert bool(torch.all(batch.peak_slope_rad[c3b_hard] <= math.radians(12.0)))
+
+    c3c = batch.task_family_id == pure_rl_spatial_path.C3_JOINT_C3C_TASK_FAMILY_ID
+    c3c_hard = (
+        batch.hard_slice_id
+        == pure_rl_spatial_path.C3_JOINT_HARD_SLICE_C3C_HIGH_CLIMB
+    )
+    assert 0.30 <= c3c_hard[c3c].to(torch.float64).mean().item() <= 0.50
+    assert set(batch.turn_sign[c3c_hard].unique().tolist()) == {-1.0, 1.0}
+    assert bool(torch.all(batch.peak_slope_rad[c3c_hard] > 0.0))
+    demand = torch.square(batch.peak_geometry_roll_rad[c3c_hard] / math.radians(20.0))
+    demand += torch.square(batch.peak_slope_rad[c3c_hard] / math.radians(10.0))
+    assert bool(torch.all(demand >= 0.80 - 1.0e-12))
+    assert bool(torch.all(demand <= 1.00 + 1.0e-12))
+
+
+def test_c3_joint_hard_slices_randomize_across_single_path_resets() -> None:
+    generator = torch.Generator(device="cpu").manual_seed(20260903)
+    c3b_config = replace(
+        pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3joint"],
+        task_probabilities=(0.0, 0.0, 0.0, 1.0, 0.0),
+        c3joint_hard_slice_sampling_enabled=True,
+        c3joint_c3b_hard_slice_probability=1.0,
+    )
+    c3b_templates: set[int] = set()
+    c3b_turn_signs: set[float] = set()
+    for _ in range(64):
+        batch = pure_rl_spatial_path.sample_spatial_path_batch(
+            num_paths=1,
+            stage=c3b_config,
+            device="cpu",
+            dtype=torch.float64,
+            generator=generator,
+        )
+        c3b_templates.add(int(batch.template_id.item()))
+        c3b_turn_signs.add(float(batch.turn_sign.item()))
+
+    assert c3b_templates == {
+        pure_rl_spatial_path.C3B_TURN_THEN_CLIMB_TEMPLATE_ID,
+        pure_rl_spatial_path.C3B_CLIMB_THEN_TURN_TEMPLATE_ID,
+    }
+    assert c3b_turn_signs == {-1.0, 1.0}
+
+    c3c_config = replace(
+        pure_rl_spatial_path.SPATIAL_STAGE_CONFIGS["c3joint"],
+        task_probabilities=(0.0, 0.0, 0.0, 0.0, 1.0),
+        c3joint_hard_slice_sampling_enabled=True,
+        c3joint_c3c_high_climb_probability=1.0,
+    )
+    c3c_turn_signs: set[float] = set()
+    for _ in range(64):
+        batch = pure_rl_spatial_path.sample_spatial_path_batch(
+            num_paths=1,
+            stage=c3c_config,
+            device="cpu",
+            dtype=torch.float64,
+            generator=generator,
+        )
+        c3c_turn_signs.add(float(batch.turn_sign.item()))
+
+    assert c3c_turn_signs == {-1.0, 1.0}
 
 
 def test_current_c3a_and_c3b_event_contracts_are_isolated_and_sequential() -> None:
@@ -725,6 +817,7 @@ def _straight_path_batch(
         peak_slope_rad=zeros_row.clone(),
         event_count=zeros_int.clone(),
         template_id=zeros_int.clone(),
+        hard_slice_id=zeros_int.clone(),
         sample_spacing_m=sample_spacing_m,
         path_length_m=(point_count - 1) * sample_spacing_m,
     )

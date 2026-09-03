@@ -175,6 +175,8 @@ from .pure_rl_longitudinal_path import (
     write_longitudinal_path_batch_rows_,
 )
 from .pure_rl_spatial_path import (
+    C3_JOINT_HARD_SLICE_C3B_STRONG_CLIMB,
+    C3_JOINT_HARD_SLICE_C3C_HIGH_CLIMB,
     C3_JOINT_C3C_TASK_FAMILY_ID,
     C3B_CLIMB_THEN_TURN_TEMPLATE_ID,
     C3B_TURN_THEN_CLIMB_TEMPLATE_ID,
@@ -263,6 +265,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_longitudinal_stage_id: str | None = None
     pure_rl_spatial_stage_id: str | None = None
     pure_rl_full_c3_joint_training_enabled: bool = False
+    pure_rl_c3joint_hard_slice_sampling_enabled: bool = False
     pure_rl_actor_distillation_coefficient: float = 0.0
     pure_rl_actor_yaw_consistency_coefficient: float = 0.0
     pure_rl_heading_canonical_observation: bool = False
@@ -1136,6 +1139,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError("Full C3 joint training requires the C3c environment contract.")
             spatial_stage_id = "c3joint"
         spatial_stage = resolve_spatial_stage(spatial_stage_id) if spatial_stage_id is not None else None
+        if bool(cfg.pure_rl_c3joint_hard_slice_sampling_enabled):
+            if spatial_stage is None or spatial_stage.stage_id != "c3joint":
+                raise ValueError("C3 joint hard-slice sampling requires full C3 joint training.")
+            spatial_stage = replace(spatial_stage, c3joint_hard_slice_sampling_enabled=True)
         if longitudinal_stage is not None and spatial_stage is not None:
             raise ValueError("PureRL longitudinal and spatial stages are mutually exclusive.")
         if longitudinal_stage is not None:
@@ -5602,6 +5609,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                         >= math.radians(float(self.cfg.pure_rl_c2c_strong_climb_minimum_deg))
                     )
                 )
+                c3b_hard = (
+                    self._pure_rl_spatial_path.hard_slice_id
+                    == C3_JOINT_HARD_SLICE_C3B_STRONG_CLIMB
+                )
+                c3c_hard = (
+                    self._pure_rl_spatial_path.hard_slice_id
+                    == C3_JOINT_HARD_SLICE_C3C_HIGH_CLIMB
+                )
                 log.update(
                     {
                         "PureRLPath/mean_sampled_task_family_id": (
@@ -5644,6 +5659,32 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                         ),
                         "PureRLPath/c2c_strong_climb_active_transition_fraction": (
                             c2c_strong_climb_active.to(torch.float32).mean()
+                        ),
+                        "PureRLPath/c3joint_c3b_hard_slice_fraction": (
+                            c3b_hard.to(torch.float32).mean()
+                        ),
+                        "PureRLPath/c3joint_c3b_hard_left_fraction": (
+                            (c3b_hard & (self._pure_rl_spatial_path.turn_sign < 0.0))
+                            .to(torch.float32)
+                            .mean()
+                        ),
+                        "PureRLPath/c3joint_c3b_hard_right_fraction": (
+                            (c3b_hard & (self._pure_rl_spatial_path.turn_sign > 0.0))
+                            .to(torch.float32)
+                            .mean()
+                        ),
+                        "PureRLPath/c3joint_c3c_high_climb_fraction": (
+                            c3c_hard.to(torch.float32).mean()
+                        ),
+                        "PureRLPath/c3joint_c3c_high_climb_left_fraction": (
+                            (c3c_hard & (self._pure_rl_spatial_path.turn_sign < 0.0))
+                            .to(torch.float32)
+                            .mean()
+                        ),
+                        "PureRLPath/c3joint_c3c_high_climb_right_fraction": (
+                            (c3c_hard & (self._pure_rl_spatial_path.turn_sign > 0.0))
+                            .to(torch.float32)
+                            .mean()
                         ),
                     }
                 )

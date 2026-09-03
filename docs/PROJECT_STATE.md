@@ -61,6 +61,18 @@ C1/C2c/C3a/all-C3b/C3c at fixed `15/20/15/25/25` weights using the final split a
 route-heading-canonical observation. Existing staged routes remain available. See
 `docs/decisions/ADR-2026-09-01-pure-rl-full-c3-joint-training.md`.
 
+The completed seed-0 full-C3 joint run passed all five frozen suites only at `model_175.pt`; no
+adjacent checkpoint passed every suite. Neighboring checkpoints consistently retained C1, C2c and
+C3a, while failures concentrated in rare C3b template-5/7 strong positive-climb rows and C3c
+high-demand positive-climb rows. A bounded 25-update hard-slice continuation from `model_175.pt`
+recovered C3c from 88/96 to 96/96 and retained full C1, C2c and C3a success, but C3b remained
+168/176; all eight failures were template-5 positive-12-degree right-turn roll-limit cases. The run
+is useful but not promotable. Runtime telemetry also exposed that the pre-fix rank-based sampler
+collapsed asynchronous partial resets to the first template and right turn. Future hard-slice runs
+now sample template and turn sign independently. See the decision and evidence audit in
+`docs/decisions/ADR-2026-09-02-pure-rl-c3joint-hard-slice-sampling.md` and
+`docs/audits/2026-09-03-pure-rl-c3joint-hard-slice-continuation.md`.
+
 CPU-native end-to-end PPO scaling was benchmarked at equal work after separating training from checkpoint evaluation. For 245,760 transitions and 1,280 optimizer steps, 64/128/256 environments achieved median 838.0/1462.0/2185.5 steps/s and fixed-work iteration sums of 292.81/167.87/112.20 seconds. The 256-environment, 16-minibatch configuration gives 2.61 times the 64-environment throughput and is validated as the measured PureRL training default. An 80-iteration resumed C2a run processed 983,040 transitions in 7 minutes 37 seconds; adjacent `model_1550.pt` and `model_1575.pt` checkpoints passed both C2a and C1 retention. Measured PureRL launcher defaults are now 256 environments, 16 minibatches, 500 iterations, and a 25-iteration save interval; explicit overrides and non-measured defaults remain available. Sample-equivalent promotion cadence is frozen at 614,400 transitions minimum and 307,200 transitions between evidence. See `docs/decisions/ADR-2026-08-11-pure-rl-accelerated-training-defaults.md` and `docs/audits/2026-08-11-pure-rl-cpu-native-training-acceleration.md`.
 
 Measured PureRL C1/C2/C3 launcher runs now also default to train-only execution so they reproduce the benchmarked process isolation. Checkpoint evaluation runs sequentially in fresh processes; `--concurrent-eval` is an explicit non-authority opt-in, while `--train-only` remains the visible authority flag. Non-measured task defaults are unchanged. See `docs/decisions/ADR-2026-08-12-pure-rl-sequential-evaluation-default.md`.
@@ -108,6 +120,9 @@ Validation on 2026-08-12 passed 219 focused PureRL C1/C2/C3 unit and contract te
 - `docs/decisions/ADR-2026-08-29-pure-rl-split-frequency-actor.md`
 - `docs/decisions/ADR-2026-08-29-pure-rl-c3b-v3-joint-training.md`
 - `docs/decisions/ADR-2026-08-30-pure-rl-c3b-adaptive-ability-sampling.md`
+- `docs/decisions/ADR-2026-09-01-pure-rl-full-c3-joint-training.md`
+- `docs/decisions/ADR-2026-09-02-pure-rl-c3joint-hard-slice-sampling.md`
+- `docs/audits/2026-09-03-pure-rl-c3joint-hard-slice-continuation.md`
 - `docs/audits/2026-08-29-pure-rl-c3a-split-actor-promotion.md`
 - `docs/audits/2026-08-18-pure-rl-c3a-bounded-warm-start.md`
 - `docs/audits/2026-07-29-ideal-coupling-feasibility.md`
@@ -152,7 +167,9 @@ Validation on 2026-08-12 passed 219 focused PureRL C1/C2/C3 unit and contract te
 
 ## Exact next task
 
-Let the `c3_full_joint_heading_canonical_from_promoted_c2c_v1` seed-0 run finish without concurrent
-evaluation. Then evaluate candidate checkpoints in fresh CPU-native processes on C3c v2, C3b v3,
-C3a v2, C2c v2 and C1 v2. Promote only the later member of an adjacent all-suite passing pair;
-training telemetry or any single-suite pass remains insufficient.
+Design and freeze a continuously curved three-dimensional path contract and evaluation grid before
+training. Use horizontal curvature and flight-path slope that vary smoothly along arc length rather
+than another fixed event sequence. Verify the observation provides sufficient local tangent or
+lookahead information, initialize from the original full-joint `model_175.pt` as a research source,
+and retain the existing C3c/C3b/C3a/C2c/C1 frozen suites as regression gates. Do not call that
+source promoted: it passed all five suites at one checkpoint but lacks the required adjacent pair.

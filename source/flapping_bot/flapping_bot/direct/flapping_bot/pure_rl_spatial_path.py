@@ -30,6 +30,9 @@ C3B_DESCENT_THEN_TURN_TEMPLATE_ID = 8
 C3B_LOITER_TEMPLATE_ID = 9
 _C3B_LOITER_TOTAL_LENGTH_M = 110.0
 C3C_COUPLED_TEMPLATE_ID = 10
+C3_JOINT_HARD_SLICE_NONE = 0
+C3_JOINT_HARD_SLICE_C3B_STRONG_CLIMB = 1
+C3_JOINT_HARD_SLICE_C3C_HIGH_CLIMB = 2
 
 _MAX_EVENTS = 4
 _EVENT_NONE = 0
@@ -68,6 +71,10 @@ class PureRLSpatialStageConfig:
     loiter_radius_m_range: tuple[float, float] = (0.0, 0.0)
     c3b_weak_template_probability: float = 2.0 / 7.0
     c3b_weak_strong_climb_probability: float = 0.25
+    c3joint_hard_slice_sampling_enabled: bool = False
+    c3joint_c3b_hard_slice_probability: float = 0.50
+    c3joint_c3c_high_climb_probability: float = 0.40
+    c3joint_c3c_high_demand_range: tuple[float, float] = (0.80, 1.00)
 
 
 @dataclass(frozen=True)
@@ -94,6 +101,7 @@ class PureRLSpatialPathBatch:
     peak_slope_rad: Tensor
     event_count: Tensor
     template_id: Tensor
+    hard_slice_id: Tensor
     sample_spacing_m: float
     path_length_m: float
 
@@ -635,7 +643,14 @@ def _sample_spatial_path_batch_once(
         dtype=dtype,
         generator=generator,
     )
-    event_type, event_count, template_id, event_turn_sign, event_vertical_sign = _sample_event_contracts(
+    (
+        event_type,
+        event_count,
+        template_id,
+        event_turn_sign,
+        event_vertical_sign,
+        hard_slice_id,
+    ) = _sample_event_contracts(
         task_family_id=task_family_id,
         config=config,
         device=resolved_device,
@@ -660,11 +675,13 @@ def _sample_spatial_path_batch_once(
             evaluation_turn_sign=evaluation_turn_sign,
             config=config,
         )
+        hard_slice_id.zero_()
     event_roll_rad, event_slope_rad = _sample_event_amplitudes(
         task_family_id=task_family_id,
         event_type=event_type,
         template_id=template_id,
         event_vertical_sign=event_vertical_sign,
+        hard_slice_id=hard_slice_id,
         config=config,
         device=resolved_device,
         dtype=dtype,
@@ -772,6 +789,7 @@ def _sample_spatial_path_batch_once(
         peak_slope_rad=peak_slope_rad,
         event_count=event_count,
         template_id=template_id,
+        hard_slice_id=hard_slice_id,
         sample_spacing_m=config.sample_spacing_m,
         path_length_m=config.path_length_m,
     )
@@ -797,11 +815,14 @@ def _sample_event_contracts(
     device: torch.device,
     dtype: torch.dtype,
     generator: torch.Generator | None,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
     count = task_family_id.shape[0]
     event_type = torch.zeros((count, _MAX_EVENTS), device=device, dtype=torch.int64)
     event_count = torch.zeros(count, device=device, dtype=torch.int64)
     template_id = torch.full((count,), STRAIGHT_TEMPLATE_ID, device=device, dtype=torch.int64)
+    hard_slice_id = torch.full(
+        (count,), C3_JOINT_HARD_SLICE_NONE, device=device, dtype=torch.int64
+    )
     random_turn_sign = _sample_sign((count, _MAX_EVENTS), device=device, dtype=dtype, generator=generator)
     random_vertical_sign = _sample_sign((count, _MAX_EVENTS), device=device, dtype=dtype, generator=generator)
 
@@ -870,6 +891,14 @@ def _sample_event_contracts(
             sampled_weak_template,
             other_template_ids[other_choice],
         )
+        c3b_hard_rows = torch.zeros_like(c3b_rows)
+        if config.stage_id == "c3joint" and config.c3joint_hard_slice_sampling_enabled:
+            c3b_hard_rows = c3b_rows & (
+                torch.rand(count, device=device, dtype=dtype, generator=generator)
+                < float(config.c3joint_c3b_hard_slice_probability)
+            )
+            sampled_template = torch.where(c3b_hard_rows, sampled_weak_template, sampled_template)
+            hard_slice_id[c3b_hard_rows] = C3_JOINT_HARD_SLICE_C3B_STRONG_CLIMB
         template_id[c3b_rows] = sampled_template[c3b_rows]
         two_event_rows = c3b_rows & (
             (template_id == C3B_SAME_DIRECTION_TURNS_TEMPLATE_ID)
@@ -894,11 +923,17 @@ def _sample_event_contracts(
             template_id=template_id,
             current_rows=c3b_rows,
         )
-
     c3c_rows = current_rows if config.stage_id == "c3c" else torch.zeros_like(current_rows)
     if config.stage_id == "c3joint":
         c3c_rows = task_family_id == C3_JOINT_C3C_TASK_FAMILY_ID
     if bool(torch.any(c3c_rows)):
+        c3c_hard_rows = torch.zeros_like(c3c_rows)
+        if config.stage_id == "c3joint" and config.c3joint_hard_slice_sampling_enabled:
+            c3c_hard_rows = c3c_rows & (
+                torch.rand(count, device=device, dtype=dtype, generator=generator)
+                < float(config.c3joint_c3c_high_climb_probability)
+            )
+            hard_slice_id[c3c_hard_rows] = C3_JOINT_HARD_SLICE_C3C_HIGH_CLIMB
         sampled_count = torch.randint(
             config.event_count_range[0],
             config.event_count_range[1] + 1,
@@ -922,6 +957,13 @@ def _sample_event_contracts(
             -first_vertical_sign,
         )
         random_vertical_sign[c3c_rows] = alternating_vertical_sign[c3c_rows]
+        if bool(torch.any(c3c_hard_rows)):
+            hard_vertical_sign = torch.where(
+                torch.remainder(vertical_rank, 2) == 1,
+                torch.ones_like(random_vertical_sign),
+                -torch.ones_like(random_vertical_sign),
+            )
+            random_vertical_sign[c3c_hard_rows] = hard_vertical_sign[c3c_hard_rows]
 
     if config.stage_id == "c3c":
         earlier_c3b_rows = earlier_spatial_rows & (
@@ -943,7 +985,14 @@ def _sample_event_contracts(
 
     active = torch.arange(_MAX_EVENTS, device=device).unsqueeze(0) < event_count.unsqueeze(1)
     event_type = torch.where(active, event_type, torch.zeros_like(event_type))
-    return event_type, event_count, template_id, random_turn_sign, random_vertical_sign
+    return (
+        event_type,
+        event_count,
+        template_id,
+        random_turn_sign,
+        random_vertical_sign,
+        hard_slice_id,
+    )
 
 
 def _apply_c3b_template_contracts(
@@ -984,6 +1033,7 @@ def _sample_event_amplitudes(
     event_type: Tensor,
     template_id: Tensor,
     event_vertical_sign: Tensor,
+    hard_slice_id: Tensor,
     config: PureRLSpatialStageConfig,
     device: torch.device,
     dtype: torch.dtype,
@@ -1097,6 +1147,12 @@ def _sample_event_amplitudes(
             strong_slope_deg,
             ordinary_slope_deg,
         )
+        c3b_hard_rows = hard_slice_id == C3_JOINT_HARD_SLICE_C3B_STRONG_CLIMB
+        targeted_slope_deg = torch.where(
+            c3b_hard_rows.unsqueeze(1),
+            strong_slope_deg,
+            targeted_slope_deg,
+        )
         slope_deg = torch.where(
             current_c3b_weak.unsqueeze(1) & vertical_mask,
             targeted_slope_deg,
@@ -1115,6 +1171,29 @@ def _sample_event_amplitudes(
         row_slope_deg = minimum_slope_deg + (
             maximum_coupled_slope_deg - minimum_slope_deg
         ) * torch.rand(count, device=device, dtype=dtype, generator=generator)
+        c3c_hard_rows = hard_slice_id == C3_JOINT_HARD_SLICE_C3C_HIGH_CLIMB
+        if bool(torch.any(c3c_hard_rows)):
+            hard_roll_deg = _sample_uniform(
+                (count,),
+                (6.0, 8.0),
+                device=device,
+                dtype=dtype,
+                generator=generator,
+            )
+            hard_demand = _sample_uniform(
+                (count,),
+                config.c3joint_c3c_high_demand_range,
+                device=device,
+                dtype=dtype,
+                generator=generator,
+            )
+            hard_slope_deg = 10.0 * torch.sqrt(
+                torch.clamp(hard_demand - torch.square(hard_roll_deg / 20.0), min=0.0)
+            )
+            row_roll_deg = torch.where(c3c_hard_rows.unsqueeze(1), hard_roll_deg.unsqueeze(1), row_roll_deg)
+            roll_deg = torch.where(current_c3c.unsqueeze(1), row_roll_deg.expand_as(roll_deg), roll_deg)
+            event_roll_rad = torch.deg2rad(roll_deg) * turn_mask
+            row_slope_deg = torch.where(c3c_hard_rows, hard_slope_deg, row_slope_deg)
         slope_deg = torch.where(current_c3c.unsqueeze(1), row_slope_deg.unsqueeze(1), slope_deg)
     event_slope_rad = torch.deg2rad(slope_deg) * event_vertical_sign * vertical_mask
     return event_roll_rad, event_slope_rad
@@ -1375,11 +1454,22 @@ def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
     for name, probability in (
         ("c3b_weak_template_probability", config.c3b_weak_template_probability),
         ("c3b_weak_strong_climb_probability", config.c3b_weak_strong_climb_probability),
+        ("c3joint_c3b_hard_slice_probability", config.c3joint_c3b_hard_slice_probability),
+        ("c3joint_c3c_high_climb_probability", config.c3joint_c3c_high_climb_probability),
     ):
         if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
             raise ValueError(f"{name} must lie in [0, 1].")
     if config.stage_id in ("c3b", "c3joint") and config.vertical_slope_deg_range[0] > 10.0:
         raise ValueError("c3b vertical_slope_deg_range must include the 10 degree strong-climb split.")
+    _validate_range(
+        "c3joint_c3c_high_demand_range",
+        config.c3joint_c3c_high_demand_range,
+        allow_zero=True,
+    )
+    if config.c3joint_c3c_high_demand_range[1] > 1.0:
+        raise ValueError("c3joint_c3c_high_demand_range must remain within the approved bound.")
+    if config.c3joint_hard_slice_sampling_enabled and config.stage_id != "c3joint":
+        raise ValueError("C3 joint hard-slice sampling is defined only for c3joint.")
 
 
 def _validate_range(name: str, bounds: tuple[float, float], *, allow_zero: bool) -> None:
@@ -1539,7 +1629,7 @@ def _validate_path_batch(path: PureRLSpatialPathBatch, *, require_nonempty: bool
         "peak_slope_rad",
     ):
         _validate_path_tensor(path, name=name, shape=(count,), reference=points)
-    for name in ("task_family_id", "event_count", "template_id"):
+    for name in ("task_family_id", "event_count", "template_id", "hard_slice_id"):
         value = getattr(path, name)
         if (
             not isinstance(value, torch.Tensor)

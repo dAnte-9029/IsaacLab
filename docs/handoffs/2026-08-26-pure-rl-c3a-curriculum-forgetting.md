@@ -1447,3 +1447,25 @@ C3b bucket 覆盖全部七个 sequential templates，C3c bucket 独立覆盖 cou
 distillation、yaw-consistency、EWC、新 head 和 reward 修改均关闭。正式判断仍要求相邻 checkpoint
 同时通过 fresh C3c/C3b/C3a/C2c/C1 suites。完整决策见
 `docs/decisions/ADR-2026-09-01-pure-rl-full-c3-joint-training.md`。
+
+## 35. 2026-09-03 full-C3 hard-slice continuation 结果与下一阶段
+
+从 full-C3 seed-0 `model_175.pt` 连同 optimizer state 继续训练 25 个 PPO updates，生成的
+`model_200.pt` 已完成五套 fresh CPU-native frozen evaluation：C3c 96/96、C3a 96/96、C2c
+112/112、C1 16/16 全部通过，C3b 为 168/176。相对原 full-C3 `model_200.pt`，C3c 从 88/96
+恢复到 96/96，C3b 总数不变。剩余八个 C3b failure 全部是 template 5、`+12 deg` climb、turn
+sign `+1`、四个 heading 乘两个 flap phase，并均为 roll-limit termination。因此该训练证明了局部
+继续训练有收益，但仍无相邻 all-suite passing pair，不能 promotion。
+
+运行 telemetry 同时暴露了 sampler discrepancy：原 hard-slice 实现按单次 sampler call 内的 rank
+轮换 template/sign，而异步 partial reset 经常只传入一行，导致 rank 每次从零开始。完成的 run 实际
+只训练了第一种 C3b hard template 和右转 hard slices。后续代码已改为每次 reset 独立 50/50 采样
+template 5/7 与左右转，并用重复 single-path sampling 回归测试覆盖；此修正不能回溯为已完成 run 的
+证据。完整记录见
+`docs/audits/2026-09-03-pure-rl-c3joint-hard-slice-continuation.md`。
+
+下一阶段不再新增拼接事件课程。先设计并冻结沿弧长连续变化的 horizontal curvature 和 flight-path
+slope 三维路径族，以及与训练分离的 frozen curve grid；检查现有 observation 的 local tangent/lookahead
+是否足够。研究初始化使用原 full-C3 `model_175.pt`，因为它是唯一一次通过五套 frozen suites 的
+checkpoint，但它没有满足相邻-pair promotion rule。新训练仍必须 rehearsal 旧任务，并以现有
+C3c/C3b/C3a/C2c/C1 frozen suites 作为 retention gates。本记录没有授权或声称已经实现连续曲线任务。

@@ -1798,6 +1798,56 @@ def test_full_c3_joint_preset_freezes_c2c_lineage_and_five_task_contract(tmp_pat
     assert metadata["task_probabilities"] == "0.15,0.2,0.15,0.25,0.25"
 
 
+def test_c3_full_joint_hard_slice_preset_resumes_model175_with_optimizer(tmp_path: Path) -> None:
+    args = train_and_watch.argparse.Namespace(
+        c3_full_joint_hard_slice_continuation=True,
+        c3_full_joint_from_c2c=False,
+        task="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0",
+        run_name="pure_rl_c3_full_joint_hardslice_resume175_to200_seed0_26iter",
+        num_envs=None,
+        max_iterations=None,
+        save_interval=None,
+        seed=0,
+        train_device="cuda:0",
+        headless=True,
+        agent_num_mini_batches=None,
+        c2c_strong_climb_probability=None,
+        actor_distillation_coefficient=0.0,
+        checkpoint=None,
+        load_run=None,
+        portable_root_base=tmp_path / "portable",
+        native_extension_parent=tmp_path / "native_extensions",
+        freeze_steps_after_reset=None,
+        mass_kg_override=None,
+        resume=False,
+        concurrent_eval=False,
+        adaptive_task_sampling=False,
+        c2c_recycle_on_recovery=False,
+        load_weights_only=False,
+        native_cpu=False,
+        agent_device=None,
+        train_only=False,
+    )
+
+    resolved = train_and_watch._apply_c3_full_joint_hard_slice_preset(args)
+    command = train_and_watch._build_train_cmd(resolved)
+
+    assert resolved.max_iterations == 26
+    assert resolved.load_run == (
+        "2026-09-01_10-13-43_pure_rl_c3_full_joint_from_c2c_seed0_301iter"
+    )
+    assert resolved.checkpoint == "model_175.pt"
+    assert resolved.resume is True
+    assert resolved.load_weights_only is False
+    assert "--resume" in command
+    assert "--load_weights_only" not in command
+    assert "env.pure_rl_full_c3_joint_training_enabled=true" in command
+    assert "env.pure_rl_c3joint_hard_slice_sampling_enabled=true" in command
+    assert "env.pure_rl_task_aware_ppo_task_weights=[0.15,0.2,0.15,0.25,0.25]" in command
+    assert "agent.policy.class_name=PureRLSplitActorCritic" in command
+    assert "env.pure_rl_heading_canonical_observation=true" in command
+
+
 def test_spatial_curriculum_source_chain_rejects_wrong_stage(tmp_path: Path) -> None:
     checkpoint = tmp_path / "model_50.pt"
     checkpoint.write_bytes(b"checkpoint")

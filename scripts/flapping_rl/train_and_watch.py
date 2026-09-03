@@ -182,6 +182,11 @@ _C3_FULL_JOINT_CHECKPOINT = "model_550.pt"
 _C3_FULL_JOINT_ROUTE = "c3_full_joint_heading_canonical_from_promoted_c2c_v1"
 _C3_FULL_JOINT_MAX_ITERATIONS = 301
 _C3_FULL_JOINT_TASK_WEIGHTS = (0.15, 0.20, 0.15, 0.25, 0.25)
+_C3_FULL_JOINT_HARD_SLICE_SOURCE_RUN = (
+    "2026-09-01_10-13-43_pure_rl_c3_full_joint_from_c2c_seed0_301iter"
+)
+_C3_FULL_JOINT_HARD_SLICE_CHECKPOINT = "model_175.pt"
+_C3_FULL_JOINT_HARD_SLICE_MAX_ITERATIONS = 26
 
 
 def _resolve_eval_suite(task: str, eval_suite: str) -> str:
@@ -469,6 +474,14 @@ def _parse_args() -> argparse.Namespace:
             "15/20/15/25/25 C1/C2c/C3a/C3b/C3c sampling, all C3b templates, "
             "coupled C3c paths, split actor, heading-canonical observation, fresh optimizer, "
             "301 iterations, and no adaptive sampling or distillation."
+        ),
+    )
+    parser.add_argument(
+        "--c3-full-joint-hard-slice-continuation",
+        action="store_true",
+        help=(
+            "Resume the passing full-joint model_175 with optimizer state for a bounded "
+            "25-update diagnostic using targeted C3b strong-climb and C3c high-climb sampling."
         ),
     )
     parser.add_argument(
@@ -1062,6 +1075,56 @@ def _apply_c3_full_joint_preset(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
+def _apply_c3_full_joint_hard_slice_preset(args: argparse.Namespace) -> argparse.Namespace:
+    """Apply the bounded model_175-to-model_200 hard-slice diagnostic."""
+
+    if not bool(getattr(args, "c3_full_joint_hard_slice_continuation", False)):
+        return args
+    preset_option = "--c3-full-joint-hard-slice-continuation"
+    if str(getattr(args, "task", "")) != _C3C_TASK_ID:
+        raise ValueError(f"{preset_option} requires the measured CPU-native C3c task.")
+    for name, option in (
+        ("c3_full_joint_from_c2c", "--c3-full-joint-from-c2c"),
+        ("concurrent_eval", "--concurrent-eval"),
+        ("adaptive_task_sampling", "--adaptive-task-sampling"),
+        ("c2c_recycle_on_recovery", "--c2c-recycle-on-recovery"),
+    ):
+        if bool(getattr(args, name, False)):
+            raise ValueError(f"{preset_option} cannot be combined with {option}.")
+    for name, expected, option in (
+        ("num_envs", _MEASURED_PURE_RL_DEFAULT_NUM_ENVS, "--num-envs"),
+        ("max_iterations", _C3_FULL_JOINT_HARD_SLICE_MAX_ITERATIONS, "--max-iterations"),
+        ("save_interval", _MEASURED_PURE_RL_DEFAULT_SAVE_INTERVAL, "--save-interval"),
+        ("seed", 0, "--seed"),
+        ("agent_num_mini_batches", _MEASURED_PURE_RL_DEFAULT_NUM_MINI_BATCHES, "--agent-num-mini-batches"),
+        ("c2c_strong_climb_probability", 0.5, "--c2c-strong-climb-probability"),
+        ("agent_device", "cpu", "--agent-device"),
+    ):
+        _set_preset_value(
+            args,
+            name=name,
+            expected=expected,
+            option=option,
+            preset_option=preset_option,
+        )
+    if float(getattr(args, "actor_distillation_coefficient", 0.0)) != 0.0:
+        raise ValueError(f"{preset_option} requires --actor-distillation-coefficient=0.")
+    for name, expected, option in (
+        ("load_run", _C3_FULL_JOINT_HARD_SLICE_SOURCE_RUN, "--load_run"),
+        ("checkpoint", _C3_FULL_JOINT_HARD_SLICE_CHECKPOINT, "--checkpoint"),
+    ):
+        configured = str(getattr(args, name, "") or "").strip()
+        if configured not in ("", expected):
+            raise ValueError(f"{preset_option} requires {option}={expected}.")
+        setattr(args, name, expected)
+    args.resume = True
+    args.load_weights_only = False
+    args.native_cpu = True
+    args.train_only = True
+    args.concurrent_eval = False
+    return args
+
+
 def _extract_ckpt_index(path: Path) -> int:
     match = re.search(r"model_(\d+)\.pt$", path.name)
     return int(match.group(1)) if match else -1
@@ -1419,17 +1482,22 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
             "env.pure_rl_actor_yaw_consistency_coefficient="
             f"{_C3B_YAW_CONSISTENCY_COEFFICIENT}"
         )
+    hard_slice_continuation = bool(
+        getattr(args, "c3_full_joint_hard_slice_continuation", False)
+    )
     heading_canonical_observation = bool(
         getattr(args, "c3b_heading_canonical_observation", False)
     ) or bool(getattr(args, "c3c_joint_from_promoted_c3b", False)) or bool(
         getattr(args, "c3_full_joint_from_c2c", False)
-    )
+    ) or hard_slice_continuation
     if heading_canonical_observation:
         if spatial_stage_for_task(str(args.task)) not in {"c3b", "c3c"}:
             raise ValueError(
                 "Heading-canonical observation is supported only for C3b/C3c training."
             )
-        if not bool(getattr(args, "load_weights_only", False)):
+        if not bool(getattr(args, "load_weights_only", False)) and not (
+            hard_slice_continuation and bool(getattr(args, "resume", False))
+        ):
             raise ValueError(
                 "Heading-canonical observation requires a weights-only warm start."
             )
@@ -1463,7 +1531,7 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
             "env.pure_rl_reward_cfg.requested_applied_frequency_action_gap_penalty_weight="
             f"{_C3A_JOINT_REQUESTED_APPLIED_FREQUENCY_GAP_PENALTY_WEIGHT}"
         )
-    if bool(getattr(args, "c3_full_joint_from_c2c", False)):
+    if bool(getattr(args, "c3_full_joint_from_c2c", False)) or hard_slice_continuation:
         task_weights = ",".join(str(value) for value in _C3_FULL_JOINT_TASK_WEIGHTS)
         train_cmd.extend(
             [
@@ -1471,6 +1539,8 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
                 f"env.pure_rl_task_aware_ppo_task_weights=[{task_weights}]",
             ]
         )
+        if hard_slice_continuation:
+            train_cmd.append("env.pure_rl_c3joint_hard_slice_sampling_enabled=true")
     if bool(getattr(args, "c3a_split_frequency_actor", False)) or bool(
         getattr(args, "c3b_split_frequency_actor", False)
     ) or bool(getattr(args, "c3b_adaptive_sampling", False)) or bool(
@@ -1481,6 +1551,8 @@ def _build_train_cmd(args: argparse.Namespace) -> list[str]:
         getattr(args, "c3c_joint_from_promoted_c3b", False)
     ) or bool(
         getattr(args, "c3_full_joint_from_c2c", False)
+    ) or bool(
+        getattr(args, "c3_full_joint_hard_slice_continuation", False)
     ):
         hidden_dims = ",".join(str(value) for value in _C3A_BASE_POLICY_HIDDEN_DIMS)
         train_cmd.extend(
@@ -1556,12 +1628,16 @@ def _build_watch_cmd(args: argparse.Namespace, run_dir: Path) -> list[str]:
         getattr(args, "c3c_joint_from_promoted_c3b", False)
     ) or bool(
         getattr(args, "c3_full_joint_from_c2c", False)
+    ) or bool(
+        getattr(args, "c3_full_joint_hard_slice_continuation", False)
     ):
         watch_cmd.append("--pure-rl-split-frequency-actor")
     if bool(getattr(args, "c3b_heading_canonical_observation", False)) or bool(
         getattr(args, "c3c_joint_from_promoted_c3b", False)
     ) or bool(
         getattr(args, "c3_full_joint_from_c2c", False)
+    ) or bool(
+        getattr(args, "c3_full_joint_hard_slice_continuation", False)
     ):
         watch_cmd.append("--pure-rl-heading-canonical-observation")
     if args.headless:
@@ -1734,6 +1810,7 @@ def main():
     args = _apply_c3b_adaptive_sampling_preset(args)
     args = _apply_c3c_joint_preset(args)
     args = _apply_c3_full_joint_preset(args)
+    args = _apply_c3_full_joint_hard_slice_preset(args)
     curriculum_source_metadata = _build_curriculum_source_metadata(args)
     repo_root = Path(__file__).resolve().parents[2]
     os.chdir(repo_root)
