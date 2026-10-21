@@ -22,6 +22,7 @@ from typing import Mapping, Sequence
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = Path(__file__).resolve()
 _TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3b-Direct-v0"
+_C3C_TASK = "Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C3c-Direct-v0"
 _NATIVE_EXTENSION_ID = "omni.flapping_bot.holonomic_constraint"
 _ACTION_NAMES = ("flap_frequency", "rudder", "left_elevon", "right_elevon")
 _CASE_SPECS = (
@@ -50,10 +51,11 @@ def _parse_worker_args(argv: Sequence[str]) -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(description="Internal fixed C3b case trace worker.")
     parser.add_argument("--worker", action="store_true", required=True)
+    parser.add_argument("--task", choices=(_TASK, _C3C_TASK), default=_TASK)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--expected-result", choices=("control", "failure"), required=True)
-    parser.add_argument("--template-id", type=int, choices=(5, 7), required=True)
+    parser.add_argument("--template-id", type=int, choices=(5, 7, 10), required=True)
     parser.add_argument("--heading-deg", type=float, required=True)
     parser.add_argument("--trace-output", type=Path, required=True)
     parser.add_argument("--summary-output", type=Path, required=True)
@@ -63,13 +65,14 @@ def _parse_worker_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--flap-phase-deg", type=float, required=True)
     parser.add_argument("--duration-s", type=float, required=True)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--pure-rl-heading-canonical-observation", action="store_true")
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args(argv)
 
 
 def _validate_condition(args: argparse.Namespace) -> None:
-    if not math.isfinite(float(args.slope_deg)) or not 0.0 < float(args.slope_deg) <= 15.0:
-        raise ValueError("--slope-deg must be finite and within (0, 15].")
+    if not math.isfinite(float(args.slope_deg)) or not 0.0 < abs(float(args.slope_deg)) <= 15.0:
+        raise ValueError("--slope-deg magnitude must be finite and within (0, 15].")
     if not math.isfinite(float(args.geometry_roll_deg)) or not 0.0 < float(args.geometry_roll_deg) <= 30.0:
         raise ValueError("--geometry-roll-deg must be finite and within (0, 30].")
     if float(args.duration_s) <= 0.0:
@@ -220,13 +223,17 @@ def _summarize_trace(rows: Sequence[Mapping[str, float | str]]) -> dict[str, obj
         "turn_onset_time_s": None if turn_index is None else times[turn_index],
         "climb_onset_time_s": None if climb_index is None else times[climb_index],
         "second_event_state_action": _snapshot(rows, second_event_index),
-        "reached_all_events": bool(int(float(rows[-1]["reached_all_events"]))),
-        "terminated": bool(int(float(rows[-1]["terminated"]))),
-        "roll_limit_termination": bool(int(float(rows[-1]["roll_limit_termination"]))),
-        "ground_termination": bool(int(float(rows[-1]["ground_termination"]))),
-        "tilt_termination": bool(int(float(rows[-1]["tilt_termination"]))),
-        "cross_track_termination": bool(int(float(rows[-1]["cross_track_termination"]))),
-        "height_termination": bool(int(float(rows[-1]["height_termination"]))),
+        "reached_all_events": any(bool(int(float(row["reached_all_events"]))) for row in rows),
+        "terminated": any(bool(int(float(row["terminated"]))) for row in rows),
+        "roll_limit_termination": any(
+            bool(int(float(row["roll_limit_termination"]))) for row in rows
+        ),
+        "ground_termination": any(bool(int(float(row["ground_termination"]))) for row in rows),
+        "tilt_termination": any(bool(int(float(row["tilt_termination"]))) for row in rows),
+        "cross_track_termination": any(
+            bool(int(float(row["cross_track_termination"]))) for row in rows
+        ),
+        "height_termination": any(bool(int(float(row["height_termination"]))) for row in rows),
         "max_abs_roll_deg": max(rolls),
         "p95_abs_roll_deg": _quantile(rolls, 0.95),
         "max_abs_cross_track_error_m": max(cross_errors),
@@ -317,6 +324,11 @@ def _plot_template_comparison(
 def _run_worker(argv: Sequence[str]) -> int:
     args = _parse_worker_args(argv)
     _validate_condition(args)
+    task = str(args.task)
+    if task == _C3C_TASK and int(args.template_id) != 10:
+        raise ValueError("C3c trace workers require template 10.")
+    if task == _TASK and int(args.template_id) not in (5, 7):
+        raise ValueError("C3b trace workers require template 5 or 7.")
     checkpoint = args.checkpoint.expanduser().resolve()
     if not checkpoint.is_file():
         raise FileNotFoundError(checkpoint)
@@ -360,7 +372,7 @@ def _run_worker(argv: Sequence[str]) -> int:
 
         heading_rad = math.radians(float(args.heading_deg))
         phase_rad = math.radians(float(args.flap_phase_deg))
-        env_cfg = parse_env_cfg(_TASK, device="cpu", num_envs=1)
+        env_cfg = parse_env_cfg(task, device="cpu", num_envs=1)
         env_cfg.seed = int(args.seed)
         env_cfg.episode_length_s = float(args.duration_s)
         env_cfg.randomize_commands = False
@@ -372,6 +384,7 @@ def _run_worker(argv: Sequence[str]) -> int:
         env_cfg.pure_rl_eval_spatial_geometry_roll_deg_schedule = (float(args.geometry_roll_deg),)
         env_cfg.pure_rl_eval_spatial_slope_deg_schedule = (float(args.slope_deg),)
         env_cfg.pure_rl_eval_spatial_turn_sign_schedule = (int(args.turn_sign),)
+        env_cfg.pure_rl_heading_canonical_observation = bool(args.pure_rl_heading_canonical_observation)
         env_cfg.wind_enabled = False
         env_cfg.wind_ou_enabled = False
         robot_asset = (_REPO_ROOT / "source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf").resolve()
@@ -380,12 +393,12 @@ def _run_worker(argv: Sequence[str]) -> int:
         env_cfg.robot.spawn.asset_path = str(robot_asset)
         env_cfg.robot.spawn.usd_dir = str(robot_usd_dir)
 
-        agent_cfg = load_cfg_from_registry(_TASK, "rsl_rl_cfg_entry_point")
+        agent_cfg = load_cfg_from_registry(task, "rsl_rl_cfg_entry_point")
         agent_cfg.device = "cpu"
         agent_cfg_dict = agent_cfg.to_dict()
         agent_cfg_dict["device"] = "cpu"
         agent_cfg_dict["policy"]["class_name"] = "PureRLSplitActorCritic"
-        base_env = gym.make(_TASK, cfg=env_cfg)
+        base_env = gym.make(task, cfg=env_cfg)
         env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg_dict.get("clip_actions"))
         runner = OnPolicyRunner(env, agent_cfg_dict, log_dir=None, device="cpu")
         runner.load(str(checkpoint))
@@ -500,7 +513,7 @@ def _run_worker(argv: Sequence[str]) -> int:
         summary.update(
             {
                 "checkpoint": str(checkpoint),
-                "task": _TASK,
+                "task": task,
                 "condition": {
                     "heading_deg": float(args.heading_deg),
                     "flap_phase_deg": float(args.flap_phase_deg),

@@ -80,6 +80,58 @@ def test_worker_command_freezes_matched_case_and_cpu(tmp_path: Path) -> None:
     assert "--headless" in command
 
 
+def test_worker_parser_accepts_c3c_extended_horizon_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    argv = [
+            "--worker",
+            "--task",
+            compare._C3C_TASK,
+            "--checkpoint",
+            str(tmp_path / "model_100.pt"),
+            "--case-id",
+            "high_descent",
+            "--expected-result",
+            "control",
+            "--template-id",
+            "10",
+            "--heading-deg",
+            "90",
+            "--trace-output",
+            str(tmp_path / "trace.csv"),
+            "--summary-output",
+            str(tmp_path / "summary.json"),
+            "--slope-deg",
+            "-9",
+            "--geometry-roll-deg",
+            "6",
+            "--turn-sign",
+            "1",
+            "--flap-phase-deg",
+            "180",
+            "--duration-s",
+            "24",
+            "--seed",
+            "0",
+            "--pure-rl-heading-canonical-observation",
+        ]
+    monkeypatch.setattr(sys, "argv", [str(MODULE_PATH), *argv])
+    args = compare._parse_worker_args(argv)
+
+    compare._validate_condition(args)
+    assert args.task == compare._C3C_TASK
+    assert args.template_id == 10
+    assert args.slope_deg == pytest.approx(-9.0)
+    assert args.pure_rl_heading_canonical_observation is True
+
+
+def test_worker_uses_registered_heading_canonical_config_field() -> None:
+    source = MODULE_PATH.read_text(encoding="utf-8")
+
+    assert "env_cfg.pure_rl_heading_canonical_observation =" in source
+    assert "pure_rl_heading_canonical_observation_enabled" not in source
+
+
 @pytest.mark.parametrize("template_id, second_event_time", [(5, 0.6), (7, 0.6)])
 def test_summarize_trace_locates_second_event_and_roll_failure(
     template_id: int,
@@ -111,3 +163,13 @@ def test_comparison_delta_uses_failure_minus_control() -> None:
     assert delta["max_abs_roll_delta_deg"] == pytest.approx(4.0)
     assert delta["failure_roll_limit_termination"] is True
     assert delta["control_reached_all_events"] is True
+
+
+def test_summarize_trace_retains_completion_before_timeout_reset() -> None:
+    rows = [_row(step, case_id="completed", template_id=5, failure=False) for step in range(10)]
+    rows[-2]["reached_all_events"] = 1.0
+    rows[-1]["reached_all_events"] = 0.0
+
+    summary = compare._summarize_trace(rows)
+
+    assert summary["reached_all_events"] is True
