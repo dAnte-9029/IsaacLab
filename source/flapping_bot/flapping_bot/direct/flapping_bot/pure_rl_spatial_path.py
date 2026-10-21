@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 import math
 
 import torch
+
+from flapping_bot.path_tracking.continuous_curve import (
+    CONTINUOUS_CURVE_CONTRACT,
+    ContinuousCurveSpec,
+    ContinuousCurveSamplingConfig,
+    build_continuous_curves,
+    sample_accepted_continuous_curve_specs,
+)
 
 Tensor = torch.Tensor
 
@@ -17,6 +25,8 @@ CURRENT_SPATIAL_TASK_FAMILY_ID = 3
 C3_JOINT_C3A_TASK_FAMILY_ID = 2
 C3_JOINT_C3B_TASK_FAMILY_ID = 3
 C3_JOINT_C3C_TASK_FAMILY_ID = 4
+CONTINUOUS_CURVE_TASK_FAMILY_ID = 5
+CONTINUOUS_CURVE_TEMPLATE_ID = 11
 
 STRAIGHT_TEMPLATE_ID = 0
 LONGITUDINAL_TEMPLATE_ID = 1
@@ -125,6 +135,13 @@ class PureRLSpatialPathQuery:
 
 
 SPATIAL_STAGE_CONFIGS: dict[str, PureRLSpatialStageConfig] = {
+    "c4": PureRLSpatialStageConfig(
+        stage_id="c4",
+        task_probabilities=(1.0,),
+        geometry_roll_deg_range=(1.0, 14.0),
+        finite_turn_deg_range=(1.0, 180.0),
+        minimum_altitude_m=CONTINUOUS_CURVE_CONTRACT.minimum_reference_altitude_m,
+    ),
     "c3a": PureRLSpatialStageConfig(
         stage_id="c3a",
         task_probabilities=(0.15, 0.35, 0.50),
@@ -161,6 +178,11 @@ SPATIAL_STAGE_CONFIGS: dict[str, PureRLSpatialStageConfig] = {
         loiter_radius_m_range=(50.0, 80.0),
     ),
 }
+
+
+C4_JOINT_TASK_WEIGHTS = (0.09, 0.12, 0.09, 0.15, 0.15, 0.40)
+SPATIAL_STAGE_CONFIGS["c4joint"] = replace(
+    SPATIAL_STAGE_CONFIGS["c3joint"], stage_id="c4joint", task_probabilities=C4_JOINT_TASK_WEIGHTS)
 
 
 def update_retention_aware_task_probabilities(
@@ -282,6 +304,10 @@ def sample_spatial_path_batch(
     evaluation_slope_deg: Tensor | None = None,
     evaluation_turn_sign: Tensor | None = None,
     evaluation_heading_rad: Tensor | None = None,
+    continuous_curve_specs: tuple[ContinuousCurveSpec, ...] | None = None,
+    continuous_curve_sampling: ContinuousCurveSamplingConfig = ContinuousCurveSamplingConfig(),
+    sampling_diagnostics: dict[str, int] | None = None,
+    continuous_curve_sampler: object | None = None,
 ) -> PureRLSpatialPathBatch:
     """Sample dense paths, replacing invalid rows in one bounded resampling pass."""
 
@@ -291,6 +317,59 @@ def sample_spatial_path_batch(
         raise TypeError("dtype must be the floating-point dtype float32 or float64.")
     resolved_device = torch.device(device)
     config = resolve_spatial_stage(stage)
+    if config.stage_id == "c4joint":
+        if continuous_curve_specs is not None or any(value is not None for value in (
+            evaluation_template_id, evaluation_geometry_roll_deg, evaluation_slope_deg,
+            evaluation_turn_sign, evaluation_heading_rad,
+        )):
+            raise ValueError("C4 joint training does not accept frozen evaluation overrides")
+        old_total = sum(config.task_probabilities[:5])
+        if any(w <= 0 for w in config.task_probabilities):
+            raise ValueError("C4 joint training requires six positive task probabilities")
+        legacy = replace(config, stage_id="c3joint",
+                         task_probabilities=tuple(w / old_total for w in config.task_probabilities[:5]))
+        batch = sample_spatial_path_batch(num_paths=num_paths, stage=legacy, device=device, dtype=dtype,
+                                         generator=generator, initial_altitude_m=initial_altitude_m)
+        selected = torch.nonzero(torch.rand(num_paths, device=device, generator=generator)
+                                 < config.task_probabilities[5], as_tuple=False).flatten()
+        if selected.numel():
+            altitude = torch.as_tensor(initial_altitude_m, device=device, dtype=dtype).expand(num_paths)[selected]
+            curves = sample_spatial_path_batch(
+                num_paths=selected.numel(), stage="c4", device=device, dtype=dtype, generator=generator,
+                initial_altitude_m=altitude, continuous_curve_sampling=continuous_curve_sampling,
+                sampling_diagnostics=sampling_diagnostics, continuous_curve_sampler=continuous_curve_sampler)
+            write_spatial_path_batch_rows_(destination=batch, env_ids=selected, source=curves)
+        return batch
+    if config.stage_id == "c4":
+        if any(value is not None for value in (
+            evaluation_template_id, evaluation_geometry_roll_deg, evaluation_slope_deg,
+            evaluation_turn_sign, evaluation_heading_rad,
+        )):
+            raise ValueError("C4 uses continuous curve recipes, not C3 event overrides.")
+        specs = continuous_curve_specs
+        bin_ids = None
+        if specs is not None and continuous_curve_sampler is not None:
+            raise ValueError("Frozen replay cannot use a training curriculum sampler")
+        if specs is None and continuous_curve_sampler is not None:
+            specs, bin_ids = continuous_curve_sampler(
+                num_paths, generator=generator, device=resolved_device, initial_altitude_m=initial_altitude_m,
+                dtype=dtype, config=continuous_curve_sampling, diagnostics=sampling_diagnostics)
+        elif specs is None:
+            specs = sample_accepted_continuous_curve_specs(
+                num_paths, generator=generator, device=resolved_device, initial_altitude_m=initial_altitude_m,
+                dtype=dtype, config=continuous_curve_sampling, diagnostics=sampling_diagnostics,
+            )
+        if len(specs) != num_paths:
+            raise ValueError("C4 recipe count must match num_paths.")
+        batch = continuous_curves_to_spatial_path(specs, device=resolved_device, dtype=dtype)
+        if bin_ids is not None:
+            if bin_ids.shape != (num_paths,) or bin_ids.dtype != torch.long or (bin_ids < 0).any():
+                raise ValueError("Invalid training curriculum bin IDs")
+            from flapping_bot.path_tracking.c4_curriculum import C4_CURRICULUM_BIN_OFFSET
+            batch = replace(batch, hard_slice_id=bin_ids + C4_CURRICULUM_BIN_OFFSET)
+        return batch
+    if continuous_curve_specs is not None:
+        raise ValueError("Continuous curve recipes require stage c4.")
     altitude = _resolve_initial_altitude(
         initial_altitude_m,
         count=num_paths,
@@ -338,6 +417,35 @@ def sample_spatial_path_batch(
         batch = _replace_batch_rows(batch, row_ids=invalid_ids, replacement=replacement)
     _validate_generated_batch(batch, config=config)
     return batch
+
+
+def continuous_curves_to_spatial_path(
+    specs: tuple[ContinuousCurveSpec, ...], *, device: torch.device | str, dtype: torch.dtype,
+) -> PureRLSpatialPathBatch:
+    """Adapt continuous geometry to the existing local projection interface.
+
+    The legacy final-event field carries the C4 completion location only at
+    this adapter boundary. C4 has no events; event_count is zero.
+    """
+
+    curve = build_continuous_curves(specs, device=device, dtype=dtype)
+    c = CONTINUOUS_CURVE_CONTRACT
+    count = len(specs)
+    zeros = torch.zeros(count, device=device, dtype=torch.int64)
+    k = curve.heading_rate_rad_per_m
+    return PureRLSpatialPathBatch(
+        points_world_m=curve.points_world_m, tangent_world=curve.tangent_world,
+        lateral_normal_world=curve.lateral_normal_world, vertical_normal_world=curve.vertical_normal_world,
+        curvature_rad_per_m=k, slope_rad=curve.slope_rad, turn_activity=curve.turn_activity,
+        final_event_progress_m=k.new_full((count,), c.completion_progress_m),
+        task_family_id=zeros + CONTINUOUS_CURVE_TASK_FAMILY_ID,
+        turn_sign=k.new_tensor([s.horizontal_mirror for s in specs]),
+        vertical_sign=k.new_tensor([s.vertical_mirror for s in specs]),
+        peak_geometry_roll_rad=torch.atan(c.maximum_design_speed_mps**2 * k.abs() / 9.81).amax(dim=1),
+        peak_slope_rad=curve.slope_rad.abs().amax(dim=1),
+        event_count=zeros.clone(), template_id=zeros + CONTINUOUS_CURVE_TEMPLATE_ID,
+        hard_slice_id=zeros.clone(), sample_spacing_m=c.sample_spacing_m, path_length_m=c.path_length_m,
+    )
 
 
 def query_spatial_path(
@@ -1395,7 +1503,7 @@ def _resolve_initial_altitude(
 
 
 def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
-    expected_probability_count = {"c3a": 3, "c3b": 4, "c3c": 4, "c3joint": 5}
+    expected_probability_count = {"c3a": 3, "c3b": 4, "c3c": 4, "c3joint": 5, "c4": 1, "c4joint": 6}
     if config.stage_id not in expected_probability_count:
         raise ValueError(f"Unknown spatial stage: {config.stage_id!r}.")
     if len(config.task_probabilities) != expected_probability_count[config.stage_id]:
@@ -1470,6 +1578,12 @@ def _validate_stage_config(config: PureRLSpatialStageConfig) -> None:
         raise ValueError("c3joint_c3c_high_demand_range must remain within the approved bound.")
     if config.c3joint_hard_slice_sampling_enabled and config.stage_id != "c3joint":
         raise ValueError("C3 joint hard-slice sampling is defined only for c3joint.")
+    if config.stage_id == "c4":
+        c = CONTINUOUS_CURVE_CONTRACT
+        if (config.path_length_m, config.sample_spacing_m, config.guard_speed_mps, config.minimum_altitude_m) != (
+            c.path_length_m, c.sample_spacing_m, c.maximum_design_speed_mps, c.minimum_reference_altitude_m
+        ):
+            raise ValueError("C4 geometry settings must match the frozen continuous curve contract.")
 
 
 def _validate_range(name: str, bounds: tuple[float, float], *, allow_zero: bool) -> None:

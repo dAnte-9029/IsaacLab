@@ -22,6 +22,7 @@ ACTOR_GRADIENT_PROBE_C3A_GROUP = 3
 ACTOR_GRADIENT_PROBE_ACTIVE_C3A_GROUP = 4
 TASK_AWARE_C3B_GROUP = 5
 TASK_AWARE_C3C_GROUP = 6
+TASK_AWARE_C4_GROUP = 7
 _LARGE_ACTOR_HIDDEN_DIMS = (512, 256)
 _NET2WIDER_PRIMARY_FRACTION = 0.55
 _PURE_RL_SENSOR_HISTORY_STEPS = 30
@@ -433,10 +434,10 @@ class TaskAwarePpoAdapter:
             raise ValueError("task-aware PPO requires a policy and rollout storage.")
         if bool(getattr(policy, "is_recurrent", False)):
             raise ValueError("task-aware PPO does not support recurrent policies.")
-        if len(task_weights) not in (3, 4, 5):
+        if len(task_weights) not in (3, 4, 5, 6):
             raise ValueError(
                 "task-aware PPO requires C1/C2c/C3a, C1/C2c/C3a/C3b, "
-                "or C1/C2c/C3a/C3b/C3c weights."
+                "or C1/C2c/C3a/C3b/C3c[/C4] weights."
             )
         weights = tuple(float(value) for value in task_weights)
         if any((not math.isfinite(value)) or value <= 0.0 for value in weights):
@@ -477,8 +478,10 @@ class TaskAwarePpoAdapter:
         }
         if len(self.task_weights) >= 4:
             masks["c3b"] = group == TASK_AWARE_C3B_GROUP
-        if len(self.task_weights) == 5:
+        if len(self.task_weights) >= 5:
             masks["c3c"] = group == TASK_AWARE_C3C_GROUP
+        if len(self.task_weights) == 6:
+            masks["c4"] = group == TASK_AWARE_C4_GROUP
         return masks
 
     def _prepare_advantages(self) -> dict[str, float]:
@@ -559,8 +562,10 @@ class TaskAwarePpoAdapter:
         ]
         if len(self.task_weights) >= 4:
             group_ids.append(TASK_AWARE_C3B_GROUP)
-        if len(self.task_weights) == 5:
+        if len(self.task_weights) >= 5:
             group_ids.append(TASK_AWARE_C3C_GROUP)
+        if len(self.task_weights) == 6:
+            group_ids.append(TASK_AWARE_C4_GROUP)
         strata = tuple(
             torch.nonzero(group == group_id, as_tuple=False).squeeze(-1)
             for group_id in group_ids

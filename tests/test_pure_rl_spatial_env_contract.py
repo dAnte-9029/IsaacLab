@@ -277,7 +277,7 @@ def test_c3a_task_aware_ppo_is_default_disabled_and_phase_labeled() -> None:
     )
     assert ast.literal_eval(_ann_assign(c3a, "pure_rl_task_aware_ppo_enabled").value) is True
     assert "task_aware_ppo_enabled" in constructor_source
-    assert "spatial_stage.stage_id not in ('c3a', 'c3b', 'c3c', 'c3joint')" in constructor_source
+    assert "spatial_stage.stage_id not in ('c3a', 'c3b', 'c3c', 'c3joint', 'c4joint')" in constructor_source
     assert "strong_c2c_phase" in observation_source
     assert "query.turn_activity > 0.0" in observation_source
 
@@ -297,7 +297,7 @@ def test_c3a_enables_bounded_weights_only_warm_start_guard() -> None:
     assert ast.literal_eval(_ann_assign(base, "pure_rl_warm_start_actor_update_norm_limit").value) == 0.10
     assert ast.literal_eval(_ann_assign(c3a, "pure_rl_warm_start_guard_enabled").value) is True
     assert "warm_start_guard_enabled" in constructor_source
-    assert "spatial_stage.stage_id not in ('c3a', 'c3b', 'c3c', 'c3joint')" in constructor_source
+    assert "spatial_stage.stage_id not in ('c3a', 'c3b', 'c3c', 'c3joint', 'c4joint')" in constructor_source
 
 
 def test_c3b_enables_four_task_ppo_and_bounded_warm_start() -> None:
@@ -337,7 +337,7 @@ def test_c3c_enables_four_group_joint_ppo_and_bounded_warm_start() -> None:
     assert ast.literal_eval(
         _ann_assign(c3c, "pure_rl_task_aware_ppo_minimum_phase_samples").value
     ) == 0
-    assert "('c3a', 'c3b', 'c3c', 'c3joint')" in constructor_source
+    assert "('c3a', 'c3b', 'c3c', 'c3joint', 'c4joint')" in constructor_source
 
 
 def test_full_c3_joint_is_opt_in_and_routes_five_task_groups() -> None:

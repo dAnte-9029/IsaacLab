@@ -65,7 +65,7 @@ def test_spatial_stage_configs_match_approved_ranges_and_probabilities() -> None
     assert configs["c3joint"].c3joint_c3c_high_climb_probability == pytest.approx(0.40)
     assert configs["c3joint"].c3joint_c3c_high_demand_range == (0.80, 1.00)
 
-    for config in configs.values():
+    for config in (configs[stage] for stage in ("c3a", "c3b", "c3c", "c3joint")):
         assert config.transition_length_m_range == (8.0, 12.0)
         assert config.guard_speed_mps == pytest.approx(12.0)
         assert config.sample_spacing_m == pytest.approx(0.25)

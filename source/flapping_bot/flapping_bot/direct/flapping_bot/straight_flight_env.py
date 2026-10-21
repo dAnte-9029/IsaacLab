@@ -130,6 +130,7 @@ from ...px4_like.rl_training_utils import (
     ACTOR_GRADIENT_PROBE_STRONG_C2C_GROUP,
     TASK_AWARE_C3B_GROUP,
     TASK_AWARE_C3C_GROUP,
+    TASK_AWARE_C4_GROUP,
     apply_teacher_guided_actions,
     linear_anneal,
     piecewise_linear_anneal,
@@ -140,6 +141,9 @@ from ...px4_like.state_estimation import SensorStateEstimator, SensorSuiteCfg, S
 from ...px4_like.straight_line_controller import PX4LikeStraightLineController, PX4LikeStraightLineControllerCfg
 from ...px4_like import build_imu_provider, resolve_base_body_com_offset_b
 from ...scenes import FlappingRoomSceneCfg
+from ...path_tracking.continuous_curve import (
+    CONTINUOUS_CURVE_CONTRACT, ContinuousCurveSpec, ContinuousCurveSamplingConfig, load_continuous_curves,
+)
 from .action_contract import (
     ACTUAL_JOINT_TAIL_AERO_DEFLECTION,
     COMMAND_TAIL_AERO_DEFLECTION,
@@ -264,6 +268,11 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     pure_rl_eval_spatial_turn_sign_schedule: tuple[int, ...] | None = None
     pure_rl_longitudinal_stage_id: str | None = None
     pure_rl_spatial_stage_id: str | None = None
+    pure_rl_continuous_curve_file: str | None = None
+    pure_rl_c4_joint_training_enabled: bool = False
+    pure_rl_c4_preview_times_s: tuple[float, ...] = (.24, .48, .72, .96, 1.20)
+    pure_rl_continuous_curve_sampling: ContinuousCurveSamplingConfig = ContinuousCurveSamplingConfig()
+    pure_rl_spatial_preview_times_s: tuple[float, ...] = (0.12, 0.24, 0.36, 0.48, 0.60)
     pure_rl_full_c3_joint_training_enabled: bool = False
     pure_rl_c3joint_hard_slice_sampling_enabled: bool = False
     pure_rl_actor_distillation_coefficient: float = 0.0
@@ -1057,6 +1066,35 @@ class FlappingBotStraightFlightDeLaurierMeasuredPureRLC3cEnvCfg(
 
 
 @configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLC4EnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
+):
+    """Opt-in continuous-path engineering task; six-group PPO is not enabled."""
+
+    pure_rl_spatial_stage_id: str = "c4"
+    pure_rl_spatial_preview_times_s: tuple[float, ...] = (0.24, 0.48, 0.72, 0.96, 1.20)
+    episode_length_s: float = CONTINUOUS_CURVE_CONTRACT.episode_duration_s
+    pure_rl_heading_canonical_observation: bool = True
+    pure_rl_reward_cfg: PureRLRewardConfig = replace(
+        PureRLRewardConfig(), requested_applied_frequency_action_gap_penalty_weight=0.05
+    )
+
+
+@configclass
+class FlappingBotStraightFlightDeLaurierMeasuredPureRLC4JointEnvCfg(
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLC4EnvCfg
+):
+    """Six-task random training; old tasks retain their original preview."""
+
+    pure_rl_c4_joint_training_enabled: bool = True
+    pure_rl_spatial_preview_times_s: tuple[float, ...] = (.12, .24, .36, .48, .60)
+    pure_rl_task_aware_ppo_enabled: bool = True
+    pure_rl_task_aware_ppo_task_weights: tuple[float, ...] = (.09, .12, .09, .15, .15, .40)
+    pure_rl_task_aware_ppo_minimum_phase_samples: int = 0
+    pure_rl_warm_start_guard_enabled: bool = True
+
+
+@configclass
 class FlappingBotStraightFlightDeLaurierMeasuredPureRLGpuImplicitEnvCfg(
     FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
 ):
@@ -1126,6 +1164,26 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
     cfg: FlappingBotStraightFlightEnvCfg
 
     def __init__(self, cfg: FlappingBotStraightFlightEnvCfg, render_mode: str | None = None, **kwargs):
+        self._continuous_curve_specs = None
+        self._continuous_sampling_diagnostics: dict[str, int] = {}
+        preview_times = cfg.pure_rl_spatial_preview_times_s
+        if (len(preview_times) != 5 or any(not math.isfinite(t) or t <= 0 for t in preview_times)
+                or any(b <= a for a, b in zip(preview_times, preview_times[1:]))):
+            raise ValueError("Spatial preview requires five finite positive increasing times")
+        if cfg.pure_rl_spatial_stage_id == "c4":
+            cfg.pure_rl_continuous_curve_sampling.validate()
+        if cfg.pure_rl_continuous_curve_file is not None:
+            if cfg.pure_rl_spatial_stage_id != "c4":
+                raise ValueError("A continuous curve file requires the explicit C4 task.")
+            self._continuous_curve_specs = load_continuous_curves(cfg.pure_rl_continuous_curve_file)
+        if cfg.pure_rl_spatial_stage_id == "c4":
+            if any(value is not None for value in (
+                cfg.pure_rl_eval_heading_schedule_rad, cfg.pure_rl_eval_flap_phase_schedule_rad,
+                cfg.pure_rl_eval_spatial_template_schedule,
+            )):
+                raise ValueError("C4 reset heading/phase and geometry are owned by the curve file.")
+            if cfg.episode_length_s != CONTINUOUS_CURVE_CONTRACT.episode_duration_s:
+                raise ValueError("C4 v1 requires the frozen 20 second evaluation horizon.")
         action_interface = validate_action_interface(cfg.action_interface)
         validate_tail_aero_deflection_source(cfg.tail_aero_deflection_source)
         longitudinal_stage = (
@@ -1134,11 +1192,17 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             else None
         )
         spatial_stage_id = cfg.pure_rl_spatial_stage_id
+        if cfg.pure_rl_c4_joint_training_enabled:
+            if spatial_stage_id != "c4" or cfg.pure_rl_continuous_curve_file is not None or cfg.pure_rl_full_c3_joint_training_enabled:
+                raise ValueError("C4 joint training requires random C4 configuration without C3 joint override")
+            spatial_stage_id = "c4joint"
         if bool(cfg.pure_rl_full_c3_joint_training_enabled):
             if spatial_stage_id != "c3c":
                 raise ValueError("Full C3 joint training requires the C3c environment contract.")
             spatial_stage_id = "c3joint"
         spatial_stage = resolve_spatial_stage(spatial_stage_id) if spatial_stage_id is not None else None
+        if spatial_stage_id == "c4joint":
+            spatial_stage = replace(spatial_stage, task_probabilities=tuple(cfg.pure_rl_task_aware_ppo_task_weights))
         if bool(cfg.pure_rl_c3joint_hard_slice_sampling_enabled):
             if spatial_stage is None or spatial_stage.stage_id != "c3joint":
                 raise ValueError("C3 joint hard-slice sampling requires full C3 joint training.")
@@ -1194,10 +1258,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 raise ValueError("PureRL actor gradient probe minimum samples must be a positive integer.")
         task_aware_ppo_enabled = bool(cfg.pure_rl_task_aware_ppo_enabled)
         if task_aware_ppo_enabled:
-            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b", "c3c", "c3joint"):
+            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b", "c3c", "c3joint", "c4joint"):
                 raise ValueError("PureRL task-aware PPO is defined only for C3 spatial training.")
             task_weights = tuple(float(value) for value in cfg.pure_rl_task_aware_ppo_task_weights)
-            expected_weight_count = {"c3a": 3, "c3b": 4, "c3c": 4, "c3joint": 5}[
+            expected_weight_count = {"c3a": 3, "c3b": 4, "c3c": 4, "c3joint": 5, "c4joint": 6}[
                 spatial_stage.stage_id
             ]
             if len(task_weights) != expected_weight_count or any(
@@ -1227,7 +1291,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 )
         warm_start_guard_enabled = bool(cfg.pure_rl_warm_start_guard_enabled)
         if warm_start_guard_enabled:
-            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b", "c3c", "c3joint"):
+            if spatial_stage is None or spatial_stage.stage_id not in ("c3a", "c3b", "c3c", "c3joint", "c4joint"):
                 raise ValueError("PureRL warm-start guard is defined only for C3 spatial training.")
             burn_in_iterations = cfg.pure_rl_warm_start_burn_in_iterations
             update_iterations = cfg.pure_rl_warm_start_update_iterations
@@ -2014,6 +2078,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 device=self.device,
                 dtype=self._straight_line_heading_rad.dtype,
                 initial_altitude_m=float(self.cfg.height_cmd),
+                continuous_curve_specs=self._continuous_specs_for_ids(torch.arange(N, device=self.device)),
+                continuous_curve_sampling=cfg.pure_rl_continuous_curve_sampling,
+                sampling_diagnostics=self._continuous_sampling_diagnostics,
+                continuous_curve_sampler=getattr(self, "_continuous_curve_sampler", None),
             )
             self._pure_rl_spatial_progress_m = torch.zeros(N, device=self.device)
             self._pure_rl_c2c_rehearsal_path = PureRLLongitudinalPathBatch(
@@ -4342,7 +4410,13 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 evaluation_slope_deg=evaluation_slope_deg,
                 evaluation_turn_sign=evaluation_turn_sign,
                 evaluation_heading_rad=evaluation_heading_rad,
+                continuous_curve_specs=self._continuous_specs_for_ids(env_ids),
+                continuous_curve_sampling=self.cfg.pure_rl_continuous_curve_sampling,
+                sampling_diagnostics=self._continuous_sampling_diagnostics,
+                continuous_curve_sampler=getattr(self, "_continuous_curve_sampler", None),
             )
+            if self._pure_rl_spatial_stage.stage_id in ("c4", "c4joint"):
+                self._height_cmd[env_ids] = sampled_path.points_world_m[:, 0, 2]
             write_spatial_path_batch_rows_(
                 destination=self._pure_rl_spatial_path,
                 env_ids=env_ids.to(dtype=torch.int64),
@@ -4533,7 +4607,12 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             )
         f0 = float(self.cfg.reset_flap_hz)
         f0 = max(float(self.cfg.min_flap_hz), min(float(self.cfg.max_flap_hz), f0))
-        if self.cfg.pure_rl_eval_flap_phase_schedule_rad is not None:
+        if self._continuous_curve_specs is not None:
+            phase0 = torch.tensor(
+                [spec.initial_flap_phase_rad for spec in self._continuous_specs_for_ids(env_ids)],
+                dtype=torch.float32, device=self.device,
+            ).remainder(2.0 * math.pi)
+        elif self.cfg.pure_rl_eval_flap_phase_schedule_rad is not None:
             schedule = torch.as_tensor(
                 self.cfg.pure_rl_eval_flap_phase_schedule_rad,
                 dtype=torch.float32,
@@ -4734,6 +4813,14 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._pure_rl_adaptive_episode_tail_limit_steps[env_ids] = 0.0
         self._freeze_steps[env_ids] = int(self.cfg.freeze_steps_after_reset)
 
+    def _continuous_specs_for_ids(self, env_ids: Tensor) -> tuple[ContinuousCurveSpec, ...] | None:
+        """Map replay recipes by persistent environment ID, including partial resets."""
+
+        if self._continuous_curve_specs is None:
+            return None
+        specs = self._continuous_curve_specs
+        return tuple(specs[i % len(specs)] for i in env_ids.tolist())
+
     def _query_pure_rl_longitudinal_path(self) -> PureRLLongitudinalPathQuery:
         """Query the active C2 path for every environment."""
 
@@ -4759,12 +4846,24 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         query = query_spatial_path(
             path=self._pure_rl_spatial_path,
             previous_progress_m=self._pure_rl_spatial_progress_m,
+            preview_times_s=tuple(self.cfg.pure_rl_spatial_preview_times_s),
             position_world_m=self._robot.data.root_pos_w - self.scene.env_origins,
             ground_velocity_world_mps=self._robot.data.root_lin_vel_w,
             minimum_preview_speed_mps=float(self.cfg.pure_rl_preview_minimum_speed_mps),
             maximum_preview_speed_mps=float(self.cfg.pure_rl_preview_maximum_speed_mps),
         )
         self._pure_rl_spatial_progress_m.copy_(query.progress_m)
+        if self._pure_rl_spatial_stage.stage_id == "c4joint":
+            long_query = query_spatial_path(
+                path=self._pure_rl_spatial_path, previous_progress_m=query.progress_m,
+                position_world_m=self._robot.data.root_pos_w - self.scene.env_origins,
+                ground_velocity_world_mps=self._robot.data.root_lin_vel_w,
+                minimum_preview_speed_mps=float(self.cfg.pure_rl_preview_minimum_speed_mps),
+                maximum_preview_speed_mps=float(self.cfg.pure_rl_preview_maximum_speed_mps),
+                preview_times_s=tuple(self.cfg.pure_rl_c4_preview_times_s))
+            query = replace(query, preview_points_world_m=torch.where(
+                (self._pure_rl_spatial_path.task_family_id == 5)[:, None, None],
+                long_query.preview_points_world_m, query.preview_points_world_m))
         assert self._pure_rl_c2c_rehearsal_path is not None
         c2c_query = query_longitudinal_path(
             path=self._pure_rl_c2c_rehearsal_path,
@@ -5223,8 +5322,9 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             c2c = task_family_id == REHEARSAL_C2C_TASK_FAMILY_ID
             probe_group[c2c] = ACTOR_GRADIENT_PROBE_C2C_GROUP
             probe_group[task_family_id == CURRENT_SPATIAL_TASK_FAMILY_ID] = TASK_AWARE_C3B_GROUP
-            if self._pure_rl_spatial_stage.stage_id == "c3joint":
+            if self._pure_rl_spatial_stage.stage_id in ("c3joint", "c4joint"):
                 probe_group[task_family_id == C3_JOINT_C3C_TASK_FAMILY_ID] = TASK_AWARE_C3C_GROUP
+            probe_group[task_family_id == 5] = TASK_AWARE_C4_GROUP
             query = self._query_pure_rl_spatial_path()
             strong_c2c_route = c2c & (
                 self._pure_rl_spatial_path.peak_slope_rad
@@ -5602,6 +5702,17 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 c2c_active_event = c2c_rehearsal & (
                     self._eval_pure_rl_active_slope_rad.abs() > 1.0e-6
                 )
+                if self._pure_rl_spatial_stage.stage_id == "c4":
+                    curve_contract = CONTINUOUS_CURVE_CONTRACT
+                    log.update({
+                        "PureRLCurve/completion_reached_fraction": self._eval_pure_rl_reached_all_events.float().mean(),
+                        "PureRLCurve/mean_progress_m": self._pure_rl_spatial_progress_m.mean(),
+                        "PureRLCurve/design_speed_violation_fraction": (
+                            ((along_track_velocity_mps < curve_contract.minimum_design_speed_mps)
+                             | (along_track_velocity_mps > curve_contract.maximum_design_speed_mps))
+                            & (self._pure_rl_spatial_progress_m >= curve_contract.entry_length_m)
+                        ).float().mean(),
+                    })
                 c2c_strong_climb_active = (
                     c2c_active_event
                     & (

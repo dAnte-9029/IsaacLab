@@ -15,11 +15,21 @@ from .flapping_bot import (
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3aEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3bEnvCfg,
     FlappingBotStraightFlightDeLaurierMeasuredPureRLC3cEnvCfg,
+    FlappingBotStraightFlightDeLaurierMeasuredPureRLC4EnvCfg,
     FlappingBotStraightFlightEnv,
 )
 
 
 register_pure_rl_split_actor_critic()
+
+
+# Engineering/replay only: no PPO runner is registered before six-group validation.
+gym.register(
+    id="Isaac-FlappingBot-StraightFlight-DeLaurier-MeasuredPureRL-C4-Direct-v0",
+    entry_point=FlappingBotStraightFlightEnv,
+    disable_env_checker=True,
+    kwargs={"env_cfg_entry_point": FlappingBotStraightFlightDeLaurierMeasuredPureRLC4EnvCfg},
+)
 
 
 _RSL_RL_CFG = (

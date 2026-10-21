@@ -235,12 +235,16 @@ def test_task_aware_ppo_supports_four_task_c3b_weights(tmp_path: Path) -> None:
     assert c3b_advantages.mean().item() == pytest.approx(0.0, abs=1.0e-6)
 
 
-def test_task_aware_ppo_supports_five_task_c3_joint_weights(tmp_path: Path) -> None:
+@pytest.mark.parametrize('task_count', [5, 6])
+def test_task_aware_ppo_supports_five_task_c3_joint_weights(tmp_path: Path, task_count: int) -> None:
     algorithm = _TaskAwareAlgorithm()
-    for group_id, returns in (
+    extra_groups = (
         (training_utils.TASK_AWARE_C3B_GROUP, [[[-2.0], [2.0]]]),
         (training_utils.TASK_AWARE_C3C_GROUP, [[[-3.0], [3.0]]]),
-    ):
+    )
+    if task_count == 6:
+        extra_groups += ((training_utils.TASK_AWARE_C4_GROUP, [[[-4.0], [4.0]]]),)
+    for group_id, returns in extra_groups:
         group = torch.full((1, 2, 1), group_id, dtype=torch.long)
         algorithm.storage.observations = torch.cat(
             (
@@ -269,7 +273,7 @@ def test_task_aware_ppo_supports_five_task_c3_joint_weights(tmp_path: Path) -> N
     adapter = training_utils.TaskAwarePpoAdapter(
         algorithm,
         output_path=tmp_path / "task_aware_c3_joint.csv",
-        task_weights=(0.15, 0.20, 0.15, 0.25, 0.25),
+        task_weights=(0.15, 0.20, 0.15, 0.25, 0.25) if task_count == 5 else (.09, .12, .09, .15, .15, .40),
         minimum_task_samples=2,
         minimum_phase_samples=0,
     )
@@ -277,6 +281,10 @@ def test_task_aware_ppo_supports_five_task_c3_joint_weights(tmp_path: Path) -> N
 
     assert metrics["task_aware/count_c3b"] == 2.0
     assert metrics["task_aware/count_c3c"] == 2.0
+    if task_count == 6:
+        assert metrics['task_aware/count_c4'] == 2.0
+        batches = list(adapter._stratified_generator(2, 1))
+        assert sum((b[0][training_utils.ACTOR_GRADIENT_PROBE_GROUP_KEY] == 7).sum() for b in batches) == 2
 
 
 def test_task_aware_ppo_can_disable_per_rollout_phase_abort(tmp_path: Path) -> None:

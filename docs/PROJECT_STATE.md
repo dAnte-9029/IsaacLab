@@ -83,6 +83,8 @@ Validation on 2026-08-12 passed 219 focused PureRL C1/C2/C3 unit and contract te
 
 ## Required reading
 
+- `docs/handoffs/2026-09-09-continuous-curve-engineering.md`
+- `docs/decisions/ADR-2026-09-09-continuous-curve-path-contract.md`
 - `docs/handoffs/2026-08-11-pure-rl-curriculum3.md`
 - `docs/handoffs/2026-08-10-pure-rl-curriculum2.md`
 - `docs/handoffs/2026-08-05-native-multibody-plant.md`
@@ -167,9 +169,55 @@ Validation on 2026-08-12 passed 219 focused PureRL C1/C2/C3 unit and contract te
 
 ## Exact next task
 
-Design and freeze a continuously curved three-dimensional path contract and evaluation grid before
-training. Use horizontal curvature and flight-path slope that vary smoothly along arc length rather
-than another fixed event sequence. Verify the observation provides sufficient local tangent or
-lookahead information, initialize from the original full-joint `model_175.pt` as a research source,
-and retain the existing C3c/C3b/C3a/C2c/C1 frozen suites as regression gates. Do not call that
-source promoted: it passed all five suites at one checkpoint but lacks the required adjacent pair.
+Overall literature-based roadmap:
+[`docs/plans/2026-09-22-literature-based-rl-path-tracking-plan.md`](plans/2026-09-22-literature-based-rl-path-tracking-plan.md).
+
+**2026-09-22 update (supersedes the September 10 runtime status below):** The original
+C4 201-iteration joint run did complete. Its development score fell from 96/96 at
+checkpoint 25 to 5/96 at 50 and 0/96 from 75 onward. Survival alone did not detect
+tracking failure. No C4 policy was promoted. The new authorized work is a bounded
+seed-0 A--D comparison of fixed/adaptive C4 sampling and frozen successful-behavior
+memory, within the existing mild envelope and with all five legacy retention suites.
+Implementation passed 128 pure/contract tests, a fresh CPU-native partial-reset test,
+five-update B/D smokes and fresh-process one-update resumes. The training-only memory
+contains 24,576 samples balanced across six families. All four 101-update arms and
+50/75/100 evaluations completed normally in 7,126.79 seconds. No checkpoint passes
+all six suites: memory arms C/D retain 96/96 C4 at 50, but every arm reaches 0/96 at
+75 and 100. D-50 misses only the C3b horizontal-error gate (0.50599 vs 0.500 m).
+D-75 retains all five old suites but loses C4. Frozen-state diagnosis confirms
+tail action-mean drift despite active memory; episode-based curriculum feedback lags
+roughly 25 updates. Gradient conflict is observed but not established as the cause.
+Same-observation channel intervention restores 96/96 C4 with D-75 frequency plus
+D-50 tail; D-50 frequency plus D-75 tail remains 0/96. This localizes the immediate
+behavioral failure to the tail policy, without establishing the training cause.
+See `docs/audits/2026-09-22-c4-retention-diagnosis.md` for evidence and the proposed
+bounded update-stability comparison. No additional training has been started.
+Active handoff: `docs/handoffs/2026-09-22-c4-retention-pilot.md`.
+Decision: `docs/decisions/ADR-2026-09-22-c4-retention-curriculum.md`.
+No holdout access, envelope expansion, wind training or policy promotion is authorized
+by a passing smoke. The source full-C3 `model_175.pt` remains research-only.
+
+### Historical September 10 engineering status
+
+C4 continuous-path engineering steps 1--3 are implemented: versioned recipes, sampled kinematic
+screening, 96-case diagnostic grid, JSON replay/NPZ export and an opt-in 555-observation environment.
+109 pure/contract tests and separate fresh CPU-native C4 and existing C3 smokes passed. See
+`docs/handoffs/2026-09-09-continuous-curve-engineering.md`.
+
+The C4 checkpoint evaluator and terminal-safe deterministic traces are now implemented. Original
+full-joint `model_175.pt` strict loading and a six-environment, eight-step CPU-native smoke completed.
+The fixed 96-case zero-shot evaluation completed: 56/96 pass at 0.6 s and 96/96 at 1.2 s preview.
+Random reset sampling now has configurable ranges and bounded rejection retries; C4 defaults to
+1.2 s preview while old task defaults remain unchanged. See
+`docs/decisions/ADR-2026-09-10-c4-random-reset-and-preview.md` and the handoff for validation.
+Independent random-96 tracking evaluation passed 96/96 (mean horizontal error 0.2574 m).
+Six-task training code, per-task preview, fresh-weight initialization, optimizer/progress resume,
+development/holdout generation and C4-plus-retention evaluation entry points are implemented.
+Five-iteration native training smoke and a one-iteration fresh-process resume passed; no formal
+training run or checkpoint promotion occurred. Active handoff:
+`docs/handoffs/2026-09-10-c4-training.md`; decision:
+`docs/decisions/ADR-2026-09-10-c4-six-task-training.md`.
+Check dynamic demand, speed, applied actions and preview sufficiency
+before expanding the training distribution. Development/holdout sets are frozen but unscored.
+Keep C3c/C3b/C3a/C2c/C1 frozen retention gates. The source remains research-only:
+it passed all five suites once but lacks the required adjacent passing pair.
