@@ -1,5 +1,40 @@
 # Project State
 
+## Branch-local ULLT stage 1 (2026-10-27)
+
+`feat/ullt-state-space-wing-aero` starts from `a7b3e08e0c1e` for an opt-in
+Izraelevitz 2017 wing backend, independent of formal RL training. Geometry now
+follows the URDF roots at +/-56 mm and the complete root-local CSV, with no
+central lifting surface or subtraction of a gap from the CSV; see
+[`ADR-2026-10-27-ullt-urdf-root-local-csv-geometry.md`](decisions/ADR-2026-10-27-ullt-urdf-root-local-csv-geometry.md).
+This supersedes the earlier span discrepancy interpretation. Twist is now
+authorized for a small offline prescribed-kinematics screen under the
+[October 27 twist ADR](decisions/ADR-2026-10-27-ullt-prescribed-twist-screen.md);
+structural twist identification and live environment coupling remain deferred.
+Stage 1 now implements standalone selectable quasi-steady/1/4/6-state ULLT,
+prescribed-motion validation and full CSV/URDF placement. This is an API/CLI
+entry point, not a registered RL environment or free-body coupling. Existing
+DeLaurier, plant and training defaults remain unchanged. See the
+[stage handoff](handoffs/2026-10-27-ullt-stage1.md) for commands and evidence,
+and the [improvement ledger](plans/2026-10-27-ullt-model-improvements.md) for
+deferred physics and numerical corrections. The first flight comparison now
+covers 25 registered April train/validation flights with 50 input-selected
+windows: ULLT-4 wing-only Fx/Fz/My RMSE exceeds frozen DeLaurier on every
+flight, despite improved Fz first-harmonic phase agreement. Whole-aircraft log
+labels remain unchanged; no tail/body subtraction or tuning was performed.
+See the [flight comparison audit](audits/2026-10-27-ullt-flight-comparison.md).
+The subsequent [three-log prescribed-twist screen](audits/2026-10-27-ullt-twist-screen.md)
+tests six fixed candidates: `(35 deg, kappa=-0.5, phase=0 deg)` lowers
+Fx/Fz/My RMSE by about 44%/50%/35% versus zero twist. Fz beats DeLaurier on all
+three selected train logs, but Fx does not, My improvement is inconsistent,
+and Fz/My harmonic phase errors worsen. This is exploratory evidence only;
+no parameter or default-backend promotion occurred.
+Next: review large-incidence/rigid-wing assumptions and label sensitivity,
+improve span discretization and obtain independent paper-curve references
+before free-body integration.
+High local incidence and unmeasured fabric-wing properties limit physical
+claims; the existing plant and RL evidence below remain unchanged.
+
 ## Historical stable baseline
 
 - Branch: `flapping_rl`
