@@ -122,6 +122,14 @@ class ULLTLoads:
     geometric_incidence_rad: Tensor
     correction_fit_rms: Tensor
     power_input_w: Tensor
+    effective_incidence_rad: Tensor | None = None
+    equivalent_normalwash_mps: Tensor | None = None
+    section_cl: Tensor | None = None
+    section_cd: Tensor | None = None
+    nonlinear_residual_mps: Tensor | None = None
+    nonlinear_iterations: Tensor | None = None
+    nonlinear_tolerance_mps: Tensor | None = None
+    effective_to_incident_speed_ratio: Tensor | None = None
 
 
 def _same_tensor_contract(reference: Tensor, tensors: tuple[Tensor, ...]) -> None:
@@ -241,6 +249,14 @@ class ULLTBackend:
     def __init__(self, config: ULLTConfig = ULLTConfig()):
         self.config = config
         self.state_count = {"quasi_steady": 0, "one_state": 1, "four_state": 4, "six_state": 6}[config.model]
+        self.solver_statistics = {
+            "calls": 0,
+            "environment_solves": 0,
+            "newton_iterations_sum": 0,
+            "newton_iterations_max": 0,
+            "backtracks_sum": 0,
+            "residual_max_mps": 0.0,
+        }
 
     def zero_state(self, geometry: ULLTGeometry) -> ULLTState:
         """Create an impulsive-start state matching geometry device and dtype."""
@@ -324,11 +340,45 @@ class ULLTBackend:
             history_lift = state.values_mps[..., : 1 if self.state_count == 1 else 2].sum(-1)
         matrix = torch.diag_embed(2 / (c * cfg.lift_slope_per_rad)) - gamma0 * (wn + w0)
         gamma = torch.linalg.solve(matrix, (gamma0 * (vn + correction) + history_gamma).unsqueeze(-1)).squeeze(-1)
+        nonlinear = {}
+        if cfg.section_model == "nonlinear_flat_plate":
+            from .ullt_nonlinear import solve_nonlinear_circulation
+
+            tangent = -(w_vector * geometry.chord_forward_w[:, :, None]).sum(-1)
+            nonlinear = solve_nonlinear_circulation(
+                c,
+                -(flow * geometry.chord_forward_w).sum(-1),
+                vn,
+                tangent,
+                wn,
+                gamma0,
+                history_gamma,
+                gamma,
+                speed,
+                cfg,
+            )
+            gamma = nonlinear["gamma"]
+            if cfg.collect_solver_statistics:
+                stats = self.solver_statistics
+                stats["calls"] += 1
+                stats["environment_solves"] += len(c)
+                stats["newton_iterations_sum"] += int(nonlinear["nonlinear_iterations"].sum())
+                stats["newton_iterations_max"] = max(
+                    stats["newton_iterations_max"], int(nonlinear["nonlinear_iterations"].max())
+                )
+                stats["backtracks_sum"] += int(nonlinear["nonlinear_backtracks"].sum())
+                stats["restarts_sum"] = stats.get("restarts_sum", 0) + int(nonlinear["nonlinear_restarts"].sum())
+                stats["residual_max_mps"] = max(
+                    stats["residual_max_mps"], float(nonlinear["nonlinear_residual_mps"].max())
+                )
         induced = torch.einsum("bijn,bj->bin", w_vector, gamma)
         correction = correction + (w0 @ gamma.unsqueeze(-1)).squeeze(-1)
         ve = vn + (induced * normal).sum(-1) + correction
+        if nonlinear:
+            ve = nonlinear["equivalent"]
         lift_response = phi0 * ve + history_lift
         return dict(
+            **{k: v for k, v in nonlinear.items() if k != "gamma"},
             gamma=gamma,
             ve=ve,
             induced=induced,
@@ -411,6 +461,18 @@ class ULLTBackend:
             * solved["perpendicular"]
             / speed.unsqueeze(-1)
         )
+        if self.config.section_model == "nonlinear_flat_plate":
+            # Extra separated profile drag only. Baseline Cd and the induced-flow
+            # orientation of circulatory force are retained, without another
+            # induced-drag, rotational-lift or added-mass contribution.
+            effective_flow = flow + solved["induced"]
+            effective_perp = effective_flow - (effective_flow * geometry.span_w).sum(-1, keepdim=True) * geometry.span_w
+            separated_cd = solved["section_cd"] - self.config.profile_drag_coefficient
+            profile = (
+                profile
+                + (0.5 * self.config.air_density_kg_m3 * c * geometry.width_m * speed * separated_cd).unsqueeze(-1)
+                * effective_perp
+            )
         added_force, added_couple = torch.zeros_like(flow), torch.zeros_like(flow)
         if self.config.include_added_mass:
             added_force, added_couple = added_mass_wrench(geometry, motion, self.config)
@@ -421,6 +483,11 @@ class ULLTBackend:
             + added_couple
         )
         incidence = torch.atan2((flow * geometry.normal_w).sum(-1), -(flow * geometry.chord_forward_w).sum(-1))
+        effective_flow = flow + solved["induced"]
+        effective_n = (effective_flow * geometry.normal_w).sum(-1)
+        effective_u = -(effective_flow * geometry.chord_forward_w).sum(-1)
+        effective_alpha = torch.atan2(effective_n, effective_u)
+        effective_speed = torch.sqrt(effective_n.square() + effective_u.square())
         if not bool(torch.isfinite(force).all()) or not bool(torch.isfinite(moment).all()):
             raise FloatingPointError("Non-finite ULLT loads")
         velocity_three_quarter = -flow
@@ -438,7 +505,7 @@ class ULLTBackend:
             raise FloatingPointError("Non-finite aerodynamic power")
         return ULLTLoads(
             solved["gamma"],
-            solved["ve"],
+            solved.get("physical_ve", solved["ve"]),
             solved["induced"],
             circulatory,
             profile,
@@ -451,6 +518,14 @@ class ULLTBackend:
             incidence,
             solved["fit_rms"],
             power,
+            effective_alpha,
+            solved["ve"],
+            solved.get("section_cl", self.config.lift_slope_per_rad * effective_alpha.sin()),
+            solved.get("section_cd", torch.full_like(c, self.config.profile_drag_coefficient)),
+            solved.get("nonlinear_residual_mps", torch.zeros_like(c[:, 0])),
+            solved.get("nonlinear_iterations", torch.zeros_like(c[:, 0], dtype=torch.long)),
+            solved.get("nonlinear_tolerance_mps", torch.zeros_like(c[:, 0])),
+            effective_speed / speed,
         )
 
     def advance(
