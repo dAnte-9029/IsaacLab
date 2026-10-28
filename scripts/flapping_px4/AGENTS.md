@@ -1,78 +1,9 @@
+# Flapping-PX4 Scripts
 
-Flapping-PX4 Script Guidelines
+Scripts can orchestrate experiments, command-line options, evaluation, plots, and exports. Keep reusable physics, controllers, and environment logic in `source/flapping_bot/` when practical, without creating an abstraction solely for a one-off experiment.
 
-These instructions apply to command-line entry points, parameter sweeps, evaluation scripts, plotting scripts, and result-export workflows in this directory.
+Use explicit plant/controller/mission selections and preserve existing results rather than silently overwriting them. Record the configuration, seed where applicable, and output location needed to interpret the result; do not generate automatic checkpoint hashes, verbose source receipts, or audit manifests without a concrete need.
 
-1. Keep scripts thin
+Keep tuning data distinct from genuinely held-out evaluation. Do not alter the source experiment data while plotting. Add CLI or smoke-run features only when useful to the requested workflow; do not apply a universal checklist to every exploratory script.
 
-Scripts should:
-
-parse arguments;
-construct configurations;
-call reusable package APIs;
-save results;
-report commands and output locations.
-
-Scripts must not contain new aerodynamic formulas, controller implementations, or duplicated environment logic.
-
-Move reusable logic into source/flapping_bot/.
-
-2. Reproducibility
-
-Every experiment or sweep should record where applicable:
-
-experiment name;
-timestamp;
-Git commit SHA;
-working-tree dirty state;
-command-line invocation;
-plant configuration;
-controller profile;
-mission configuration;
-random seed;
-checkpoint path and hash;
-output schema version.
-
-Do not silently overwrite previous experiment outputs.
-
-3. Separation of workflows
-
-Keep these workflows distinct:
-
-parameter calibration;
-controller tuning;
-held-out evaluation;
-sensitivity analysis;
-plotting and reporting.
-
-A held-out evaluation script must not tune parameters during evaluation.
-
-A plotting script must not alter or regenerate source experiment data unless explicitly designed as a processing pipeline.
-
-4. CLI behavior
-
-New scripts should provide:
-
---help;
-explicit input and output paths;
-sensible but documented defaults;
-a minimal smoke-run option when practical;
-clear failure messages;
-non-zero exit status on failure.
-
-Avoid machine-specific absolute paths.
-
-5. Output discipline
-
-Large videos, checkpoints, raw logs, and sweep outputs must not be committed to Git.
-
-Commit only:
-
-scripts;
-small manifests;
-small summary tables when needed;
-schemas;
-plotting code;
-documentation describing reproduction.
-
-Before changing an existing output format, check downstream analysis and plotting scripts.
+Avoid committing large raw logs, videos, caches, or checkpoints by default. Do not launch unrequested grid sweeps, all-tests checks, or plotting variants.

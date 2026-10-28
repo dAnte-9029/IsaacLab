@@ -1,150 +1,33 @@
+# Bird-Scale Flapping-Wing Research on Isaac Lab
 
-# Repository Agent Guidelines
+## Research objective
 
-## 1. Repository purpose
+This fork supports a bird-scale flapping-wing aircraft, its aerodynamics and multibody plant, PX4-like control, and RL-based flight control. Project code primarily lives in `source/flapping_bot/`, `scripts/flapping_px4/`, project tests, and `docs/`.
 
-This repository is a fork of Isaac Lab containing a custom bird-scale flapping-wing simulation and control project.
+Prioritize the scientific objective stated by the user. Approved work may substantially replace a physics model, controller, observation space, reward formulation, or training architecture. Do not force major ideas into small backwards-compatible patches, or invent extra validation stages and ablations.
 
-The primary project code is under:
+## Relevant context only
 
-* `source/flapping_bot/`
-* `scripts/flapping_px4/`
-* project-specific tests and documentation
+- Read this file plus nested `AGENTS.md` files on paths actually being worked on. Do not scan and read every agent file in the tree.
+- Consult `docs/PROJECT_STATE.md` and the specific active handoff/ADR when the task depends on current plant or RL assumptions. Do not automatically read all referenced history before unrelated tasks.
+- Inspect relevant code and the current working-tree status before edits. Do not inspect old commits or repeatedly reread unchanged files unless resolving a concrete uncertainty.
+- Preserve user changes, avoid unrelated refactors, and do not perform Git history-changing operations unless asked.
 
-Treat upstream Isaac Lab code as externally maintained framework code.
+## Code boundaries and scientific integrity
 
-## 2. Required context before work
+- Prefer implementing project-specific functionality under `source/flapping_bot/` and `scripts/flapping_px4/`, not modifying upstream Isaac Lab. If a research design genuinely requires an upstream change, explain its impact and implement it within the authorized task rather than silently settling for an inferior workaround.
+- Keep plant parameters, aerodynamic coefficients, mass/inertia, and controller parameters distinguishable. A better tracked trajectory does not by itself validate a physical model.
+- Preserve coordinate frames, force/moment reference points, wing geometry/kinematics, actuator signs, and simulation timestep assumptions explicitly when relevant.
+- In this fork, CPU-native multibody dynamics and GPU approximate or commanded-wing routes are not automatically physically equivalent. Do not compare or interchange them without identifying the actual model and the applicable limitations.
+- Keep evaluation scenarios separate from parameter tuning where a held-out claim is made. Distinguish numerical tests, force-level comparisons, free-body simulations, controller evaluations, and real-flight validation.
 
-Before planning or modifying project code:
+## Execution and validation
 
-1. Read this file.
-2. When the conversation starts from the repository root, discover and read every
-   `AGENTS.md` in the current worktree before doing project work. Use
-   `rg --files -g AGENTS.md` for discovery. Continue to apply the nearest nested
-   `AGENTS.md` to each file, with nested instructions taking precedence over
-   broader repository instructions.
-3. Read `docs/PROJECT_STATE.md` if it exists.
-4. Read the active handoff referenced by `docs/PROJECT_STATE.md`.
-5. Read relevant architecture documents and ADRs referenced by the handoff.
-6. Run `git status` and inspect recent commits.
+- Use the configured `env_isaaclab` Conda environment and repository wrapper `./isaaclab.sh -p ...`; do not silently switch to another Python/Isaac Sim installation. Report an unavailable environment instead of installing dependencies without permission.
+- Run focused checks for the parts changed. Numerical consistency checks are warranted for changed forces/moments or multibody coupling; a brief environment run may be warranted for environment wiring. Do not launch full test suites, broad sweeps, repeated GPU training, or long simulations unless needed for the requested scientific result.
+- Preserve existing stable comparison baselines when needed for a study, but do not make feature flags, legacy compatibility, or redundant regression tests mandatory for every new research architecture.
+- Avoid routine SHA256/checkpoint hash inventories, audit receipts, extra review agents, and exhaustive reports. Record only the selected model/plant configuration, experimental data, seed when relevant, and metrics required to understand the actual result.
 
-If required context is missing or contradictory, report the inconsistency. Do not invent missing project decisions.
+## Completion
 
-Do not rely on previous chat context as the source of truth. Repository code, committed documentation, tests, and approved ADRs are authoritative.
-
-## 3. Modification boundaries
-
-By default, modifications are allowed only under:
-
-* `source/flapping_bot/`
-* `scripts/flapping_px4/`
-* project-specific files under `tests/`
-* project documentation under `docs/`
-
-Do not modify the following unless the user explicitly approves the exact files and reason:
-
-* `source/isaaclab/`
-* `source/isaaclab_tasks/`
-* `source/isaaclab_assets/`
-* upstream applications, framework APIs, or shared Isaac Lab infrastructure
-
-Prefer adapters and extensions inside `source/flapping_bot/` over changes to upstream Isaac Lab.
-
-Do not change unrelated files, perform broad formatting, rename public APIs, or reorganize directories unless explicitly requested.
-
-## 4. Work process
-
-For non-trivial tasks:
-
-1. Inspect the current implementation.
-2. State the proposed files and changes.
-3. Identify assumptions and unresolved decisions.
-4. Define tests and completion criteria.
-5. Wait for approval when the task is design-sensitive or the user requested staged approval.
-6. Implement only the approved scope.
-7. Run targeted validation.
-8. Review the final diff.
-9. Report completed work, tests, limitations, and unverified items.
-
-Do not silently expand scope.
-
-Do not automatically commit, merge, rebase, reset, delete branches, or discard user changes unless explicitly instructed.
-
-## 5. Git discipline
-
-* One branch should address one cohesive feature, fix, test addition, or documentation task.
-* Keep commits focused and independently understandable.
-* Do not mix plant-model changes, controller changes, parameter tuning, and mission evaluation in one commit.
-* Do not commit generated caches, simulation outputs, checkpoints, videos, large binaries, or temporary debug files.
-* Preserve uncommitted user changes.
-* Before finishing, show `git status` and summarize the diff.
-
-Recommended commit format:
-
-* `feat(physics): ...`
-* `feat(control): ...`
-* `fix(env): ...`
-* `test(physics): ...`
-* `docs(model): ...`
-* `refactor(path): ...`
-
-## 6. Build and test commands
-
-Before running repository Python, build, test, simulation, formatting, or utility
-commands, activate the configured Conda environment:
-
-```bash
-conda activate env_isaaclab
-```
-
-Do not silently fall back to the system Python or another Conda environment. Use
-the repository wrapper after activating `env_isaaclab` so commands run in the
-configured Isaac Lab environment.
-
-Typical commands:
-
-```bash
-./isaaclab.sh -p <script.py> [arguments]
-./isaaclab.sh -p -m pytest <test-path> -k <pattern>
-./isaaclab.sh --format
-```
-
-On Windows, use the corresponding `isaaclab.bat` wrapper.
-
-Prefer targeted tests first. Do not launch expensive GPU simulations, large sweeps, or training runs unless they are necessary and explicitly within scope.
-
-## 7. Coding standards
-
-* Use Python type hints for new public functions and data structures.
-* Use 4-space indentation and concise Google-style docstrings.
-* Use `snake_case` for variables and functions and `PascalCase` for classes.
-* Avoid hidden global state and implicit device or dtype conversion.
-* Avoid hard-coded paths and unexplained numerical constants.
-* Preserve batch dimensions and GPU compatibility where relevant.
-* Avoid noisy format-only diffs.
-
-## 8. Baseline preservation
-
-Existing baseline behavior must remain available unless its removal is explicitly approved.
-
-When adding a new model or controller:
-
-* add an explicit configuration or feature-selection path;
-* retain the previous implementation for comparison;
-* document whether default behavior changes;
-* add regression checks where practical.
-
-Do not modify physical parameters or controller gains merely to make a new implementation appear successful.
-
-## 9. Completion report
-
-At the end of a task, report:
-
-* files added and modified;
-* behavior changed;
-* commands executed;
-* tests passed or failed;
-* tests not run and why;
-* remaining limitations;
-* whether baseline behavior changed;
-* any decisions still requiring user approval.
+Implement the requested scope, report the changed behavior, actual results and consequential limitations briefly, and stop. A task request authorizes the necessary implementation work; seek clarification only for a material missing decision, not for routine stage approval.
