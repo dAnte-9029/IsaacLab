@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
@@ -24,6 +25,7 @@ from flapping_bot.physics.ullt_geometry import load_csv_urdf_geometry, rotation_
 from flapping_bot.physics.ullt_state_space import (
     ULLTBackend,
     ULLTGeometry,
+    ULLTLoads,
     ULLTMotion,
     ULLTState,
 )
@@ -49,6 +51,7 @@ class FlightReplayConfig:
     windowed_screen: bool = True
     maximum_rows_per_run: int | None = None  # smoke only; full run has no truncation
     twist: PrescribedTwistConfig = PrescribedTwistConfig()
+    backend_config: ULLTConfig | None = None
 
 
 def sha256(path: Path) -> str:
@@ -382,7 +385,14 @@ def select_flight_windows(runs: list[dict], frame: pd.DataFrame) -> tuple[list[d
 
 
 def replay_registered_flights(
-    frame: pd.DataFrame, csv: Path, urdf: Path, config: FlightReplayConfig, progress: Callable[[str], None] = print
+    frame: pd.DataFrame,
+    csv: Path,
+    urdf: Path,
+    config: FlightReplayConfig,
+    progress: Callable[[str], None] = print,
+    section_observer: (
+        Callable[[np.ndarray, ULLTGeometry, ULLTMotion, ULLTLoads, torch.Tensor, torch.Tensor], None] | None
+    ) = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Replay complete continuous runs in parallel, zero wake and 2 s burn-in.
 
@@ -390,6 +400,8 @@ def replay_registered_flights(
     recorded rows, as separate measured kinematic channels. Their inconsistency
     is reported, not fitted away. Density scales loads exactly (state equations
     do not depend on rho). No model coefficients are fitted.
+    Optional read-only observer receives scored indices, geometry, motion,
+    rho=1 loads, logged density (B,1), and CG (3) in FLU. It must not mutate inputs.
     """
     import xml.etree.ElementTree as ET
 
@@ -413,10 +425,13 @@ def replay_registered_flights(
         + offset
     )
     cg = neutral.chord_m.new_tensor([-0.12154, -0.00541, 0.04298])
-    backend = ULLTBackend(ULLTConfig(model=config.model, air_density_kg_m3=1.0))
+    backend_cfg = config.backend_config or ULLTConfig(model=config.model, air_density_kg_m3=1.0)
+    if backend_cfg.model != config.model or backend_cfg.air_density_kg_m3 != 1.0:
+        raise ValueError("Replay backend must match model and use unit density for logged-rho scaling")
+    backend = ULLTBackend(backend_cfg)
     runs, result = prepare_runs(frame, config)
     for axis in AXES:
-        for component in ("ullt", "ullt_circulatory", "ullt_added_mass"):
+        for component in ("ullt", "ullt_circulatory", "ullt_added_mass", "ullt_profile_drag"):
             result[f"{component}_{axis}"] = np.nan
     result["ullt_max_incidence_deg"] = np.nan
     if not runs:
@@ -432,6 +447,7 @@ def replay_registered_flights(
     alive = np.ones(count, bool)
     sign = neutral.chord_m.new_tensor([1, -1, -1])
     failures = []
+    backend_compute_seconds = 0.0
     for step in range(length):
         active = np.array([i for i, run in enumerate(runs) if alive[i] and step < len(run["indices"])], dtype=int)
         if not len(active):
@@ -452,7 +468,12 @@ def replay_registered_flights(
             ids = torch.from_numpy(active)
             x = inputs[ids, step]
             g, m = flight_kinematics(neutral, hinges, x, config.amplitude_rad, config.twist)
-        loads = backend.evaluate(g, m, ULLTState(state.values_mps[ids]), cg.expand(len(active), -1))
+        started = time.perf_counter()
+        try:
+            loads = backend.evaluate(g, m, ULLTState(state.values_mps[ids]), cg.expand(len(active), -1))
+        except (ValueError, FloatingPointError) as error:
+            raise ValueError(f"Load evaluation failed at step {step}, runs {active.tolist()}: {error}") from error
+        backend_compute_seconds += time.perf_counter() - started
         rho = x[:, 15, None]
         force = loads.force_w_n * rho * sign
         moment = loads.moment_about_reference_w_nm * rho * sign
@@ -463,7 +484,15 @@ def replay_registered_flights(
         added = torch.cat((fa.sum(1) * rho * sign, ma * rho * sign), -1)
         total = torch.cat((force, moment), -1)
         indices = np.array([runs[i]["indices"][step] for i in active])
-        for prefix, values in (("ullt", total), ("ullt_added_mass", added), ("ullt_circulatory", total - added)):
+        fp = loads.profile_force_w_n
+        mp = torch.linalg.cross(g.quarter_chord_w_m - cg, fp).sum(1)
+        profile = torch.cat((fp.sum(1) * rho * sign, mp * rho * sign), -1)
+        for prefix, values in (
+            ("ullt", total),
+            ("ullt_added_mass", added),
+            ("ullt_circulatory", total - added - profile),
+            ("ullt_profile_drag", profile),
+        ):
             result.loc[indices, [f"{prefix}_{a}" for a in AXES]] = values.numpy()
         result.loc[indices, "ullt_max_incidence_deg"] = (
             loads.geometric_incidence_rad.abs().amax(1).numpy() * 180 / np.pi
@@ -471,6 +500,8 @@ def replay_registered_flights(
         scored = step * 0.01 >= config.warmup_s
         result.loc[indices, "score_valid"] = scored
         result.loc[indices, "replay_reason"] = "scored" if scored else "warmup"
+        if scored and section_observer is not None:
+            section_observer(indices, g, m, loads, rho, cg)
         if step < length - 1:
             # Inputs are prescribed offline channels. Sample all RK stages at
             # their interpolation fraction; the same section identity persists.
@@ -485,6 +516,7 @@ def replay_registered_flights(
                     )
                 return samples[t]
 
+            started = time.perf_counter()
             try:
                 updated = backend.advance(ULLTState(state.values_mps[ids]), sample, 0.0, 0.01)
                 state.values_mps[ids] = updated.values_mps
@@ -516,9 +548,12 @@ def replay_registered_flights(
                                 "batch_error": str(error),
                             }
                         )
+            backend_compute_seconds += time.perf_counter() - started
         if step % 250 == 0:
             progress(f"replay {step}/{length}, active runs={len(active)}, scored rows={int(result.score_valid.sum())}")
     return result, {
+        "backend_compute_seconds_including_rk_kinematics": backend_compute_seconds,
+        "solver_statistics": backend.solver_statistics,
         "configuration": asdict(config),
         "backend": asdict(backend.config),
         "run_count": count,

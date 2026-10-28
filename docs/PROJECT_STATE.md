@@ -29,9 +29,19 @@ Fx/Fz/My RMSE by about 44%/50%/35% versus zero twist. Fz beats DeLaurier on all
 three selected train logs, but Fx does not, My improvement is inconsistent,
 and Fz/My harmonic phase errors worsen. This is exploratory evidence only;
 no parameter or default-backend promotion occurred.
-Next: review large-incidence/rigid-wing assumptions and label sensitivity,
-improve span discretization and obtain independent paper-curve references
-before free-body integration.
+The [section attribution diagnostic](audits/2026-10-27-ullt-section-load-attribution.md)
+now separates incidence area and six-axis section loads: without twist, >35 deg
+occupies 26% of area-time and 58% of absolute Fz burden, whereas >60 deg occupies
+1.3% and 5.5%. With prescribed twist the >35 deg Fz share drops to 6.2%.
+Added mass is not the main source of the excess mean upward load in these logs.
+Opt-in [nonlinear section version A](audits/2026-10-27-ullt-version-a-nonlinear-section.md)
+is now implemented inside the circulation solve, with two uncalibrated flat-plate
+priors and unchanged twist. All three train logs/windows replay completely.
+The early prior lowers Fx/Fz/My RMSE by 11.5/11.4/17.7% versus twisted linear ULLT,
+but worsens Fx phase and Fx/Fz peak-to-peak errors; backend time is about 2.14x.
+The linear default, added mass, six-state gate and RL remain unchanged.
+Next: verify root/branch continuity, discretization, actual deformation and section
+moment closure before promoting a polar or choosing an LEV/added-mass correction.
 High local incidence and unmeasured fabric-wing properties limit physical
 claims; the existing plant and RL evidence below remain unchanged.
 

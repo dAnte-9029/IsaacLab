@@ -23,6 +23,11 @@ def main() -> int:
         help="Replay all continuous runs; default: two input-selected windows per flight",
     )
     parser.add_argument("--smoke", action="store_true", help="First 4 seconds per run; no complete-data claim")
+    parser.add_argument("--section-model", choices=("linear", "nonlinear_flat_plate"), default="linear")
+    parser.add_argument("--polar-prior", choices=("early", "late"), default="early")
+    parser.add_argument(
+        "--fixed-twist", action="store_true", help="Use prescribed (35 deg,-0.5,0 deg), without fitting"
+    )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / "source/flapping_bot"))
@@ -38,6 +43,10 @@ def main() -> int:
         summarize_tables,
         write_flight_report,
     )
+
+    from flapping_bot.config.ullt import ULLTConfig
+    from flapping_bot.config.nonlinear_section import flat_plate_prior
+    from flapping_bot.physics.ullt_twist import PrescribedTwistConfig
 
     torch.set_num_threads(1)
     args.output_dir.mkdir(parents=True, exist_ok=False)
@@ -56,6 +65,9 @@ def main() -> int:
         Path(__file__).resolve(),
         *(root / "source/flapping_bot/flapping_bot/analysis").glob("ullt_flight_*.py"),
         root / "source/flapping_bot/flapping_bot/config/ullt.py",
+        root / "source/flapping_bot/flapping_bot/config/nonlinear_section.py",
+        root / "source/flapping_bot/flapping_bot/physics/flat_plate_section.py",
+        root / "source/flapping_bot/flapping_bot/physics/ullt_nonlinear.py",
         root / "source/flapping_bot/flapping_bot/physics/ullt_state_space.py",
         root / "source/flapping_bot/flapping_bot/physics/ullt_geometry.py",
         args.wing_csv,
@@ -65,6 +77,14 @@ def main() -> int:
     (args.output_dir / "manifest.json").write_text(json.dumps(provenance, indent=2) + "\n")
     config = FlightReplayConfig(
         sections_per_wing=args.sections_per_wing,
+        backend_config=ULLTConfig(
+            model="four_state",
+            air_density_kg_m3=1.0,
+            section_model=args.section_model,
+            nonlinear_polar=flat_plate_prior(args.polar_prior),
+            collect_solver_statistics=True,
+        ),
+        twist=PrescribedTwistConfig(35, -0.5, 0) if args.fixed_twist else PrescribedTwistConfig(),
         maximum_rows_per_run=401 if args.smoke else None,
         windowed_screen=not args.full_runs,
     )
@@ -85,10 +105,11 @@ def main() -> int:
             "report": str(args.output_dir / "report.html"),
             "scored_flights": summary["scored_flights"],
             "scored_rows": summary["scored_rows"],
+            "rejected_runs": len(diagnostic["failures"]),
         }),
         flush=True,
     )
-    return 0
+    return int(args.section_model != "linear" and bool(diagnostic["failures"]))
 
 
 if __name__ == "__main__":
