@@ -1,5 +1,17 @@
 # Project State
 
+## Opt-in control-oriented 3D aero (2026-10-29)
+
+`feat/control-oriented-3d-wing-aero` now implements shared actual-link L3D and
+quasi-steady finite-wing I3D interfaces on the measured CPU-native plant.
+DeLaurier and RL defaults remain unchanged. Targeted physics/reset tests and
+real 480 Hz PhysX smokes passed; mean longitudinal candidates still drift in
+free flight. I3D reverses the sideslip-roll response at a shared lifting
+operating point, with uncalibrated polar/twist and restricted relative-only
+added mass. No policy was trained. See the
+[implementation and results](audits/2026-10-29-control-oriented-3d-aero/report_zh.md)
+for configuration, costs, evidence limits and reproducible commands.
+
 ## Branch-local ULLT stage 1 (2026-10-27)
 
 `feat/ullt-state-space-wing-aero` starts from `a7b3e08e0c1e` for an opt-in

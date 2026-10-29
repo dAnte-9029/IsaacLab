@@ -219,6 +219,10 @@ from .startup_phase import (
     map_symmetric_flap_coordinate_to_joint_space,
 )
 
+from flapping_bot.physics.control_aero_3d import ControlAero3D, ControlAero3DConfig, distributed_body_drag
+from flapping_bot.physics.control_aero_kinematics import LinkKinematics3D
+from isaaclab.utils.math import matrix_from_quat
+
 Tensor = torch.Tensor
 
 
@@ -322,6 +326,8 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     height_cmd_range: tuple[float, float] = (8.0, 12.0)
     wind_enabled: bool = False
     wind_xy_mps: tuple[float, float] = (0.0, 0.0)
+    wind_z_mps: float = 0.0
+    wind_ou_sigma_z_mps: float = 0.0
     randomize_wind: bool = False
     wind_x_range_mps: tuple[float, float] = (0.0, 0.0)
     wind_y_range_mps: tuple[float, float] = (0.0, 0.0)
@@ -582,6 +588,7 @@ class FlappingBotStraightFlightEnvCfg(DirectRLEnvCfg):
     wing_link_aero_load_mode: str = FULL_WING_LINK_WRENCH
 
     # DeLaurier wing model (Stage B)
+    control_aero_3d: ControlAero3DConfig | None = None
     use_delaurier_wings: bool = False
     delaurier_wing_geom_csv: Path = Path("outputs_DeLaurier/right_wing_te_fit_poly5_gap50.csv")
     delaurier_num_strips: int = 80
@@ -2234,6 +2241,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if bool(self.cfg.wind_enabled) and not bool(self.cfg.randomize_wind):
             self._wind_mean_w[:, 0] = float(self.cfg.wind_xy_mps[0])
             self._wind_mean_w[:, 1] = float(self.cfg.wind_xy_mps[1])
+            self._wind_mean_w[:, 2] = float(self.cfg.wind_z_mps)
         self._wind_w.copy_(self._wind_mean_w)
 
         # tail commands
@@ -2322,6 +2330,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # aero models
         tail_aero_cfg = replace(
             self.cfg.tail_aero,
+            air_density=(self.cfg.control_aero_3d.rho if self.cfg.control_aero_3d is not None else self.cfg.tail_aero.air_density),
             horizontal_tail_incidence_bias_deg=float(self.cfg.tail_horizontal_tail_incidence_bias_deg),
             fixed_horizontal_effectiveness=float(self.cfg.tail_fixed_horizontal_effectiveness),
             elevon_effectiveness=float(self.cfg.tail_elevon_effectiveness),
@@ -2358,6 +2367,22 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._A_w2l_batch = torch.stack((A_l2w_L.T, A_l2w_R.T), dim=0)  # (2,3,3)
 
         self._teacher_delta = float(self.cfg.teacher_guidance_delta_final)
+        self._control_aero_model = None
+        if self.cfg.control_aero_3d is not None:
+            if self.cfg.wing_aero_coupling_mode != NATIVE_HOLONOMIC_PER_WING_LINK:
+                raise ValueError("L3D/I3D require CPU-native measured per-wing coupling")
+            if self.cfg.wing_link_aero_load_mode != FULL_WING_LINK_WRENCH:
+                raise ValueError("L3D/I3D require force and moment on each wing link")
+            if self.cfg.tail_aero_deflection_source != ACTUAL_JOINT_TAIL_AERO_DEFLECTION:
+                raise ValueError("L3D/I3D require actual tail joint angles")
+            if any(float(getattr(self.cfg, k)) != 0 for k in (
+                "virtual_roll_moment_gain", "virtual_roll_moment_damping",
+                "virtual_pitch_moment_gain", "virtual_pitch_moment_damping", "fuselage_drag_cda")):
+                raise ValueError("L3D/I3D forbid virtual moments and duplicate legacy body drag")
+            self._control_aero_model = ControlAero3D(self.cfg.control_aero_3d)
+            self._control_aero_kinematics = LinkKinematics3D(
+                Path(self.cfg.delaurier_wing_geom_csv), Path(self.cfg.robot.spawn.asset_path),
+                self.cfg.control_aero_3d, self.device)
         self._wind_curriculum_scale = 1.0 if bool(self.cfg.wind_enabled) else 0.0
         if bool(self.cfg.teacher_guidance_enabled):
             self._teacher_controller = PX4LikeStraightLineController(
@@ -2839,7 +2864,6 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         # Keep deterministic mean (constant or sampled at reset) when OU is disabled.
         if not bool(self.cfg.wind_ou_enabled):
             self._wind_w.copy_(self._wind_mean_w)
-            self._wind_w[:, 2] = 0.0
             return
 
         tau = max(float(self.cfg.wind_ou_tau_s), 1.0e-3)
@@ -2853,7 +2877,10 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         if noise_scale > 0.0 and (sigma_x > 0.0 or sigma_y > 0.0):
             noise = torch.randn((self.num_envs, 2), device=self.device)
             self._wind_w[:, 0:2] += noise * (noise_scale * sigma_xy)
-        self._wind_w[:, 2] = 0.0
+        self._wind_w[:, 2] = self._wind_mean_w[:, 2] + alpha * (self._wind_w[:, 2] - self._wind_mean_w[:, 2])
+        sigma_z = self._wind_curriculum_scale * max(float(self.cfg.wind_ou_sigma_z_mps), 0.0)
+        if noise_scale > 0 and sigma_z > 0:
+            self._wind_w[:, 2] += torch.randn(self.num_envs, device=self.device) * noise_scale * sigma_z
 
         if bool(self.cfg.wind_ou_clip_to_range):
             x_low, x_high = sorted(
@@ -3574,7 +3601,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         delaurier_wrench: _DeLaurierWingWrenchResult | None = None
         if bool(self.cfg.enable_wing_aero):
-            if not bool(self.cfg.use_delaurier_wings):
+            if self._control_aero_model is not None:
+                delaurier_wrench = self._compute_control_3d_wrench()
+                f_w_sum = delaurier_wrench.net_force_b_n
+                tau_w_sum = delaurier_wrench.net_moment_b_about_base_com_nm
+            elif not bool(self.cfg.use_delaurier_wings):
                 # simple wing QSM
                 jpos_all = self._robot.data.joint_pos[:, self._joint_ids]
                 jvel_all = self._robot.data.joint_vel[:, self._joint_ids]
@@ -3605,6 +3636,11 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
 
         # Quadratic parasite drag at the base (opposes air-relative body velocity).
         f_drag = torch.zeros_like(v_b)
+        tau_drag = torch.zeros_like(v_b)
+        if self._control_aero_model is not None:
+            f_drag, tau_drag = distributed_body_drag(v_air_b, w_b,
+                self._robot.data.body_com_pos_b[:, int(self._base_body_ids[0])],
+                self.cfg.control_aero_3d.rho, self.cfg.control_aero_3d.body)
         cda = float(self.cfg.fuselage_drag_cda)
         if cda > 0.0:
             rho = float(self.cfg.qsm_wings.air_density)
@@ -3617,7 +3653,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         self._debug_last_tail_force_b.copy_(f_tail)
         self._debug_last_tail_moment_b_about_base_com_nm.copy_(tau_tail)
         self._debug_last_force_b.copy_(f_w_sum + f_tail + f_drag)
-        self._debug_last_torque_b.copy_(tau_w_sum + tau_tail)
+        self._debug_last_torque_b.copy_(tau_w_sum + tau_tail + tau_drag)
 
         wing_aero_coupling_mode = validate_wing_aero_coupling_mode(self.cfg.wing_aero_coupling_mode)
         if delaurier_wrench is None:
@@ -3664,7 +3700,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             body_ids = [int(self._base_body_ids[0]), *(int(index) for index in self._wing_body_ids)]
             torques_link_about_com = torch.cat(
                 (
-                    tau_tail.unsqueeze(1),
+                    (tau_tail + tau_drag).unsqueeze(1),
                     applied_wing_moment_link_about_com,
                 ),
                 dim=1,
@@ -3691,7 +3727,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             self._update_native_holonomic_load_diagnostics(
                 root_quaternion_w=quat_w,
                 net_external_force_b_n=f_w_sum + f_tail + f_drag,
-                net_external_moment_b_about_base_com_nm=tau_w_sum + tau_tail,
+                net_external_moment_b_about_base_com_nm=tau_w_sum + tau_tail + tau_drag,
                 delaurier_wrench=delaurier_wrench,
             )
         if wing_drive_variant == IDEAL_TORQUE_COUPLED_WING_DRIVE:
@@ -3954,6 +3990,33 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
                 ),
             }
         )
+
+    def _compute_control_3d_wrench(self) -> _DeLaurierWingWrenchResult:
+        data = self._robot.data
+        # Physics storage is left,right; the lifting line is right,left.
+        ids = [int(self._wing_body_ids[1]), int(self._wing_body_ids[0])]
+        joints = [int(self._joint_ids[self._IDX_RIGHT_WING]), int(self._joint_ids[self._IDX_LEFT_WING])]
+        quat = data.body_link_quat_w[:, ids]
+        rotation = matrix_from_quat(quat)
+        qd = data.joint_vel[:, joints]
+        qdd = torch.stack((-self._qdd_cmd, self._qdd_cmd), 1)
+        g, m, relative = self._control_aero_kinematics.sample(
+            data.body_link_pos_w[:, ids], rotation, data.body_com_pos_w[:, ids],
+            data.body_com_lin_vel_w[:, ids], data.body_com_ang_vel_w[:, ids], self._wind_w,
+            self._phase, 2*torch.pi*self._freq, self._phase_acceleration_rad_s2,
+            qd, qdd)
+        base_com = data.body_com_pos_w[:, int(self._base_body_ids[0])]
+        loads = self._control_aero_model.evaluate(g, m, base_com, relative)
+        self._debug_control_aero_loads = loads
+        n = self.cfg.control_aero_3d.sections_per_wing
+        fw = loads.force.reshape(self.num_envs,2,n,3).sum(2)
+        mw_base = loads.moment.reshape(self.num_envs,2,n,3).sum(2)
+        mw = mw_base - torch.linalg.cross(data.body_com_pos_w[:,ids]-base_com[:,None],fw)
+        fl = torch.einsum('bwij,bwi->bwj',rotation,fw).flip(1)
+        ml = torch.einsum('bwij,bwi->bwj',rotation,mw).flip(1)
+        return _DeLaurierWingWrenchResult(
+            quat_apply_inverse(data.root_quat_w,fw.sum(1)),
+            quat_apply_inverse(data.root_quat_w,mw_base.sum(1)),fl,ml)
 
     def _compute_wing_delaurier_wrench(
         self,
@@ -4330,7 +4393,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             yh = scale * float(self.cfg.wind_y_range_mps[1])
             self._wind_mean_w[env_ids, 0] = torch.rand_like(self._vx_cmd[env_ids]) * (xh - xl) + xl
             self._wind_mean_w[env_ids, 1] = torch.rand_like(self._vx_cmd[env_ids]) * (yh - yl) + yl
-            self._wind_mean_w[env_ids, 2] = 0.0
+            self._wind_mean_w[env_ids, 2] = scale * float(self.cfg.wind_z_mps)
             if zero_prob > 0.0:
                 zero_mask = torch.rand((env_ids.shape[0],), device=self.device) < zero_prob
                 self._wind_mean_w[env_ids[zero_mask], 0:2] = 0.0
@@ -4338,7 +4401,7 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
             scale = self._get_wind_curriculum_scale()
             self._wind_mean_w[env_ids, 0] = scale * float(self.cfg.wind_xy_mps[0])
             self._wind_mean_w[env_ids, 1] = scale * float(self.cfg.wind_xy_mps[1])
-            self._wind_mean_w[env_ids, 2] = 0.0
+            self._wind_mean_w[env_ids, 2] = scale * float(self.cfg.wind_z_mps)
         self._wind_w[env_ids] = self._wind_mean_w[env_ids]
 
         # Randomize the world-frame line direction while keeping the vehicle,
@@ -5988,3 +6051,15 @@ class FlappingBotStraightFlightEnv(DirectRLEnv):
         fell = fell | (torch.abs(cross_track_m) > float(self.cfg.terminate_abs_y))
 
         return fell, timed_out
+
+
+@configclass
+class FlappingBotStraightFlightL3DMeasuredPureRLEnvCfg(FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg):
+    """Opt-in local 3D aero; task/action/observation contracts inherited unchanged."""
+    control_aero_3d: ControlAero3DConfig = ControlAero3DConfig(backend="L3D")
+
+
+@configclass
+class FlappingBotStraightFlightI3DMeasuredPureRLEnvCfg(FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg):
+    """Opt-in joint finite-wing induction; same native plant and RL contract."""
+    control_aero_3d: ControlAero3DConfig = ControlAero3DConfig(backend="I3D")

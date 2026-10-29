@@ -23,9 +23,14 @@ class PrescribedTwistConfig:
     amplitude_deg: float = 0.0
     kappa: float = 0.0
     phase_offset_deg: float = 0.0
+    theta0_root_deg: float = 0.0
+    theta0_tip_deg: float = 0.0
 
     def __post_init__(self) -> None:
-        if not all(math.isfinite(v) for v in (self.amplitude_deg, self.kappa, self.phase_offset_deg)):
+        if not all(
+            math.isfinite(v)
+            for v in (self.amplitude_deg, self.kappa, self.phase_offset_deg, self.theta0_root_deg, self.theta0_tip_deg)
+        ):
             raise ValueError("Twist parameters must be finite")
         if not 0 <= self.amplitude_deg <= 40 or not -1 <= self.kappa <= 1 or abs(self.phase_offset_deg) > 90:
             raise ValueError("Screen bounds: amplitude [0,40] deg, kappa [-1,1], phase [-90,90] deg")
@@ -55,7 +60,11 @@ def _cross(a: Jet, b: Jet) -> Jet:
 def _power(a: Jet, p: float) -> Jet:
     if bool((a[0] <= 0).any()):
         raise ValueError("Degenerate twisted section")
-    return a[0] ** p, p * a[0] ** (p - 1) * a[1], p * a[0] ** (p - 1) * a[2] + p * (p - 1) * a[0] ** (p - 2) * a[1] ** 2
+    return (
+        a[0] ** p,
+        p * a[0] ** (p - 1) * a[1],
+        p * a[0] ** (p - 1) * a[2] + p * (p - 1) * a[0] ** (p - 2) * a[1] ** 2,
+    )
 
 
 def _unit(a: Jet) -> Jet:
@@ -104,7 +113,11 @@ def twist_wing(
         angle = phase_rad[:, None, None] - math.radians(config.phase_offset_deg)
         # -A*sin(phi_D-psi)=A*cos(phi_C-psi); positive pitch rotates about -span.
         amplitude = math.radians(config.amplitude_deg) * shape
-        theta = amplitude * angle.cos()
+        theta = (
+            math.radians(config.theta0_root_deg)
+            + math.radians(config.theta0_tip_deg - config.theta0_root_deg) * s
+            + amplitude * angle.cos()
+        )
         td = -amplitude * angle.sin() * phase_rate_rad_s[:, None, None]
         tdd = -amplitude * (
             angle.cos() * phase_rate_rad_s[:, None, None].square()
