@@ -1,0 +1,12 @@
+{
+  "authorized_flights": 161,
+  "raw_success": 161,
+  "duration_joint_closure": true,
+  "condition_denominator_closure": true,
+  "test_rows_in_outputs": 0,
+  "firmware_versions_checked": 17,
+  "no_model_fit": true,
+  "air_motion_joint_duration_closure": true,
+  "joint_supported_flights": 159,
+  "zero_joint_support_flights": 2
+}
