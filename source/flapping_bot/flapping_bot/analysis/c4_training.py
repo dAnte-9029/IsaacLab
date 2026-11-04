@@ -35,7 +35,8 @@ def prepare_agent_config(source: dict, *, seed: int, steps: int, minibatches: in
 def train_c4(*, checkpoint: Path, output: Path, root: Path, resume: bool, seed: int,
              num_envs: int, iterations: int, steps: int, minibatches: int, save_interval: int,
              retention_variant: str | None = None, memory_path: Path | None = None,
-             memory_coefficient: float = 1.0, collect_memory_steps: int = 0) -> dict:
+             memory_coefficient: float = 1.0, collect_memory_steps: int = 0,
+             anchoring_mode: str | None = None, anchors_path: Path | None = None) -> dict:
     """Train after Kit startup; resume optimizer/progress with fresh simulation episodes."""
     import csv
     import types
@@ -52,6 +53,10 @@ def train_c4(*, checkpoint: Path, output: Path, root: Path, resume: bool, seed: 
     from flapping_bot.px4_like.c4_retention import (
         BehaviorMemory, C4UpdateDiagnostics, TrainingEpisodeTracker, attach_behavior_memory,
     )
+    from flapping_bot.px4_like.behavioral_anchoring import register_anchored_ppo, TailAnchors
+
+    if anchoring_mode and (not resume or retention_variant != 'D' or collect_memory_steps):
+        raise ValueError('Anchoring requires D resume, with no memory collection')
 
     if retention_variant not in (None, 'A', 'B', 'C', 'D'):
         raise ValueError('Unknown retention variant')
@@ -74,6 +79,9 @@ def train_c4(*, checkpoint: Path, output: Path, root: Path, resume: bool, seed: 
         raise ValueError('Missing heading-canonical checkpoint provenance')
     agent = prepare_agent_config(source_agent, seed=seed, steps=steps, minibatches=minibatches,
                                  save_interval=save_interval)
+    if anchoring_mode:
+        register_anchored_ppo()
+        agent['algorithm']['class_name'] = 'AnchoredPPO'
     cfg = FlappingBotStraightFlightDeLaurierMeasuredPureRLC4JointEnvCfg()
     cfg.scene.num_envs = num_envs
     cfg.scene.env_spacing = 5.0
@@ -95,7 +103,35 @@ def train_c4(*, checkpoint: Path, output: Path, root: Path, resume: bool, seed: 
                                      diagnostic_interval=5)
     loaded = torch.load(checkpoint, map_location='cpu', weights_only=True)
     state = (loaded.get('infos') or {}).get('c4_training')
-    if resume and (not state or state.get('contract') != contract):
+    anchor_payload = None
+    if anchoring_mode:
+        if not state:
+            raise ValueError('Missing optimizer/schedule/curriculum resume state')
+        previous_anchor = state.get('anchoring')
+        if iterations + (previous_anchor['updates'] if previous_anchor else 0) > 25:
+            raise ValueError('This experiment is capped at 25 additional PPO iterations')
+        if previous_anchor:
+            if previous_anchor['mode'] != anchoring_mode:
+                raise ValueError('Cannot switch anchoring mode on resume')
+            anchor_payload = previous_anchor['payload']
+            contract['anchoring'] = state['contract']['anchoring']
+        else:
+            if anchors_path is None:
+                raise ValueError('Initial D-50 continuation needs fixed anchors')
+            anchor_payload = torch.load(anchors_path, map_location='cpu', weights_only=True)
+            if anchor_payload['source_checkpoint'] != str(checkpoint):
+                raise ValueError('Anchor teacher must be this D-50 source')
+            # Validate the entire historical D contract before adding the sole intervention.
+            if state['contract'] != contract:
+                raise ValueError('D-50 source training contract mismatch')
+            contract['anchoring'] = dict(mode=anchoring_mode, schema=anchor_payload['anchor_schema'],
+                                         epsilon=anchor_payload['epsilon'], coefficient=1.0,
+                                         family_weights=[1 / 6] * 6, legacy_memory_loss_enabled=False)
+        TailAnchors(anchor_payload)
+    expected_contract = dict(contract)
+    if anchoring_mode and not state.get('anchoring'):
+        expected_contract.pop('anchoring')
+    if resume and (not state or state.get('contract') != expected_contract):
         raise ValueError('Resume requires a C4 checkpoint with matching training contract')
     if not resume and state:
         raise ValueError('Use --resume for a C4 training checkpoint')
@@ -189,7 +225,7 @@ def train_c4(*, checkpoint: Path, output: Path, root: Path, resume: bool, seed: 
             probe = C4UpdateDiagnostics(runner.alg, output_path=output / 'update_diagnostics.jsonl',
                                         interval=5, minimum_samples=16)
             runner.alg.update = probe.update
-        if memory is not None:
+        if memory is not None and not anchoring_mode:
             attach_behavior_memory(runner.alg, memory, memory_coefficient)
         assert maybe_enable_task_aware_ppo(runner=runner)
         guard, adapter = runner.alg.ppo_warm_start_guard, runner.alg.task_aware_ppo
@@ -210,6 +246,24 @@ def train_c4(*, checkpoint: Path, output: Path, root: Path, resume: bool, seed: 
             runner.current_learning_iteration = 0
             assert len(runner.alg.optimizer.state) == 0
         start = runner.current_learning_iteration
+        if anchoring_mode:
+            runner.alg.configure_anchors(anchor_payload, anchoring_mode)
+            if state.get('anchoring'):
+                runner.alg.anchor_updates = state['anchoring']['updates']
+            elif any(not torch.equal(value, runner.alg.policy.actor.state_dict()[key])
+                     for key, value in anchor_payload['reference_actor'].items()):
+                raise ValueError('Initial actor is not the frozen anchor reference')
+            # Equality checks are against the actual in-memory initialized objects.
+            assert all(torch.equal(v, runner.alg.policy.state_dict()[k]) for k, v in loaded['model_state_dict'].items())
+            from flapping_bot.analysis.behavioral_anchoring_experiment import assert_state_equal
+            assert_state_equal(runner.alg.optimizer.state_dict(), loaded['optimizer_state_dict'])
+            assert_state_equal(curriculum.state_dict(), state['curriculum'])
+            (output / 'initialization.json').write_text(json.dumps(dict(
+                actor_critic_std_equal=True, optimizer_equal=True, curriculum_equal=True,
+                source=str(checkpoint), source_completed_iterations=start,
+                learning_rate=runner.alg.learning_rate, schedule=runner.alg.schedule,
+                legacy_memory_loss_enabled=runner.alg.symmetry is not None,
+                initial_anchor_metrics=runner.alg.anchors.metrics(runner.alg.policy.actor)), indent=2))
         if curriculum is not None:
             original_update = runner.alg.update
             def update_curriculum():
@@ -230,8 +284,21 @@ def train_c4(*, checkpoint: Path, output: Path, root: Path, resume: bool, seed: 
                 training_state.update(curriculum=curriculum.state_dict() if curriculum else None,
                                       memory=memory.state_dict() if memory else None,
                                       probe_iteration=probe.iteration)
+            if anchoring_mode:
+                training_state['anchoring'] = dict(mode=anchoring_mode, payload=anchor_payload,
+                                                   updates=runner.alg.anchor_updates)
             original_save(path, infos={**(infos or {}), 'c4_training': training_state})
         runner.save = types.MethodType(save_with_state, runner)
+        if anchoring_mode:
+            previous_update = runner.alg.update
+            def report_anchor_update():
+                result = previous_update()
+                with (output / 'anchoring.jsonl').open('a') as stream:
+                    stream.write(json.dumps(runner.alg.anchor_report, allow_nan=False) + '\n')
+                if runner.alg.anchor_updates in (12, 25):
+                    runner.save(str(output / f'update_{runner.alg.anchor_updates}.pt'))
+                return result
+            runner.alg.update = report_anchor_update
         dump_yaml(str(output / 'params/env.yaml'), cfg)
         (output / 'params/agent.yaml').write_text(yaml.safe_dump(agent))
         (output / 'curriculum_source.json').write_text(json.dumps({
@@ -244,7 +311,7 @@ def train_c4(*, checkpoint: Path, output: Path, root: Path, resume: bool, seed: 
         return dict(schema=C4_TRAINING_SCHEMA, start_iteration=start, completed_iterations=adapter.iteration,
                     guard_iteration=guard.iteration, actor_parameter_delta_norm=float(delta),
                     optimizer_state_entries=len(runner.alg.optimizer.state), resume=resume,
-                    memory_auxiliary_calls=memory.calls if memory else 0,
+                    memory_auxiliary_calls=memory.calls if memory and not anchoring_mode else 0,
                     curriculum_updates=curriculum.updates if curriculum else 0,
                     promotion_eligible=False, contract=contract)
     finally:

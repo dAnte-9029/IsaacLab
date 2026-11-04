@@ -28,6 +28,8 @@ def main() -> None:
                         help='Opt-in fixed/adaptive sampling crossed with absent/present behavior memory')
     parser.add_argument('--memory', type=Path, help='Training-only successful behavior bank, required for C/D')
     parser.add_argument('--memory-coefficient', type=float, default=1.0)
+    parser.add_argument('--anchoring-mode', choices=('S', 'H'))
+    parser.add_argument('--anchors', type=Path, help='Frozen training-only D-50 anchors')
     parser.add_argument('--collect-memory-steps', type=int, default=0,
                         help='Frozen deterministic teacher collection; no PPO updates')
     parser.add_argument('--smoke', action='store_true', help='96 envs, 16 steps, 4 minibatches; 5 iterations (resume: 1)')
@@ -60,7 +62,9 @@ def main() -> None:
                           num_envs=args.num_envs,iterations=args.iterations,steps=args.steps,
                           minibatches=args.minibatches,save_interval=args.save_interval,
                           retention_variant=args.retention_variant, memory_path=args.memory.resolve() if args.memory else None,
-                          memory_coefficient=args.memory_coefficient, collect_memory_steps=args.collect_memory_steps)
+                          memory_coefficient=args.memory_coefficient, collect_memory_steps=args.collect_memory_steps,
+                          anchoring_mode=args.anchoring_mode,
+                          anchors_path=args.anchors.resolve() if args.anchors else None)
         (output/'summary.json').write_text(json.dumps(result,indent=2,allow_nan=False))
         (output/'status.json').write_text('{"status":"completed"}\n')
     except BaseException:
