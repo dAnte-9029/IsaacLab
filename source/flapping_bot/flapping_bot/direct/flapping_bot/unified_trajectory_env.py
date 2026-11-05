@@ -7,6 +7,7 @@ import torch
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply_inverse
 from flapping_bot.path_tracking.unified_trajectory import GeometryLimits, SamplingConfig, Trajectory, sample_trajectory
+from flapping_bot.path_tracking.unified_trajectory_cache import TrajectoryCache
 from .straight_flight_env import FlappingBotStraightFlightEnv, FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
 
 
@@ -32,6 +33,7 @@ class UnifiedTrajectoryEnvCfg(FlappingBotStraightFlightDeLaurierMeasuredPureRLEn
     max_body_rate_rad_s: float = 20.
     completion_tolerance_m: float = .5
     projection_margin_m: float = .5
+    reference_cache_spacing_m: float = .2
 
 
 class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
@@ -48,6 +50,9 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             raise ValueError("Preview distances must be finite, positive and increasing")
         cfg.observation_space = 30 + 3*len(cfg.preview_distances_m)
         super().__init__(cfg, **kwargs)
+        self.path_cache = TrajectoryCache(self.num_envs, cfg.sampling.length_m,
+                                         cfg.reference_cache_spacing_m, self.device)
+        self.preview_distances = torch.tensor(cfg.preview_distances_m, device=self.device)
         self.paths = [None]*self.num_envs
         self.task_records = [None]*self.num_envs
         self.reset_counts = np.zeros(self.num_envs, dtype=np.int64)
@@ -74,6 +79,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             self.paths[i] = path
             self.task_records[i] = path.spec.to_dict()
             self.reset_counts[i] += 1
+        self.path_cache.update_rows(ids, [self.paths[i] for i in ids.tolist()])
         self.progress[ids] = 0
         self.high_water[ids] = 0
         self.previous_high_water[ids] = 0
@@ -91,18 +97,12 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
     def _update_reference(self):
         if self._reference_valid:
             return
-        position = self._robot.data.root_pos_w.detach().cpu().numpy()
-        movement = torch.linalg.vector_norm(self._robot.data.root_pos_w-self.previous_position, dim=-1).cpu().numpy()
-        queries, previews = [], []
-        for i, path in enumerate(self.paths):
-            if np.isfinite(position[i]).all():
-                self.progress[i] = path.project(position[i], float(self.progress[i]),
-                                                max(float(movement[i]), 0.)+self.cfg.projection_margin_m)
-            queries.append(path.query(float(self.progress[i])))
-            previews.append(path.query(float(self.progress[i])+np.asarray(self.cfg.preview_distances_m))["position"])
-        self.reference = {key: torch.as_tensor(np.stack([q[key] for q in queries]), dtype=torch.float32,
-                                               device=self.device) for key in queries[0]}
-        self.reference["preview"] = torch.as_tensor(np.stack(previews), dtype=torch.float32, device=self.device)
+        position = self._robot.data.root_pos_w
+        movement = torch.linalg.vector_norm(position-self.previous_position, dim=-1)
+        self.progress.copy_(self.path_cache.project(position, self.progress, movement+self.cfg.projection_margin_m))
+        self.reference = {key: value.to(position.dtype) for key, value in self.path_cache.query(self.progress).items()}
+        self.reference["preview"] = self.path_cache.positions(
+            self.progress[:, None]+self.preview_distances[None, :]).to(position.dtype)
         self.reference["error"] = self.reference["position"]-self._robot.data.root_pos_w
         self.high_water.copy_(torch.maximum(self.high_water, self.progress))
         self._reference_valid = True

@@ -157,25 +157,53 @@ class SamplingConfig:
     knot_spacing_m: float = 10.
     kappa_amplitude: float = .025
     gamma_amplitude: float = .15
-    transition_strength: float = 1.  # 0: constant coefficients; 1: independent coefficients
+    initial_straight_m: float = 5.
+    axis_active_probability: float = .75  # exact-zero mass per complete channel
+    nonzero_density: float = .8  # nonzero probability at each coefficient refresh
+    coefficient_change_probability: float = .35  # otherwise repeat: long plateaus
+    transition_strength: float = .8  # adjacent update gain; 0 keeps the first active coefficient
     coupling: float = .5  # [-1,1], signed lateral/vertical coefficient coupling
-    required_reversals: tuple[str, ...] = ("kappa", "gamma")
+    required_reversals: tuple[str, ...] = ()
     transition_interval: tuple[float, float] = (.15, .85)  # fractions of the completed path
     reversal_fraction: float = .08  # both signs must exceed this fraction of amplitude
     max_attempts: int = 256
 
     def validate(self):
         values = [self.length_m, self.knot_spacing_m, self.kappa_amplitude, self.gamma_amplitude,
-                  self.transition_strength, self.coupling, *self.transition_interval, self.reversal_fraction]
+                  self.transition_strength, self.coupling, *self.transition_interval, self.reversal_fraction,
+                  self.initial_straight_m, self.axis_active_probability, self.nonzero_density,
+                  self.coefficient_change_probability]
         if (not np.isfinite(values).all() or min(values[:2]) <= 0 or min(values[2:4]) < 0
+                or not 0 <= self.initial_straight_m < self.length_m
+                or any(not 0 <= p <= 1 for p in (self.axis_active_probability, self.nonzero_density,
+                                                self.coefficient_change_probability))
                 or not 0 <= self.transition_strength <= 1 or not -1 <= self.coupling <= 1
                 or not 0 < self.transition_interval[0] < self.transition_interval[1] < 1
                 or not 0 < self.reversal_fraction < 1 or self.max_attempts < 1
                 or any(x not in ("kappa", "gamma") for x in self.required_reversals)):
             raise ValueError("Invalid continuous sampling configuration")
-        if self.required_reversals and (self.transition_strength == 0 or
+        if self.required_reversals and (self.transition_strength == 0 or self.axis_active_probability == 0
+                or self.nonzero_density == 0 or self.coefficient_change_probability == 0 or
                 any(getattr(self, name+"_amplitude") == 0 for name in self.required_reversals)):
-            raise ValueError("Required reversals need nonzero amplitude and transition strength")
+            raise ValueError("Required reversals need active, nonzero, changing coefficients")
+        # Reject impossible entry/transition layouts before drawing tasks.
+        active_start = self.initial_straight_m
+        first_free = 4 if active_start > 0 else 3
+        knots = sampling_knots(self)
+        if self.required_reversals and (len(knots)-4-first_free < 2 or
+                active_start >= self.transition_interval[1]*self.length_m):
+            raise ValueError("Not enough maneuver span for required reversals after the straight entry")
+
+
+def sampling_knots(cfg: SamplingConfig) -> tuple[float, ...]:
+    """Entry endpoint is an actual knot; zero supported coefficients give exact entry.
+
+    Four initial zero coefficients give zero value, slope and second derivative
+    through the entry endpoint; the first free basis turns on cubically there.
+    """
+    interior = np.arange(cfg.initial_straight_m, cfg.length_m, cfg.knot_spacing_m)
+    interior = interior[interior > 0]
+    return tuple([0.]*4 + interior.tolist() + [cfg.length_m]*4)
 
 
 def reversal_locations(path: Trajectory, cfg: SamplingConfig) -> dict[str, list[float]]:
@@ -187,7 +215,16 @@ def reversal_locations(path: Trajectory, cfg: SamplingConfig) -> dict[str, list[
         s = np.unique(np.r_[np.linspace(lo, hi, 257), roots])
         values = spline(s)
         threshold = cfg.reversal_fraction*getattr(cfg, name+"_amplitude")
-        result[name] = roots.tolist() if values.min() < -threshold and values.max() > threshold else []
+        significant = np.flatnonzero(np.abs(values) > threshold)
+        events = []
+        for left, right in zip(significant[:-1], significant[1:]):
+            if values[left]*values[right] < 0:
+                between = roots[(roots > s[left]) & (roots < s[right])]
+                if len(between):
+                    # Zero plateaus may have several boundary roots. Record one
+                    # event only when significant values on its two sides reverse.
+                    events.append(float(between[len(between)//2]))
+        result[name] = events
     return result
 
 
@@ -196,19 +233,45 @@ def sample_trajectory(seed: int, cfg: SamplingConfig = SamplingConfig(),
     """Sample directly in coefficient space, with bounded rejection and saved seed."""
     cfg.validate()
     rng = np.random.default_rng(seed)
-    knots = clamped_knots(cfg.length_m, cfg.knot_spacing_m)
+    knots = sampling_knots(cfg)
     n = len(knots)-4
+    first_free = 4 if cfg.initial_straight_m > 0 else 3
     reasons = []
-    for _ in range(cfg.max_attempts):
-        x, y = rng.uniform(-1, 1, (2, n))
-        y = cfg.coupling*x + (1-abs(cfg.coupling))*y
-        baseline = rng.uniform(-1, 1, 2)
-        a = cfg.kappa_amplitude*((1-cfg.transition_strength)*baseline[0]+cfg.transition_strength*x)
-        b = cfg.gamma_amplitude*((1-cfg.transition_strength)*baseline[1]+cfg.transition_strength*y)
+    for attempt in range(1, cfg.max_attempts+1):
+        # No task family is selected. A spike-and-continuous coefficient process
+        # supplies exact zeros, held plateaus, slow updates and sign changes.
+        active = rng.random(2) < cfg.axis_active_probability
+        for axis, name in enumerate(("kappa", "gamma")):
+            if name in cfg.required_reversals:
+                active[axis] = True  # condition only on explicitly requested nonzero axes
+        values = np.zeros((2, n))
+        targets = rng.uniform(-1., 1., (2, n-first_free))
+        targets[1] = cfg.coupling*targets[0] + (1-abs(cfg.coupling))*targets[1]
+        nonzero = rng.random(targets.shape) < cfg.nonzero_density
+        required = np.array([name in cfg.required_reversals for name in ("kappa", "gamma")])
+        # Explicit reversals condition the proposal on active, refreshing axes;
+        # do not repeatedly draw zero/held channels that cannot reverse.
+        nonzero[required] = True
+        targets *= nonzero
+        for j in range(first_free, n):
+            if j == first_free:
+                values[:, j] = targets[:, j-first_free]
+            else:
+                update = (rng.random(2) < cfg.coefficient_change_probability) | required
+                target = targets[:, j-first_free]
+                proposal = values[:, j-1] + cfg.transition_strength*(target-values[:, j-1])
+                # Preserve an exact zero atom in coefficient space, rather than
+                # asymptotically decaying toward zero under the smoothing gain.
+                if cfg.transition_strength > 0:
+                    proposal = np.where(target == 0, 0., proposal)
+                values[:, j] = np.where(update, proposal, values[:, j-1])
+        values *= active[:, None]
+        a, b = values * np.array([cfg.kappa_amplitude, cfg.gamma_amplitude])[:, None]
         path = Trajectory(TrajectorySpec(knots, tuple(a), tuple(b), cfg.length_m, tuple(origin), heading, seed))
         reasons = screen(path, limits)
         events = reversal_locations(path, cfg)
         reasons += ["missing_"+name+"_reversal" for name in cfg.required_reversals if not events[name]]
         if not reasons:
+            path.sampling_attempts = attempt
             return path
     raise RuntimeError(f"No admissible trajectory in {cfg.max_attempts} draws; last rejection: {reasons}")

@@ -1,0 +1,105 @@
+{
+  "num_envs": 256,
+  "seeds": [
+    0,
+    255
+  ],
+  "torch_threads": 24,
+  "config": {
+    "length_m": 60.0,
+    "knot_spacing_m": 10.0,
+    "kappa_amplitude": 0.025,
+    "gamma_amplitude": 0.15,
+    "initial_straight_m": 5.0,
+    "axis_active_probability": 0.75,
+    "nonzero_density": 0.8,
+    "coefficient_change_probability": 0.35,
+    "transition_strength": 0.8,
+    "coupling": 0.5,
+    "required_reversals": [],
+    "transition_interval": [
+      0.15,
+      0.85
+    ],
+    "reversal_fraction": 0.08,
+    "max_attempts": 256
+  },
+  "generation_seconds": 0.36767757730558515,
+  "cache_build_seconds": 0.13449615193530917,
+  "sampling_attempts": {
+    "mean": 1.0,
+    "maximum": 1
+  },
+  "coverage": {
+    "exact_straight": 29,
+    "near_straight": 31,
+    "one_direction": 125,
+    "sustained": 79,
+    "reversal": 56,
+    "double_reversal": 5,
+    "coupled_3d": 103
+  },
+  "legacy_query": {
+    "median_ms": 93.41843565925956,
+    "min_ms": 92.30179386213422,
+    "repeats": 8
+  },
+  "cached_query": {
+    "median_ms": 0.8483908604830503,
+    "min_ms": 0.8408077992498875,
+    "repeats": 8
+  },
+  "matched_query_max_abs_error": {
+    "position": 1.862645149230957e-09,
+    "tangent": 7.450580596923828e-09,
+    "normal": 3.725290298461914e-09,
+    "up": 1.1641532182693481e-10,
+    "tangent_prime": 2.9103830456733704e-11,
+    "heading": 1.862645149230957e-09,
+    "kappa": 0.0,
+    "gamma": 0.0,
+    "kappa_prime": 4.722338713735018e-17,
+    "gamma_prime": 2.0634929617064594e-16,
+    "curvature": 2.0634929617064594e-16,
+    "preview": 5.960464477539063e-08
+  },
+  "analytic_max_abs_error": {
+    "position": 3.604747078611581e-08,
+    "tangent": 6.950825547080708e-09,
+    "normal": 6.95908594638972e-09,
+    "up": 3.437796505800783e-10,
+    "heading": 6.965396780189703e-09,
+    "kappa": 5.724587470723463e-17,
+    "gamma": 2.463307335887066e-16,
+    "kappa_prime": 5.516420653606247e-16,
+    "gamma_prime": 2.42861286636753e-15,
+    "tangent_prime": 9.681021696100744e-11,
+    "curvature": 2.345346139520643e-15
+  },
+  "pre_change": {
+    "num_envs": 256,
+    "config": {
+      "length_m": 60.0,
+      "knot_spacing_m": 10.0,
+      "kappa_amplitude": 0.025,
+      "gamma_amplitude": 0.15,
+      "transition_strength": 1.0,
+      "coupling": 0.5,
+      "required_reversals": [
+        "kappa",
+        "gamma"
+      ],
+      "transition_interval": [
+        0.15,
+        0.85
+      ],
+      "reversal_fraction": 0.08,
+      "max_attempts": 256
+    },
+    "reset_seconds": 0.5441452008672059,
+    "query_ms_median": 96.18108510039747,
+    "query_ms_min": 94.14229774847627,
+    "repeats": 8,
+    "torch_threads": 24
+  }
+}
