@@ -1,0 +1,11 @@
+{
+  "pitch": 12,
+  "q": 3,
+  "roll": 25,
+  "p": 10,
+  "yaw": 8,
+  "r": 10,
+  "heading_bank": 0.3,
+  "cross_track": 0.06,
+  "course": true
+}

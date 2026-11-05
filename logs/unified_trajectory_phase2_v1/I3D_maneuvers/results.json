@@ -1,0 +1,884 @@
+[
+  {
+    "name": "turn_mild",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 13.933333333333334,
+    "progress_m": 127.5077822489703,
+    "first_violation_s": 12.066666666666666,
+    "first_violation_state": {
+      "horizontal_m": 2.029095927305956,
+      "vertical_m": 0.14542388916015625,
+      "euler_deg": [
+        -0.8943819999694824,
+        -4.787883758544922,
+        26.441322326660156
+      ],
+      "omega_rad_s": 0.7229478359222412,
+      "speed_mps": 9.108145713806152
+    },
+    "progress_before_violation_m": 110.74265862687118,
+    "horizontal_max_m": 5.772843706841774,
+    "vertical_max_m": 0.16958999633789062,
+    "horizontal_rms_m": 1.7726869692390863,
+    "vertical_rms_m": 0.1253206680495291,
+    "roll_max_deg": 5.3199944496154785,
+    "pitch_max_deg": 9.211938858032227,
+    "omega_max_rad_s": 1.1404011249542236,
+    "speed_range_mps": [
+      8.997206687927246,
+      9.428956985473633
+    ],
+    "height_change_m": -0.12986373901367188,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.7403316497802734,
+      3.80651593208313
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133323073387146,
+        -0.5133510231971741,
+        -0.061637457460165024,
+        -0.1258225440979004,
+        -0.0821652039885521
+      ],
+      [
+        0.5133510231971741,
+        0.5133323073387146,
+        0.023306293413043022,
+        -0.03213034197688103,
+        0.001686640316620469
+      ]
+    ],
+    "recovery_pass": false,
+    "recovery_mean_vz_mps": -0.004870717413723469,
+    "geometry": {
+      "kappa": 0.005,
+      "gamma": 0.0,
+      "kappa_prime": 0.000375,
+      "gamma_prime": 0.0,
+      "length_m": 130.0,
+      "net_climb_m": 0.0,
+      "climb_excursion_m": 0.0,
+      "curvature_3d_max_per_m": 0.005000000000000002,
+      "feature_grid_max_step_m": 0.20000000000001705,
+      "kappa_active_intervals_m": [
+        [
+          28.6,
+          91.60000000000001
+        ]
+      ],
+      "kappa_max_active_length_m": 63.00000000000001,
+      "kappa_plateau_total_m": 20.0,
+      "kappa_signed_integral": 0.25,
+      "gamma_active_intervals_m": [],
+      "gamma_max_active_length_m": 0.0,
+      "gamma_plateau_total_m": 0.0,
+      "gamma_signed_integral": 0.0,
+      "coupled_length_m": 0.0,
+      "coupling_abs_integral": 0.0
+    },
+    "normal_demand_max_mps2": 0.43894241765029557,
+    "plateau_response": {
+      "kappa_positive": {
+        "samples": 132,
+        "reference": 0.005,
+        "actual_mean": 0.0058569833636283875,
+        "speed_mean_mps": 9.22062873840332,
+        "frequency_mean_hz": 3.772357225418091
+      }
+    }
+  },
+  {
+    "name": "turn_moderate",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 15.533333333333333,
+    "progress_m": 127.41233671977203,
+    "first_violation_s": 5.483333333333333,
+    "first_violation_state": {
+      "horizontal_m": 2.0099063467655824,
+      "vertical_m": 0.1560039520263672,
+      "euler_deg": [
+        -7.31857967376709,
+        -4.236513614654541,
+        7.627716541290283
+      ],
+      "omega_rad_s": 0.7249543070793152,
+      "speed_mps": 9.294921875
+    },
+    "progress_before_violation_m": 50.229988370136496,
+    "horizontal_max_m": 30.064936065802204,
+    "vertical_max_m": 0.5696811676025391,
+    "horizontal_rms_m": 10.366447065445682,
+    "vertical_rms_m": 0.30277572354638616,
+    "roll_max_deg": 19.975194931030273,
+    "pitch_max_deg": 10.258450508117676,
+    "omega_max_rad_s": 1.3212429285049438,
+    "speed_range_mps": [
+      8.848709106445312,
+      9.72561264038086
+    ],
+    "height_change_m": -0.25481605529785156,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.740325927734375,
+      3.892937421798706
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133174061775208,
+        -0.5133692622184753,
+        -0.17336060106754303,
+        -0.1668512523174286,
+        -0.21564644575119019
+      ],
+      [
+        0.5133692622184753,
+        0.5133174061775208,
+        0.06549298763275146,
+        0.11042190343141556,
+        0.04590191692113876
+      ]
+    ],
+    "recovery_pass": false,
+    "recovery_mean_vz_mps": -0.04008358716964722,
+    "geometry": {
+      "kappa": 0.02,
+      "gamma": 0.0,
+      "kappa_prime": 0.0015,
+      "gamma_prime": 0.0,
+      "length_m": 130.0,
+      "net_climb_m": 0.0,
+      "climb_excursion_m": 0.0,
+      "curvature_3d_max_per_m": 0.020000000000000007,
+      "feature_grid_max_step_m": 0.20000000000001705,
+      "kappa_active_intervals_m": [
+        [
+          28.6,
+          91.60000000000001
+        ]
+      ],
+      "kappa_max_active_length_m": 63.00000000000001,
+      "kappa_plateau_total_m": 20.0,
+      "kappa_signed_integral": 1.0,
+      "gamma_active_intervals_m": [],
+      "gamma_max_active_length_m": 0.0,
+      "gamma_plateau_total_m": 0.0,
+      "gamma_signed_integral": 0.0,
+      "coupled_length_m": 0.0,
+      "coupling_abs_integral": 0.0
+    },
+    "normal_demand_max_mps2": 1.8426168256398878,
+    "plateau_response": {
+      "kappa_positive": {
+        "samples": 141,
+        "reference": 0.02,
+        "actual_mean": 0.024150831624865532,
+        "speed_mean_mps": 9.314972877502441,
+        "frequency_mean_hz": 3.8150389194488525
+      }
+    }
+  },
+  {
+    "name": "climb_mild",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 14.1,
+    "progress_m": 127.42524441623065,
+    "first_violation_s": null,
+    "first_violation_state": null,
+    "progress_before_violation_m": 127.42524441623065,
+    "horizontal_max_m": 1.7348804473876953,
+    "vertical_max_m": 0.39116428541580106,
+    "horizontal_rms_m": 0.9106736432733658,
+    "vertical_rms_m": 0.24791652949947549,
+    "roll_max_deg": 1.2823892831802368,
+    "pitch_max_deg": 11.913786888122559,
+    "omega_max_rad_s": 1.174148678779602,
+    "speed_range_mps": [
+      8.585638046264648,
+      9.428915023803711
+    ],
+    "height_change_m": 1.8041248321533203,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.740330219268799,
+      3.850705146789551
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133370757102966,
+        -0.5133635997772217,
+        0.0032390409614890814,
+        -0.1236763447523117,
+        -0.03971221297979355
+      ],
+      [
+        0.5133635997772217,
+        0.5133370757102966,
+        0.02027035504579544,
+        -0.08671064674854279,
+        -0.003618878312408924
+      ]
+    ],
+    "recovery_pass": false,
+    "recovery_mean_vz_mps": 0.017624057829380035,
+    "geometry": {
+      "kappa": 0.0,
+      "gamma": 0.04,
+      "kappa_prime": 0.0,
+      "gamma_prime": 0.003,
+      "length_m": 130.0,
+      "net_climb_m": 1.9995577469926076,
+      "climb_excursion_m": 1.9995577469926076,
+      "curvature_3d_max_per_m": 0.003,
+      "feature_grid_max_step_m": 0.20000000000001705,
+      "kappa_active_intervals_m": [],
+      "kappa_max_active_length_m": 0.0,
+      "kappa_plateau_total_m": 0.0,
+      "kappa_signed_integral": 0.0,
+      "gamma_active_intervals_m": [
+        [
+          28.6,
+          91.60000000000001
+        ]
+      ],
+      "gamma_max_active_length_m": 63.00000000000001,
+      "gamma_plateau_total_m": 20.0,
+      "gamma_signed_integral": 2.0,
+      "coupled_length_m": 0.0,
+      "coupling_abs_integral": 0.0
+    },
+    "normal_demand_max_mps2": 0.26164568191432147,
+    "plateau_response": {
+      "gamma_positive": {
+        "samples": 136,
+        "reference": 0.04,
+        "actual_mean": 0.03555801883339882,
+        "speed_mean_mps": 8.8794527053833,
+        "frequency_mean_hz": 3.8131957054138184
+      }
+    }
+  },
+  {
+    "name": "climb_moderate",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 14.683333333333334,
+    "progress_m": 127.54581329933976,
+    "first_violation_s": 9.466666666666667,
+    "first_violation_state": {
+      "horizontal_m": 2.0039683926802447,
+      "vertical_m": 1.1144822669352585,
+      "euler_deg": [
+        1.3409743309020996,
+        -13.035481452941895,
+        -5.811223030090332
+      ],
+      "omega_rad_s": 1.0832024812698364,
+      "speed_mps": 8.17470645904541
+    },
+    "progress_before_violation_m": 82.8494675222091,
+    "horizontal_max_m": 5.712677001953125,
+    "vertical_max_m": 1.1694030754097149,
+    "horizontal_rms_m": 2.753063539617589,
+    "vertical_rms_m": 0.667837700611252,
+    "roll_max_deg": 4.773146629333496,
+    "pitch_max_deg": 17.155563354492188,
+    "omega_max_rad_s": 1.2844587564468384,
+    "speed_range_mps": [
+      7.875909805297852,
+      9.428893089294434
+    ],
+    "height_change_m": 5.648067474365234,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.740335702896118,
+      4.040989398956299
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133947730064392,
+        -0.5133618712425232,
+        0.003238734556362033,
+        -0.15781448781490326,
+        -0.04298509657382965
+      ],
+      [
+        0.5133618712425232,
+        0.5133947730064392,
+        0.05572718754410744,
+        -0.08670958876609802,
+        0.02167126163840294
+      ]
+    ],
+    "recovery_pass": false,
+    "recovery_mean_vz_mps": 0.0865558609366417,
+    "geometry": {
+      "kappa": 0.0,
+      "gamma": 0.12,
+      "kappa_prime": 0.0,
+      "gamma_prime": 0.009000000000000001,
+      "length_m": 130.0,
+      "net_climb_m": 5.988066231183318,
+      "climb_excursion_m": 5.988066231183318,
+      "curvature_3d_max_per_m": 0.009000000000000001,
+      "feature_grid_max_step_m": 0.20000000000001705,
+      "kappa_active_intervals_m": [],
+      "kappa_max_active_length_m": 0.0,
+      "kappa_plateau_total_m": 0.0,
+      "kappa_signed_integral": 0.0,
+      "gamma_active_intervals_m": [
+        [
+          28.6,
+          91.60000000000001
+        ]
+      ],
+      "gamma_max_active_length_m": 63.00000000000001,
+      "gamma_plateau_total_m": 20.0,
+      "gamma_signed_integral": 6.0,
+      "coupled_length_m": 0.0,
+      "coupling_abs_integral": 0.0
+    },
+    "normal_demand_max_mps2": 0.7850713789415327,
+    "plateau_response": {
+      "gamma_positive": {
+        "samples": 145,
+        "reference": 0.12,
+        "actual_mean": 0.09419410675764084,
+        "speed_mean_mps": 8.26539421081543,
+        "frequency_mean_hz": 3.951054811477661
+      }
+    }
+  },
+  {
+    "name": "turn_reversal_30m",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 17.633333333333333,
+    "progress_m": 156.83995067002647,
+    "first_violation_s": 6.433333333333334,
+    "first_violation_state": {
+      "horizontal_m": 2.0162564509112366,
+      "vertical_m": 0.15895843505859375,
+      "euler_deg": [
+        -5.882056713104248,
+        -7.44133186340332,
+        8.57097339630127
+      ],
+      "omega_rad_s": 0.7155300378799438,
+      "speed_mps": 9.108562469482422
+    },
+    "progress_before_violation_m": 59.1044457284212,
+    "horizontal_max_m": 12.861839255776323,
+    "vertical_max_m": 0.32190513610839844,
+    "horizontal_rms_m": 6.220866697020946,
+    "vertical_rms_m": 0.19049189949213294,
+    "roll_max_deg": 12.700418472290039,
+    "pitch_max_deg": 9.37327766418457,
+    "omega_max_rad_s": 1.209758996963501,
+    "speed_range_mps": [
+      8.985583305358887,
+      9.500228881835938
+    ],
+    "height_change_m": -0.2749671936035156,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.7403364181518555,
+      3.8346121311187744
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133313536643982,
+        -0.5133548974990845,
+        -0.10473565012216568,
+        -0.18650588393211365,
+        -0.12378048896789551
+      ],
+      [
+        0.5133548974990845,
+        0.5133313536643982,
+        0.06379175931215286,
+        0.015420478768646717,
+        0.0680685043334961
+      ]
+    ],
+    "recovery_pass": false,
+    "recovery_mean_vz_mps": 0.023129267618060112,
+    "geometry": {
+      "kappa": 0.01,
+      "gamma": 0.0,
+      "kappa_prime": 0.0015,
+      "gamma_prime": 0.0,
+      "length_m": 160.0,
+      "net_climb_m": 0.0,
+      "climb_excursion_m": 0.0,
+      "curvature_3d_max_per_m": 0.010000000000000004,
+      "feature_grid_max_step_m": 0.20000000000001705,
+      "kappa_active_intervals_m": [
+        [
+          28.6,
+          74.4
+        ],
+        [
+          75.8,
+          121.60000000000001
+        ]
+      ],
+      "kappa_max_active_length_m": 45.80000000000001,
+      "kappa_plateau_total_m": 20.0,
+      "kappa_signed_integral": -1.1102230246251565e-16,
+      "gamma_active_intervals_m": [],
+      "gamma_max_active_length_m": 0.0,
+      "gamma_plateau_total_m": 0.0,
+      "gamma_signed_integral": 0.0,
+      "coupled_length_m": 0.0,
+      "coupling_abs_integral": 0.0
+    },
+    "normal_demand_max_mps2": 0.8810324538866751,
+    "plateau_response": {
+      "kappa_positive": {
+        "samples": 67,
+        "reference": 0.01,
+        "actual_mean": 0.009502951987087727,
+        "speed_mean_mps": 9.226662635803223,
+        "frequency_mean_hz": 3.777461528778076
+      },
+      "kappa_negative": {
+        "samples": 72,
+        "reference": -0.01,
+        "actual_mean": 0.0018541996832937002,
+        "speed_mean_mps": 9.194964408874512,
+        "frequency_mean_hz": 3.76529598236084
+      }
+    }
+  },
+  {
+    "name": "turn_reversal_15m",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 11.2,
+    "progress_m": 103.04853604572938,
+    "first_violation_s": 8.933333333333334,
+    "first_violation_state": {
+      "horizontal_m": 2.0034780223360724,
+      "vertical_m": 0.12158012390136719,
+      "euler_deg": [
+        2.4329593181610107,
+        -4.5758843421936035,
+        7.878588676452637
+      ],
+      "omega_rad_s": 0.6719546914100647,
+      "speed_mps": 9.271712303161621
+    },
+    "progress_before_violation_m": 82.22809384602235,
+    "horizontal_max_m": 3.7050161082735724,
+    "vertical_max_m": 0.15537643432617188,
+    "horizontal_rms_m": 1.6410231140664768,
+    "vertical_rms_m": 0.11640356864096033,
+    "roll_max_deg": 4.607690334320068,
+    "pitch_max_deg": 9.166325569152832,
+    "omega_max_rad_s": 1.140423059463501,
+    "speed_range_mps": [
+      8.997196197509766,
+      9.428903579711914
+    ],
+    "height_change_m": -0.14258575439453125,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.7403404712677,
+      3.806530475616455
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133196115493774,
+        -0.5133508443832397,
+        -0.027141788974404335,
+        -0.14073100686073303,
+        -0.08103031665086746
+      ],
+      [
+        0.5133508443832397,
+        0.5133196115493774,
+        0.033979855477809906,
+        -0.03799356892704964,
+        0.01824002154171467
+      ]
+    ],
+    "recovery_pass": false,
+    "recovery_mean_vz_mps": -0.005929607432335615,
+    "geometry": {
+      "kappa": 0.01,
+      "gamma": 0.0,
+      "kappa_prime": 0.003,
+      "gamma_prime": 0.0,
+      "length_m": 105.0,
+      "net_climb_m": 0.0,
+      "climb_excursion_m": 0.0,
+      "curvature_3d_max_per_m": 0.010000000000000004,
+      "feature_grid_max_step_m": 0.20000000000000284,
+      "kappa_active_intervals_m": [
+        [
+          24.400000000000002,
+          47.2
+        ],
+        [
+          48.0,
+          70.8
+        ]
+      ],
+      "kappa_max_active_length_m": 22.8,
+      "kappa_plateau_total_m": 10.0,
+      "kappa_signed_integral": 2.7755575615628914e-17,
+      "gamma_active_intervals_m": [],
+      "gamma_max_active_length_m": 0.0,
+      "gamma_plateau_total_m": 0.0,
+      "gamma_signed_integral": 0.0,
+      "coupled_length_m": 0.0,
+      "coupling_abs_integral": 0.0
+    },
+    "normal_demand_max_mps2": 0.8803387752274285,
+    "plateau_response": {
+      "kappa_positive": {
+        "samples": 33,
+        "reference": 0.01,
+        "actual_mean": 0.004373281728476286,
+        "speed_mean_mps": 9.220080375671387,
+        "frequency_mean_hz": 3.7706425189971924
+      },
+      "kappa_negative": {
+        "samples": 32,
+        "reference": -0.01,
+        "actual_mean": 0.004973685368895531,
+        "speed_mean_mps": 9.23373031616211,
+        "frequency_mean_hz": 3.7696852684020996
+      }
+    }
+  },
+  {
+    "name": "vertical_reversal_30m",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 17.1,
+    "progress_m": 156.90612672354132,
+    "first_violation_s": 10.566666666666666,
+    "first_violation_state": {
+      "horizontal_m": 2.0058645650956533,
+      "vertical_m": 0.0749694475585585,
+      "euler_deg": [
+        -0.5024231672286987,
+        -4.3578267097473145,
+        -2.742250442504883
+      ],
+      "omega_rad_s": 0.3514229357242584,
+      "speed_mps": 9.543973922729492
+    },
+    "progress_before_violation_m": 94.42414335579701,
+    "horizontal_max_m": 2.621753261745169,
+    "vertical_max_m": 0.6036771685170095,
+    "horizontal_rms_m": 1.3388078835321777,
+    "vertical_rms_m": 0.2575575096472674,
+    "roll_max_deg": 2.4876291751861572,
+    "pitch_max_deg": 14.346121788024902,
+    "omega_max_rad_s": 1.2323760986328125,
+    "speed_range_mps": [
+      8.248190879821777,
+      10.065943717956543
+    ],
+    "height_change_m": -0.06382942199707031,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.651334524154663,
+      3.913635730743408
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133606791496277,
+        -0.5133510231971741,
+        -0.026343144476413727,
+        -0.1308264136314392,
+        -0.06137130409479141
+      ],
+      [
+        0.5133510231971741,
+        0.5133606791496277,
+        0.02812708541750908,
+        -0.05674739554524422,
+        0.008205720223486423
+      ]
+    ],
+    "recovery_pass": true,
+    "recovery_mean_vz_mps": -0.04567962512373924,
+    "geometry": {
+      "kappa": 0.0,
+      "gamma": 0.08,
+      "kappa_prime": 0.0,
+      "gamma_prime": 0.012,
+      "length_m": 160.0,
+      "net_climb_m": -3.552713678800501e-15,
+      "climb_excursion_m": 2.872518294560571,
+      "curvature_3d_max_per_m": 0.012,
+      "feature_grid_max_step_m": 0.20000000000001705,
+      "kappa_active_intervals_m": [],
+      "kappa_max_active_length_m": 0.0,
+      "kappa_plateau_total_m": 0.0,
+      "kappa_signed_integral": 0.0,
+      "gamma_active_intervals_m": [
+        [
+          28.6,
+          74.4
+        ],
+        [
+          75.8,
+          121.60000000000001
+        ]
+      ],
+      "gamma_max_active_length_m": 45.80000000000001,
+      "gamma_plateau_total_m": 20.0,
+      "gamma_signed_integral": -8.881784197001252e-16,
+      "coupled_length_m": 0.0,
+      "coupling_abs_integral": 0.0
+    },
+    "normal_demand_max_mps2": 0.8859828241866275,
+    "plateau_response": {
+      "gamma_positive": {
+        "samples": 70,
+        "reference": 0.08,
+        "actual_mean": 0.07016472518444061,
+        "speed_mean_mps": 8.607365608215332,
+        "frequency_mean_hz": 3.8460466861724854
+      },
+      "gamma_negative": {
+        "samples": 63,
+        "reference": -0.08,
+        "actual_mean": -0.07042381167411804,
+        "speed_mean_mps": 9.525032043457031,
+        "frequency_mean_hz": 3.732703924179077
+      }
+    }
+  },
+  {
+    "name": "vertical_reversal_15m",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 11.183333333333334,
+    "progress_m": 102.9012063671417,
+    "first_violation_s": null,
+    "first_violation_state": null,
+    "progress_before_violation_m": 102.9012063671417,
+    "horizontal_max_m": 1.1707969903945923,
+    "vertical_max_m": 0.4191161061250597,
+    "horizontal_rms_m": 0.6212456987689731,
+    "vertical_rms_m": 0.18379256180983738,
+    "roll_max_deg": 1.0239825248718262,
+    "pitch_max_deg": 14.511326789855957,
+    "omega_max_rad_s": 1.2844390869140625,
+    "speed_range_mps": [
+      8.277959823608398,
+      9.999629974365234
+    ],
+    "height_change_m": -0.08683395385742188,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.538090229034424,
+      3.9492688179016113
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133304595947266,
+        -0.5133510231971741,
+        0.003238758770748973,
+        -0.12040576338768005,
+        -0.043877217918634415
+      ],
+      [
+        0.5133510231971741,
+        0.5133304595947266,
+        0.015624754130840302,
+        -0.0843665823340416,
+        0.0027849124744534492
+      ]
+    ],
+    "recovery_pass": false,
+    "recovery_mean_vz_mps": -0.04233401268720627,
+    "geometry": {
+      "kappa": 0.0,
+      "gamma": 0.08,
+      "kappa_prime": 0.0,
+      "gamma_prime": 0.024,
+      "length_m": 105.0,
+      "net_climb_m": 0.0,
+      "climb_excursion_m": 1.4361391580045293,
+      "curvature_3d_max_per_m": 0.023987199999999997,
+      "feature_grid_max_step_m": 0.20000000000000284,
+      "kappa_active_intervals_m": [],
+      "kappa_max_active_length_m": 0.0,
+      "kappa_plateau_total_m": 0.0,
+      "kappa_signed_integral": 0.0,
+      "gamma_active_intervals_m": [
+        [
+          24.400000000000002,
+          47.2
+        ],
+        [
+          48.0,
+          70.8
+        ]
+      ],
+      "gamma_max_active_length_m": 22.8,
+      "gamma_plateau_total_m": 10.0,
+      "gamma_signed_integral": 2.220446049250313e-16,
+      "coupled_length_m": 0.0,
+      "coupling_abs_integral": 0.0
+    },
+    "normal_demand_max_mps2": 1.784594170187661,
+    "plateau_response": {
+      "gamma_positive": {
+        "samples": 33,
+        "reference": 0.08,
+        "actual_mean": 0.0811663269996643,
+        "speed_mean_mps": 8.9819917678833,
+        "frequency_mean_hz": 3.8410165309906006
+      },
+      "gamma_negative": {
+        "samples": 33,
+        "reference": -0.08,
+        "actual_mean": -0.08890249580144882,
+        "speed_mean_mps": 8.984052658081055,
+        "frequency_mean_hz": 3.7259576320648193
+      }
+    }
+  },
+  {
+    "name": "coupled",
+    "run": "I3D_maneuvers",
+    "backend": "I3D",
+    "status": "NOT FOUND",
+    "completed": true,
+    "completion_time_s": 15.116666666666667,
+    "progress_m": 127.43140515380442,
+    "first_violation_s": 6.6,
+    "first_violation_state": {
+      "horizontal_m": 2.0127554641638885,
+      "vertical_m": 0.5056236418466433,
+      "euler_deg": [
+        -6.288703441619873,
+        -13.108148574829102,
+        9.80856704711914
+      ],
+      "omega_rad_s": 0.6994012594223022,
+      "speed_mps": 8.541216850280762
+    },
+    "progress_before_violation_m": 59.6,
+    "horizontal_max_m": 22.26166532268545,
+    "vertical_max_m": 0.7874602082234397,
+    "horizontal_rms_m": 7.630959444125619,
+    "vertical_rms_m": 0.4569525259397223,
+    "roll_max_deg": 12.577255249023438,
+    "pitch_max_deg": 14.223584175109863,
+    "omega_max_rad_s": 1.2609409093856812,
+    "speed_range_mps": [
+      8.327897071838379,
+      9.428871154785156
+    ],
+    "height_change_m": 3.7341079711914062,
+    "requested_clipped_fraction": 0.0,
+    "governor_limited_fraction": 0.0,
+    "actual_frequency_range_hz": [
+      3.7403368949890137,
+      3.9500019550323486
+    ],
+    "actual_joint_range_rad": [
+      [
+        -0.5133489966392517,
+        -0.5133855938911438,
+        -0.13542738556861877,
+        -0.14426730573177338,
+        -0.1729292869567871
+      ],
+      [
+        0.5133855938911438,
+        0.5133489966392517,
+        0.03442186862230301,
+        0.06084056198596954,
+        0.011767981573939323
+      ]
+    ],
+    "recovery_pass": false,
+    "recovery_mean_vz_mps": 0.009894561022520065,
+    "geometry": {
+      "kappa": 0.01,
+      "gamma": 0.08,
+      "kappa_prime": 0.00075,
+      "gamma_prime": 0.006,
+      "length_m": 130.0,
+      "net_climb_m": 3.996462760792454,
+      "climb_excursion_m": 3.996462760792454,
+      "curvature_3d_max_per_m": 0.009968017063026198,
+      "feature_grid_max_step_m": 0.20000000000001705,
+      "kappa_active_intervals_m": [
+        [
+          28.6,
+          91.60000000000001
+        ]
+      ],
+      "kappa_max_active_length_m": 63.00000000000001,
+      "kappa_plateau_total_m": 20.0,
+      "kappa_signed_integral": 0.5,
+      "gamma_active_intervals_m": [
+        [
+          28.6,
+          91.60000000000001
+        ]
+      ],
+      "gamma_max_active_length_m": 63.00000000000001,
+      "gamma_plateau_total_m": 20.0,
+      "gamma_signed_integral": 4.0,
+      "coupled_length_m": 63.00000000000001,
+      "coupling_abs_integral": 0.03544761905473423
+    },
+    "normal_demand_max_mps2": 0.813853558372682,
+    "plateau_response": {
+      "kappa_positive": {
+        "samples": 144,
+        "reference": 0.01,
+        "actual_mean": 0.013995741493999958,
+        "speed_mean_mps": 8.57991886138916,
+        "frequency_mean_hz": 3.8813884258270264
+      },
+      "gamma_positive": {
+        "samples": 144,
+        "reference": 0.08,
+        "actual_mean": 0.0650259330868721,
+        "speed_mean_mps": 8.57991886138916,
+        "frequency_mean_hz": 3.8813884258270264
+      }
+    }
+  }
+]

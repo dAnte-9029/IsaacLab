@@ -1,0 +1,94 @@
+[
+  {
+    "name": "open_loop",
+    "trajectory": {
+      "knots": [
+        0,
+        0,
+        0,
+        0,
+        180,
+        180,
+        180,
+        180
+      ],
+      "kappa_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "gamma_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "length_m": 180.0
+    }
+  },
+  {
+    "name": "feedback_positive",
+    "trajectory": {
+      "knots": [
+        0,
+        0,
+        0,
+        0,
+        180,
+        180,
+        180,
+        180
+      ],
+      "kappa_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "gamma_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "length_m": 180.0
+    },
+    "gains": {
+      "pitch": 12,
+      "q": 3
+    }
+  },
+  {
+    "name": "feedback_negative",
+    "trajectory": {
+      "knots": [
+        0,
+        0,
+        0,
+        0,
+        180,
+        180,
+        180,
+        180
+      ],
+      "kappa_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "gamma_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "length_m": 180.0
+    },
+    "gains": {
+      "pitch": -12,
+      "q": -3
+    }
+  }
+]

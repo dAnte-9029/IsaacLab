@@ -1,0 +1,842 @@
+{
+  "backend": "I3D",
+  "initial": [
+    9.250000002999998,
+    8.555604979240297,
+    3.743224887001552,
+    -3.5762117485716587,
+    0.24606506496647979,
+    -1.9969305732982099
+  ],
+  "initial_height_m": 20.0,
+  "initial_vertical_speed": 0.0,
+  "seed": 29,
+  "physics_dt": 0.0020833333333333333,
+  "control_dt": 0.016666666666666666,
+  "sections": 10,
+  "twist_deg": 35.0,
+  "plant": "CPU-native measured PhysX holonomic",
+  "wind": "zero",
+  "duration_s": 16.0,
+  "tail_limits_rad": [
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ],
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ],
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ]
+  ],
+  "frequency_limits_hz": [
+    0.0,
+    5.0
+  ],
+  "frequency_slew_hz_s": 2.0,
+  "joint_names": [
+    "left_wing",
+    "right_wing",
+    "rudder",
+    "left_tail",
+    "right_tail"
+  ],
+  "cases": [
+    {
+      "name": "turn_mild_gain0",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0,
+          80.0,
+          90.0,
+          100.0,
+          130.0,
+          130.0,
+          130.0,
+          130.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.005,
+          0.005,
+          0.005,
+          0.005,
+          0.005,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "length_m": 130.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 60,
+        "p": 15,
+        "yaw": 30,
+        "r": 30,
+        "heading_bank": 0.3,
+        "cross_track": 0.12,
+        "course": true
+      },
+      "features": {
+        "kappa": 0.005,
+        "gamma": 0.0,
+        "kappa_prime": 0.000375,
+        "gamma_prime": 0.0,
+        "length_m": 130.0,
+        "net_climb_m": 0.0,
+        "climb_excursion_m": 0.0,
+        "curvature_3d_max_per_m": 0.005000000000000002,
+        "feature_grid_max_step_m": 0.20000000000001705,
+        "kappa_active_intervals_m": [
+          [
+            28.6,
+            91.60000000000001
+          ]
+        ],
+        "kappa_max_active_length_m": 63.00000000000001,
+        "kappa_signed_integral": 0.25,
+        "gamma_active_intervals_m": [],
+        "gamma_max_active_length_m": 0.0,
+        "gamma_signed_integral": 0.0,
+        "coupled_length_m": 0.0,
+        "coupling_abs_integral": 0.0
+      }
+    },
+    {
+      "name": "climb_moderate_gain0",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0,
+          80.0,
+          90.0,
+          100.0,
+          130.0,
+          130.0,
+          130.0,
+          130.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.12,
+          0.12,
+          0.12,
+          0.12,
+          0.12,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "length_m": 130.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 60,
+        "p": 15,
+        "yaw": 30,
+        "r": 30,
+        "heading_bank": 0.3,
+        "cross_track": 0.12,
+        "course": true
+      },
+      "features": {
+        "kappa": 0.0,
+        "gamma": 0.12,
+        "kappa_prime": 0.0,
+        "gamma_prime": 0.009000000000000001,
+        "length_m": 130.0,
+        "net_climb_m": 5.988066231183318,
+        "climb_excursion_m": 5.988066231183318,
+        "curvature_3d_max_per_m": 0.009000000000000001,
+        "feature_grid_max_step_m": 0.20000000000001705,
+        "kappa_active_intervals_m": [],
+        "kappa_max_active_length_m": 0.0,
+        "kappa_signed_integral": 0.0,
+        "gamma_active_intervals_m": [
+          [
+            28.6,
+            91.60000000000001
+          ]
+        ],
+        "gamma_max_active_length_m": 63.00000000000001,
+        "gamma_signed_integral": 6.0,
+        "coupled_length_m": 0.0,
+        "coupling_abs_integral": 0.0
+      }
+    },
+    {
+      "name": "turn_mild_gain1",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0,
+          80.0,
+          90.0,
+          100.0,
+          130.0,
+          130.0,
+          130.0,
+          130.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.005,
+          0.005,
+          0.005,
+          0.005,
+          0.005,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "length_m": 130.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 60,
+        "p": 15,
+        "yaw": 50,
+        "r": 40,
+        "heading_bank": 0.3,
+        "cross_track": 0.12,
+        "course": true
+      },
+      "features": {
+        "kappa": 0.005,
+        "gamma": 0.0,
+        "kappa_prime": 0.000375,
+        "gamma_prime": 0.0,
+        "length_m": 130.0,
+        "net_climb_m": 0.0,
+        "climb_excursion_m": 0.0,
+        "curvature_3d_max_per_m": 0.005000000000000002,
+        "feature_grid_max_step_m": 0.20000000000001705,
+        "kappa_active_intervals_m": [
+          [
+            28.6,
+            91.60000000000001
+          ]
+        ],
+        "kappa_max_active_length_m": 63.00000000000001,
+        "kappa_signed_integral": 0.25,
+        "gamma_active_intervals_m": [],
+        "gamma_max_active_length_m": 0.0,
+        "gamma_signed_integral": 0.0,
+        "coupled_length_m": 0.0,
+        "coupling_abs_integral": 0.0
+      }
+    },
+    {
+      "name": "climb_moderate_gain1",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0,
+          80.0,
+          90.0,
+          100.0,
+          130.0,
+          130.0,
+          130.0,
+          130.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.12,
+          0.12,
+          0.12,
+          0.12,
+          0.12,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "length_m": 130.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 60,
+        "p": 15,
+        "yaw": 50,
+        "r": 40,
+        "heading_bank": 0.3,
+        "cross_track": 0.12,
+        "course": true
+      },
+      "features": {
+        "kappa": 0.0,
+        "gamma": 0.12,
+        "kappa_prime": 0.0,
+        "gamma_prime": 0.009000000000000001,
+        "length_m": 130.0,
+        "net_climb_m": 5.988066231183318,
+        "climb_excursion_m": 5.988066231183318,
+        "curvature_3d_max_per_m": 0.009000000000000001,
+        "feature_grid_max_step_m": 0.20000000000001705,
+        "kappa_active_intervals_m": [],
+        "kappa_max_active_length_m": 0.0,
+        "kappa_signed_integral": 0.0,
+        "gamma_active_intervals_m": [
+          [
+            28.6,
+            91.60000000000001
+          ]
+        ],
+        "gamma_max_active_length_m": 63.00000000000001,
+        "gamma_signed_integral": 6.0,
+        "coupled_length_m": 0.0,
+        "coupling_abs_integral": 0.0
+      }
+    },
+    {
+      "name": "turn_mild_gain2",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0,
+          80.0,
+          90.0,
+          100.0,
+          130.0,
+          130.0,
+          130.0,
+          130.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.005,
+          0.005,
+          0.005,
+          0.005,
+          0.005,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "length_m": 130.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 80,
+        "p": 20,
+        "yaw": 20,
+        "r": 40,
+        "heading_bank": 0.6,
+        "cross_track": 0.12,
+        "course": true
+      },
+      "features": {
+        "kappa": 0.005,
+        "gamma": 0.0,
+        "kappa_prime": 0.000375,
+        "gamma_prime": 0.0,
+        "length_m": 130.0,
+        "net_climb_m": 0.0,
+        "climb_excursion_m": 0.0,
+        "curvature_3d_max_per_m": 0.005000000000000002,
+        "feature_grid_max_step_m": 0.20000000000001705,
+        "kappa_active_intervals_m": [
+          [
+            28.6,
+            91.60000000000001
+          ]
+        ],
+        "kappa_max_active_length_m": 63.00000000000001,
+        "kappa_signed_integral": 0.25,
+        "gamma_active_intervals_m": [],
+        "gamma_max_active_length_m": 0.0,
+        "gamma_signed_integral": 0.0,
+        "coupled_length_m": 0.0,
+        "coupling_abs_integral": 0.0
+      }
+    },
+    {
+      "name": "climb_moderate_gain2",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0,
+          80.0,
+          90.0,
+          100.0,
+          130.0,
+          130.0,
+          130.0,
+          130.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.12,
+          0.12,
+          0.12,
+          0.12,
+          0.12,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "length_m": 130.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 80,
+        "p": 20,
+        "yaw": 20,
+        "r": 40,
+        "heading_bank": 0.6,
+        "cross_track": 0.12,
+        "course": true
+      },
+      "features": {
+        "kappa": 0.0,
+        "gamma": 0.12,
+        "kappa_prime": 0.0,
+        "gamma_prime": 0.009000000000000001,
+        "length_m": 130.0,
+        "net_climb_m": 5.988066231183318,
+        "climb_excursion_m": 5.988066231183318,
+        "curvature_3d_max_per_m": 0.009000000000000001,
+        "feature_grid_max_step_m": 0.20000000000001705,
+        "kappa_active_intervals_m": [],
+        "kappa_max_active_length_m": 0.0,
+        "kappa_signed_integral": 0.0,
+        "gamma_active_intervals_m": [
+          [
+            28.6,
+            91.60000000000001
+          ]
+        ],
+        "gamma_max_active_length_m": 63.00000000000001,
+        "gamma_signed_integral": 6.0,
+        "coupled_length_m": 0.0,
+        "coupling_abs_integral": 0.0
+      }
+    },
+    {
+      "name": "turn_mild_gain3",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0,
+          80.0,
+          90.0,
+          100.0,
+          130.0,
+          130.0,
+          130.0,
+          130.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.005,
+          0.005,
+          0.005,
+          0.005,
+          0.005,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "length_m": 130.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 60,
+        "p": 15,
+        "yaw": 30,
+        "r": 30,
+        "heading_bank": 0,
+        "cross_track": 0.08,
+        "course": true
+      },
+      "features": {
+        "kappa": 0.005,
+        "gamma": 0.0,
+        "kappa_prime": 0.000375,
+        "gamma_prime": 0.0,
+        "length_m": 130.0,
+        "net_climb_m": 0.0,
+        "climb_excursion_m": 0.0,
+        "curvature_3d_max_per_m": 0.005000000000000002,
+        "feature_grid_max_step_m": 0.20000000000001705,
+        "kappa_active_intervals_m": [
+          [
+            28.6,
+            91.60000000000001
+          ]
+        ],
+        "kappa_max_active_length_m": 63.00000000000001,
+        "kappa_signed_integral": 0.25,
+        "gamma_active_intervals_m": [],
+        "gamma_max_active_length_m": 0.0,
+        "gamma_signed_integral": 0.0,
+        "coupled_length_m": 0.0,
+        "coupling_abs_integral": 0.0
+      }
+    },
+    {
+      "name": "climb_moderate_gain3",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          20.0,
+          30.0,
+          40.0,
+          50.0,
+          60.0,
+          70.0,
+          80.0,
+          90.0,
+          100.0,
+          130.0,
+          130.0,
+          130.0,
+          130.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.12,
+          0.12,
+          0.12,
+          0.12,
+          0.12,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "length_m": 130.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 60,
+        "p": 15,
+        "yaw": 30,
+        "r": 30,
+        "heading_bank": 0,
+        "cross_track": 0.08,
+        "course": true
+      },
+      "features": {
+        "kappa": 0.0,
+        "gamma": 0.12,
+        "kappa_prime": 0.0,
+        "gamma_prime": 0.009000000000000001,
+        "length_m": 130.0,
+        "net_climb_m": 5.988066231183318,
+        "climb_excursion_m": 5.988066231183318,
+        "curvature_3d_max_per_m": 0.009000000000000001,
+        "feature_grid_max_step_m": 0.20000000000001705,
+        "kappa_active_intervals_m": [],
+        "kappa_max_active_length_m": 0.0,
+        "kappa_signed_integral": 0.0,
+        "gamma_active_intervals_m": [
+          [
+            28.6,
+            91.60000000000001
+          ]
+        ],
+        "gamma_max_active_length_m": 63.00000000000001,
+        "gamma_signed_integral": 6.0,
+        "coupled_length_m": 0.0,
+        "coupling_abs_integral": 0.0
+      }
+    }
+  ],
+  "acceptance": {
+    "horizontal_max_m": 2.0,
+    "vertical_max_m": 2.0,
+    "roll_max_deg": 60.0,
+    "pitch_max_deg": 45.0,
+    "omega_max_rad_s": 8.0,
+    "speed_min_mps": 4.0,
+    "speed_max_mps": 16.0,
+    "recovery_horizontal_m": 1.0,
+    "recovery_vertical_m": 1.0,
+    "recovery_vertical_speed_mps": 0.5,
+    "completion_fraction": 0.98
+  },
+  "recovery": "last 20 m of straight exit; final 1 s mean vertical velocity",
+  "no_speed_tracking": true,
+  "reference_point": "base_link world z-up",
+  "status_semantics": "finite mission only; failed search is NOT FOUND, never physical exclusion"
+}

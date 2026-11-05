@@ -1,0 +1,157 @@
+[
+  {
+    "name": "damped",
+    "trajectory": {
+      "knots": [
+        0,
+        0,
+        0,
+        0,
+        200,
+        200,
+        200,
+        200
+      ],
+      "kappa_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "gamma_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "length_m": 200.0
+    },
+    "gains": {
+      "pitch": 12,
+      "q": 3,
+      "roll": 25,
+      "p": 10,
+      "yaw": 8,
+      "r": 10,
+      "heading_bank": 0.3,
+      "cross_track": 0.06
+    }
+  },
+  {
+    "name": "course",
+    "trajectory": {
+      "knots": [
+        0,
+        0,
+        0,
+        0,
+        200,
+        200,
+        200,
+        200
+      ],
+      "kappa_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "gamma_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "length_m": 200.0
+    },
+    "gains": {
+      "pitch": 12,
+      "q": 3,
+      "roll": 25,
+      "p": 10,
+      "yaw": 8,
+      "r": 10,
+      "heading_bank": 0.3,
+      "cross_track": 0.06,
+      "course": true
+    }
+  },
+  {
+    "name": "rudder",
+    "trajectory": {
+      "knots": [
+        0,
+        0,
+        0,
+        0,
+        200,
+        200,
+        200,
+        200
+      ],
+      "kappa_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "gamma_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "length_m": 200.0
+    },
+    "gains": {
+      "pitch": 12,
+      "q": 3,
+      "roll": 25,
+      "p": 10,
+      "yaw": 16,
+      "r": 12,
+      "heading_bank": 0,
+      "cross_track": 0.06,
+      "course": true
+    }
+  },
+  {
+    "name": "bank",
+    "trajectory": {
+      "knots": [
+        0,
+        0,
+        0,
+        0,
+        200,
+        200,
+        200,
+        200
+      ],
+      "kappa_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "gamma_coeff": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "length_m": 200.0
+    },
+    "gains": {
+      "pitch": 12,
+      "q": 3,
+      "roll": 25,
+      "p": 10,
+      "yaw": 0,
+      "r": 8,
+      "heading_bank": 0.4,
+      "cross_track": 0.06,
+      "course": true
+    }
+  }
+]

@@ -1,0 +1,50 @@
+{
+  "initial": [
+    9.656337493598675,
+    13.971707797921283,
+    3.043205868980297,
+    0.873482079293165,
+    1.6310188600911404,
+    -2.2054931298788647
+  ],
+  "initial_height_m": 20.0,
+  "initial_vertical_speed": 0.0,
+  "wind": "zero",
+  "physics_dt": 0.0020833333333333333,
+  "control_dt": 0.016666666666666666,
+  "sections": 10,
+  "twist_deg": 35.0,
+  "plant": "CPU-native measured PhysX holonomic",
+  "controller": {
+    "pitch": 12,
+    "q": 3,
+    "roll": 80,
+    "p": 20,
+    "yaw": 20,
+    "r": 40,
+    "heading_bank": 0.6,
+    "cross_track": 0.12,
+    "course": true
+  },
+  "acceptance": {
+    "horizontal_max_m": 2.0,
+    "vertical_max_m": 2.0,
+    "roll_max_deg": 60.0,
+    "pitch_max_deg": 45.0,
+    "omega_max_rad_s": 8.0,
+    "speed_min_mps": 4.0,
+    "speed_max_mps": 16.0,
+    "recovery_horizontal_m": 1.0,
+    "recovery_vertical_m": 1.0,
+    "recovery_vertical_speed_mps": 0.5,
+    "completion_fraction": 0.98
+  },
+  "controller_version": "phase2_feedback_v1",
+  "seed": 29,
+  "initial_phase_rad": 0.0,
+  "initial_omega_rad_s": [
+    0.0,
+    0.0,
+    0.0
+  ]
+}

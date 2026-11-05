@@ -1,0 +1,221 @@
+{
+  "backend": "I3D",
+  "initial": [
+    9.250000002999998,
+    8.555604979240297,
+    3.743224887001552,
+    -3.5762117485716587,
+    0.24606506496647979,
+    -1.9969305732982099
+  ],
+  "initial_height_m": 20.0,
+  "initial_vertical_speed": 0.0,
+  "seed": 29,
+  "physics_dt": 0.0020833333333333333,
+  "control_dt": 0.016666666666666666,
+  "sections": 10,
+  "twist_deg": 35.0,
+  "plant": "CPU-native measured PhysX holonomic",
+  "wind": "zero",
+  "duration_s": 24.0,
+  "tail_limits_rad": [
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ],
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ],
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ]
+  ],
+  "frequency_limits_hz": [
+    0.0,
+    5.0
+  ],
+  "frequency_slew_hz_s": 2.0,
+  "joint_names": [
+    "left_wing",
+    "right_wing",
+    "rudder",
+    "left_tail",
+    "right_tail"
+  ],
+  "cases": [
+    {
+      "name": "damped",
+      "trajectory": {
+        "knots": [
+          0,
+          0,
+          0,
+          0,
+          200,
+          200,
+          200,
+          200
+        ],
+        "kappa_coeff": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gamma_coeff": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "length_m": 200.0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 25,
+        "p": 10,
+        "yaw": 8,
+        "r": 10,
+        "heading_bank": 0.3,
+        "cross_track": 0.06
+      }
+    },
+    {
+      "name": "course",
+      "trajectory": {
+        "knots": [
+          0,
+          0,
+          0,
+          0,
+          200,
+          200,
+          200,
+          200
+        ],
+        "kappa_coeff": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gamma_coeff": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "length_m": 200.0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 25,
+        "p": 10,
+        "yaw": 8,
+        "r": 10,
+        "heading_bank": 0.3,
+        "cross_track": 0.06,
+        "course": true
+      }
+    },
+    {
+      "name": "rudder",
+      "trajectory": {
+        "knots": [
+          0,
+          0,
+          0,
+          0,
+          200,
+          200,
+          200,
+          200
+        ],
+        "kappa_coeff": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gamma_coeff": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "length_m": 200.0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 25,
+        "p": 10,
+        "yaw": 16,
+        "r": 12,
+        "heading_bank": 0,
+        "cross_track": 0.06,
+        "course": true
+      }
+    },
+    {
+      "name": "bank",
+      "trajectory": {
+        "knots": [
+          0,
+          0,
+          0,
+          0,
+          200,
+          200,
+          200,
+          200
+        ],
+        "kappa_coeff": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "gamma_coeff": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "length_m": 200.0
+      },
+      "gains": {
+        "pitch": 12,
+        "q": 3,
+        "roll": 25,
+        "p": 10,
+        "yaw": 0,
+        "r": 8,
+        "heading_bank": 0.4,
+        "cross_track": 0.06,
+        "course": true
+      }
+    }
+  ],
+  "acceptance": {
+    "horizontal_max_m": 2.0,
+    "vertical_max_m": 2.0,
+    "roll_max_deg": 60.0,
+    "pitch_max_deg": 45.0,
+    "omega_max_rad_s": 8.0,
+    "speed_min_mps": 4.0,
+    "speed_max_mps": 16.0,
+    "recovery_horizontal_m": 1.0,
+    "recovery_vertical_m": 1.0,
+    "recovery_vertical_speed_mps": 0.5,
+    "completion_fraction": 0.98
+  },
+  "recovery": "last 20 m of straight exit; final 1 s mean vertical velocity",
+  "no_speed_tracking": true,
+  "reference_point": "base_link world z-up",
+  "status_semantics": "finite mission only; failed search is NOT FOUND, never physical exclusion"
+}
