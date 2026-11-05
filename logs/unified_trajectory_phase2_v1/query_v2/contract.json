@@ -1,0 +1,24 @@
+{
+  "kind": "phase2_offline_v1",
+  "acceptance": {
+    "horizontal_max_m": 2.0,
+    "vertical_max_m": 2.0,
+    "roll_max_deg": 60.0,
+    "pitch_max_deg": 45.0,
+    "omega_max_rad_s": 8.0,
+    "speed_min_mps": 4.0,
+    "speed_max_mps": 16.0,
+    "recovery_horizontal_m": 1.0,
+    "recovery_vertical_m": 1.0,
+    "recovery_vertical_speed_mps": 0.5,
+    "completion_fraction": 0.98
+  },
+  "ground_height_min_m": 1.0,
+  "reference_point": "base_link world z-up",
+  "projection": "Trajectory.project(previous_progress, search_radius=3m)",
+  "evaluation_sampling_dt_s": 0.016666666666666666,
+  "stop": "first progress >= completion_fraction * length; all prior samples must pass safety",
+  "recovery": "mean over inclusive final 1 s ending at first completion; horizontal/vertical absolute error and abs(mean(vz))",
+  "budget_s": 24.0,
+  "speed_tracking_target": null
+}

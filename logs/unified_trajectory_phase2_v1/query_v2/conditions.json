@@ -1,0 +1,61 @@
+{
+  "initial": [
+    9.250000002999998,
+    8.555604979240297,
+    3.743224887001552,
+    -3.5762117485716587,
+    0.24606506496647979,
+    -1.9969305732982099
+  ],
+  "initial_height_m": 20.0,
+  "initial_vertical_speed": 0.0,
+  "wind": "zero",
+  "physics_dt": 0.0020833333333333333,
+  "control_dt": 0.016666666666666666,
+  "sections": 10,
+  "twist_deg": 35.0,
+  "plant": "CPU-native measured PhysX holonomic",
+  "seed": 29,
+  "initial_phase_rad": 0.0,
+  "initial_omega_rad_s": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "scene": {
+    "num_envs": 4,
+    "env_index": 0,
+    "env_spacing_m": 30.0,
+    "frame": "position relative to env origin; world z-up"
+  },
+  "actuator_constraints": {
+    "tail_limits_rad": [
+      [
+        -0.7105000019073486,
+        0.7105000019073486
+      ],
+      [
+        -0.7105000019073486,
+        0.7105000019073486
+      ],
+      [
+        -0.7105000019073486,
+        0.7105000019073486
+      ]
+    ],
+    "frequency_limits_hz": [
+      0.0,
+      5.0
+    ],
+    "frequency_slew_hz_s": 2.0,
+    "joint_names": [
+      "left_wing",
+      "right_wing",
+      "rudder",
+      "left_tail",
+      "right_tail"
+    ]
+  },
+  "initialization": "phase2 runner reset v1; no heading/phase randomization; zero body rates",
+  "plant_configuration_scope": "phase2_v1 frozen runner/assets/config; no equivalence to other plant revisions asserted"
+}

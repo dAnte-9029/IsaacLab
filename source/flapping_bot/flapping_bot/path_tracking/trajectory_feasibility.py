@@ -37,38 +37,72 @@ def features(path: Trajectory):
     return result
 
 
-def screen_evidence(path, backend, rules, conditions):
-    """No empirical failure can hard-reject. Exact verified recipes only initially.
+def contract_implies(observed, target):
+    """Only exact, fully specified contracts are currently proven equivalent.
 
-    conditions include initial state, wind, controller and plant configuration.
-    Future evidence can append successes without expanding an unsupported box.
+    No ordering is inferred from a tolerance alone: projections, stopping time,
+    recovery and safety predicates must also agree.
     """
+    return bool(observed) and observed == target
+
+
+def append_evidence(rules, record):
+    """Append a separately evaluated witness; never replace earlier outcomes.
+
+    Caller owns validation of actions/outcome against the supplied full contract.
+    This API records evidence, it does not certify an unevaluated policy.
+    """
+    from copy import deepcopy
+    if rules.get('schema_version') != 2:
+        raise ValueError('Migrate evidence to schema_version=2 first')
+    for key in ('backend', 'trajectory', 'physical_conditions', 'evaluation_contract',
+                'witness', 'source', 'status'):
+        if not record.get(key):
+            raise ValueError('Missing evidence field: '+key)
+    if record['status'] not in ('VERIFIED FEASIBLE', 'NOT FOUND'):
+        raise ValueError('Unsupported evidence outcome')
+    if not all(record['witness'].get(k) is not None for k in
+               ('controller_version', 'controller', 'actions', 'result')):
+        raise ValueError('Incomplete control witness')
+    rules['evidence'].append(deepcopy(record))
+
+
+def screen_evidence(path, backend, rules, conditions, evaluation_contract):
+    """Existential plant feasibility, conditional on exact physics and contract.
+
+    conditions contains physics only, never the proposed controller. Seed,
+    trajectory origin and heading are strictly matched; no symmetry is assumed.
+    NOT FOUND describes stored searches only, never physical impossibility.
+    """
+    if rules.get('schema_version') != 2:
+        raise ValueError('Migrate evidence to schema_version=2 first')
+    if not evaluation_contract:
+        raise ValueError('An explicit target evaluation contract is required')
     descriptor=features(path)
     if not all(np.isfinite(v).all() for v in path.query(path.s).values()):
-        return dict(status='HARD EXCLUSION',reason='nonfinite geometry')
-    matches=[]
-    for record in rules.get('evidence',[]):
-        if (record['backend']==backend and record['trajectory']==path.spec.to_dict()
-                and record['conditions']==conditions):
-            matches.append(record)
-    if any(r['status']=='VERIFIED FEASIBLE' for r in matches):
+        return dict(status='HARD EXCLUSION',hard_exclude=True,reason='nonfinite geometry')
+    matches=[r for r in rules['evidence'] if r['backend']==backend
+             and r['trajectory']==path.spec.to_dict() and r['physical_conditions']==conditions]
+    compatible=[r for r in matches if contract_implies(r['evaluation_contract'], evaluation_contract)]
+    successes=[r for r in compatible if r['status']=='VERIFIED FEASIBLE']
+    related=[r for r in matches if r['status']=='VERIFIED FEASIBLE' and r not in compatible]
+    if successes:
         status='VERIFIED FEASIBLE';priority='supported_recipe'
-    elif any(r['status']=='NOT FOUND' for r in matches):
+    elif related:
+        status='RELATED EVIDENCE / TARGET UNVERIFIED';priority='needs_target_validation'
+    elif any(r['status']=='NOT FOUND' for r in compatible):
         status='NOT FOUND';priority='lower_priority_revisable'
     else:
         status='UNTESTED / UNCERTAIN';priority='needs_evidence'
     return dict(status=status,priority=priority,hard_exclude=False,features=descriptor,
-                evidence=[r['source'] for r in matches],limits=rules['plants'][backend]['limits'])
+                evaluation_contract=evaluation_contract,
+                evidence=matches,successful_witnesses=successes,related_evidence=related,
+                limits=rules['plants'][backend]['limits'])
 
 
-def training_priority(path, backend, rules, conditions):
-    """Revisable feature-wise proposals do not inherit verified feasibility.
-
-    Compare to each successful case separately, retaining maneuver duration,
-    climb excursion, net altitude and coupling. This is a training-priority
-    heuristic, not a monotonicity theorem or a permanent sampling exclusion.
-    """
-    result=screen_evidence(path,backend,rules,conditions)
+def training_priority(path, backend, rules, conditions, evaluation_contract):
+    """Feature proximity is a proposal heuristic, never a feasibility theorem."""
+    result=screen_evidence(path,backend,rules,conditions,evaluation_contract)
     if result['status']!='UNTESTED / UNCERTAIN':return result
     f=result['features'];sources=[]
     policy=rules.get('feature_priority_policy',{})
@@ -77,8 +111,10 @@ def training_priority(path, backend, rules, conditions):
           'kappa_max_active_length_m','gamma_max_active_length_m',
           'climb_excursion_m','coupled_length_m','coupling_abs_integral']
     keys=[k for k in policy.get('fields',keys) if k!='net_climb_m']
-    for record in rules.get('evidence',[]):
-        if record['backend']!=backend or record['status']!='VERIFIED FEASIBLE' or record['conditions']!=conditions:continue
+    for record in rules['evidence']:
+        if (record['backend']!=backend or record['status']!='VERIFIED FEASIBLE'
+                or record['physical_conditions']!=conditions
+                or not contract_implies(record['evaluation_contract'],evaluation_contract)):continue
         old=record['features']
         if (all(f[k]<=old[k]+1e-10 for k in keys)
                 and abs(f['net_climb_m'])<=abs(old['net_climb_m'])+1e-10):
@@ -99,6 +135,7 @@ def main():
     p.add_argument('--trajectory',type=Path,required=True)
     p.add_argument('--rules',type=Path,required=True)
     p.add_argument('--conditions',type=Path,required=True)
+    p.add_argument('--contract',type=Path,required=True)
     p.add_argument('--backend',choices=['L3D','I3D'],required=True)
     a=p.parse_args()
     try:
@@ -106,6 +143,6 @@ def main():
     except (ValueError,TypeError) as exc:
         print(json.dumps(dict(status='HARD EXCLUSION',hard_exclude=True,reason='Invalid mathematical representation: '+str(exc))))
         return
-    print(json.dumps(training_priority(path,a.backend,json.loads(a.rules.read_text()),json.loads(a.conditions.read_text())),indent=2))
+    print(json.dumps(training_priority(path,a.backend,json.loads(a.rules.read_text()),json.loads(a.conditions.read_text()),json.loads(a.contract.read_text())),indent=2))
 
 if __name__=='__main__':main()

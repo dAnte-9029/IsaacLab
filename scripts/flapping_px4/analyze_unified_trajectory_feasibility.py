@@ -77,8 +77,91 @@ def analyze(folder):
     return protocol,results
 
 
+def migrate_existing(root):
+    """Reorganize saved outcomes only; never evaluate traces or run dynamics."""
+    from copy import deepcopy
+    from collections import Counter
+    from flapping_bot.path_tracking.trajectory_feasibility import append_evidence
+    legacy_path = root/'screening_rules.json'
+    legacy = json.loads(legacy_path.read_text())
+    if legacy['schema_version'] != 1:
+        raise ValueError('Expected original schema v1')
+    rules = {k:deepcopy(v) for k,v in legacy.items() if k != 'evidence'}
+    rules.update(schema_version=2, evidence=[], legacy_source=str(legacy_path),
+                 policy='Existence of a successful control witness under exact physical conditions and evaluation contract; failures never revoke success. No symmetry normalization.')
+    rules['feature_priority_policy']['comparison']='same physical conditions and contract; heuristic only'
+    cache = {}
+    for index, old in enumerate(legacy['evidence']):
+        folder = root/Path(old['source']).parent.name
+        if folder not in cache:
+            cache[folder] = (json.loads((folder/'protocol.json').read_text()),
+                             json.loads((folder/'results.json').read_text()))
+        protocol, results = cache[folder]
+        # Original exporter wrote records in protocol case order, including duplicates.
+        case_index = sum(r['source']==old['source'] for r in legacy['evidence'][:index])
+        case, result = protocol['cases'][case_index], results[case_index]
+        if (TrajectorySpec(**case['trajectory']).to_dict()!=old['trajectory']
+                or result['status']!=old['status'] or result['name']!=case['name']):
+            raise ValueError('Legacy source mismatch')
+        physical = {k:deepcopy(v) for k,v in old['conditions'].items()
+                    if k not in ('controller', 'controller_version', 'acceptance')}
+        # Keep scene slot/layout strict: global positions are not in the saved traces.
+        # Do not assert translation invariance of finite ground/PhysX environments.
+        physical['scene'] = dict(num_envs=len(protocol['cases']), env_index=case_index,
+                                 env_spacing_m=30., frame='position relative to env origin; world z-up')
+        physical['actuator_constraints'] = {k:protocol[k] for k in
+            ('tail_limits_rad','frequency_limits_hz','frequency_slew_hz_s','joint_names')}
+        physical['initialization'] = 'phase2 runner reset v1; no heading/phase randomization; zero body rates'
+        physical['plant_configuration_scope'] = 'phase2_v1 frozen runner/assets/config; no equivalence to other plant revisions asserted'
+        contract = dict(kind='phase2_offline_v1', acceptance=old['conditions']['acceptance'],
+            ground_height_min_m=1., reference_point=protocol['reference_point'],
+            projection='Trajectory.project(previous_progress, search_radius=3m)',
+            evaluation_sampling_dt_s=protocol['control_dt'],
+            stop='first progress >= completion_fraction * length; all prior samples must pass safety',
+            recovery='mean over inclusive final 1 s ending at first completion; horizontal/vertical absolute error and abs(mean(vz))',
+            budget_s=protocol['duration_s'], speed_tracking_target=None)
+        record = dict(backend=old['backend'],trajectory=deepcopy(old['trajectory']),
+            physical_conditions=physical,evaluation_contract=contract,status=old['status'],source=old['source'],
+            features=deepcopy(old['features']),observed_speed_range_mps=old['observed_speed_range_mps'],
+            witness=dict(controller_version=old['conditions']['controller_version'],
+                controller=deepcopy(old['conditions']['controller']),
+                actions=dict(source=str(folder/'trace.npz'),case_index=case_index,
+                    fields=['requested_physical','action','applied_action','frequency','joint','joint_velocity','phase'],
+                    timing='action is next command; applied_action and joint state are sampled before that command'),
+                result=deepcopy(result)),
+            provenance=dict(legacy_source=str(legacy_path),legacy_index=index,
+                            protocol=str(folder/'protocol.json'),case_index=case_index,case_name=case['name']),
+            legacy_record=deepcopy(old))
+        append_evidence(rules,record)
+    out = root/'screening_rules_v2.json'
+    out.write_text(json.dumps(rules,indent=2)+'\n')
+    # Explicit default RL contract snapshot; overrides require their own full contract.
+    rl = dict(kind='unified_rl_default_v1',source='native-multibody-rl:unified_trajectory_env.py::_get_dones',
+        evaluation_sampling_dt_s=1./60.,
+        completion=dict(remaining_progress_max_m=.5,position_error_3d_max_m=.5,no_failure=True),
+        safety=dict(finite_root_state=True,height_relative_env_m=[.05,60.],path_error_3d_max_m=8.,
+                    tilt_max_deg=75.,body_rate_max_rad_s=20.),
+        timeout=dict(episode_length_s=120.,rule='episode_length_buf >= max_episode_length-1; completion wins over timeout'),
+        projection='TrajectoryCache movement + 0.5m margin; spacing 0.2m',
+        recovery=None,speed_tracking_target=None,speed_safety_range_mps=None)
+    (root/'rl_default_contract_v1.json').write_text(json.dumps(rl,indent=2)+'\n')
+    success = next(r for r in rules['evidence'] if r['status']=='VERIFIED FEASIBLE')
+    example=root/'query_v2';example.mkdir(exist_ok=True)
+    for name,value in [('trajectory',success['trajectory']),('conditions',success['physical_conditions']),('contract',success['evaluation_contract'])]:
+        (example/(name+'.json')).write_text(json.dumps(value,indent=2)+'\n')
+    counts=Counter(r['status'] for r in rules['evidence'])
+    print(json.dumps(dict(output=str(out),records=len(rules['evidence']),counts=counts,example_backend=success['backend']),indent=2))
+
+
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True)
+    p.add_argument('--migrate-existing',action='store_true',help='Migrate saved results without trace analysis or simulation')
+    a=p.parse_args()
+    if a.migrate_existing:
+        migrate_existing(a.root)
+        return
+    if (a.root/'screening_rules.json').exists():
+        raise FileExistsError('Preserve existing evidence; use --migrate-existing')
     rules=dict(schema_version=1,policy='Exact successful recipe and conditions only; no peak-box extrapolation. NOT FOUND lowers priority, never hard excludes.',
         plants={b:dict(limits={k:None for k in ['kappa','gamma','kappa_prime','gamma_prime','sustained_distance','net_climb','coupling']}) for b in ['L3D','I3D']},evidence=[])
     all_results=[]

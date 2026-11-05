@@ -1,0 +1,28 @@
+{
+  "kind": "unified_rl_default_v1",
+  "source": "native-multibody-rl:unified_trajectory_env.py::_get_dones",
+  "evaluation_sampling_dt_s": 0.016666666666666666,
+  "completion": {
+    "remaining_progress_max_m": 0.5,
+    "position_error_3d_max_m": 0.5,
+    "no_failure": true
+  },
+  "safety": {
+    "finite_root_state": true,
+    "height_relative_env_m": [
+      0.05,
+      60.0
+    ],
+    "path_error_3d_max_m": 8.0,
+    "tilt_max_deg": 75.0,
+    "body_rate_max_rad_s": 20.0
+  },
+  "timeout": {
+    "episode_length_s": 120.0,
+    "rule": "episode_length_buf >= max_episode_length-1; completion wins over timeout"
+  },
+  "projection": "TrajectoryCache movement + 0.5m margin; spacing 0.2m",
+  "recovery": null,
+  "speed_tracking_target": null,
+  "speed_safety_range_mps": null
+}

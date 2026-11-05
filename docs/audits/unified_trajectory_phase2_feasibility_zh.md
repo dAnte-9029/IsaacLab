@@ -137,7 +137,7 @@ MPLCONFIGDIR=/tmp/phase2-mpl ./isaaclab.sh -p scripts/flapping_px4/plot_unified_
 ./isaaclab.sh -p -m pytest -q tests/test_trajectory_feasibility.py
 ```
 
-也可仅复现 `final` 与 `transitions` 四批以重现最终表格；应读取每批 `completed.json` 和 `results.json`，不能仅依赖 wrapper 返回码。筛选命令：
+也可仅复现 `final` 与 `transitions` 四批以重现最终表格；应读取每批 `completed.json` 和 `results.json`，不能仅依赖 wrapper 返回码。历史 v1 筛选命令（已由下节 v2 显式合同查询替代，不再适用于当前接口）：
 
 ```bash
 ./isaaclab.sh -p -m flapping_bot.path_tracking.trajectory_feasibility   --backend L3D --trajectory logs/unified_trajectory_phase2_v1/example_trajectory.json   --conditions logs/unified_trajectory_phase2_v1/example_conditions.json   --rules logs/unified_trajectory_phase2_v1/screening_rules.json
@@ -146,3 +146,37 @@ MPLCONFIGDIR=/tmp/phase2-mpl ./isaaclab.sh -p scripts/flapping_px4/plot_unified_
 **下一阶段证据基础：已有可更新证据库和保守优先级筛选器的初始基础；尚无通用可飞/不可飞分类边界。** 只支持指定模型、无风初态和本次控制条件的有限任务。未做风扰/初态泛化、能量极限证明或实机迁移；本轮到此停止。
 
 发布范围：Git 包含本轮源代码、测试、报告、全部 JSON 配方/协议/结果/筛选配置与三张总结图；`logs/unified_trajectory_phase2_v1/*/trace.npz`、`launch_logs/` 及逐批 `response.png` 保留本地，不随本次提交发布。复现命令可重新生成这些原始产物。
+
+## 2026-11-05 证据语义修正（不重新仿真）
+
+本节取代上文将“具体控制条件”纳入可飞性匹配的旧语义。原 `screening_rules.json` 原样保留；新版为 `screening_rules_v2.json`。迁移只读原协议和结果，未读取或重新计算历史气动轨迹，88 条逐项保留为 **35 成功、53 未找到**，完整旧记录、原结果、来源、case 下标及控制器增益均在新版中。实际动作通过原 `trace.npz` 的字段和 case 下标引用，保留动作采样时序说明。
+
+记录分为 `physical_conditions`、`witness` 和 `evaluation_contract`。查询不再接收候选控制器；同一物理条件、轨迹与合同只要存在成功见证，就返回 `VERIFIED FEASIBLE`，追加失败或更换增益/PPO 不会撤销它。`append_evidence()` 只追加独立记录；调用者仍须先验证实际动作和结果，接口本身不认证策略。`NOT FOUND` 仅描述已有搜索，绝非物理不可飞。L3D/I3D 独立匹配。
+
+初始六变量（含频率与尾舵）、相位、角速度、风、seed、步长、plant 配置作用域及执行器约束保留严格匹配；轨迹 seed、原点、航向不归一化。历史轨迹只保存相对环境原点的位置，且采用有限地面和不同批量场景，尚不足以证明任意世界平移等价，因此额外保留场景数量、槽位和间距。不同 plant 修订不因同名后端自动等价。
+
+历史有 **13 组同后端同轨迹的成功/失败混合组，共 49 条记录**。例如 L/I 的 `turn_mild_gain2` 成功、`gain0/1/3` 失败；全部并存，没有失败覆盖成功。但这些历史控制器案例使用不同场景槽位，部分还改变了时间预算；严格物理条件与合同下，没有历史成功/失败完全同条件配对，不能宣称它们已证明世界平移等价。跨控制器复用接口已用同物理条件的定向构造验证；历史成功自身仍可查询为成功。
+
+离线合同明确保存 98% 完成、全过程水平/垂直各 2 m、姿态/角速度/4–16 m/s 安全范围、1 m 离地、末 1 s 恢复、60 Hz 评价、首次完成截断及各批时间预算。参考速度仍无跟踪目标。RL 默认合同快照 `rl_default_contract_v1.json` 来自另一 worktree 的 `UnifiedTrajectoryEnv._get_dones()`、继承配置及共享步长：剩余投影航程≤0.5 m 且三维路径位置误差≤0.5 m，并且无失败；失败包括非有限根状态、高度不在[0.05,60] m、路径误差>8 m、倾角>75°、体轴角速度模>20 rad/s；120 s 资源超时，完成优先于超时。RL 没有速度追踪目标，也没有离线恢复或速度安全区间。实际 RL 配置覆盖需要写入独立完整合同，不能直接沿用默认快照。
+
+不同合同目前仅实现精确相等这一已知蕴含关系；不因某个阈值更严就推断整个合同更强。物理条件相同、有成功但目标合同不同，返回 `RELATED EVIDENCE / TARGET UNVERIFIED`，同时返回原见证与合同。全部 88 条对 RL 默认合同的查询均未升级为 RL 成功。将来可追加经过独立评价的 RL 成功见证，无须改变数据结构；本轮未实现在线采样或训练。
+
+定向验证：`tests/test_trajectory_feasibility.py` **6 passed**，涵盖先成功后失败、记录顺序、跨控制器、物理条件/plant/轨迹差异、合同隔离、RL 追加、特征优先级及 88 条逐项来源/结果守恒。未运行 PhysX、训练或额外气动分析。
+
+只复现本轮迁移、测试和查询（在本 worktree 执行）：
+
+```bash
+source /home/zn/anaconda3/etc/profile.d/conda.sh
+conda activate env_isaaclab
+export TERM=xterm MPLCONFIGDIR=/tmp/phase2-mpl
+export PYTHONPATH="$PWD/source/flapping_bot${PYTHONPATH:+:$PYTHONPATH}"
+ROOT=logs/unified_trajectory_phase2_v1
+./isaaclab.sh -p scripts/flapping_px4/analyze_unified_trajectory_feasibility.py --root "$ROOT" --migrate-existing
+./isaaclab.sh -p -m pytest -q tests/test_trajectory_feasibility.py
+./isaaclab.sh -p -m flapping_bot.path_tracking.trajectory_feasibility \
+  --backend I3D --rules "$ROOT/screening_rules_v2.json" \
+  --trajectory "$ROOT/query_v2/trajectory.json" \
+  --conditions "$ROOT/query_v2/conditions.json" --contract "$ROOT/query_v2/contract.json"
+```
+
+示例返回 `VERIFIED FEASIBLE`；将最后的合同路径换为 `$ROOT/rl_default_contract_v1.json` 返回 `RELATED EVIDENCE / TARGET UNVERIFIED`。旧 v1 查询明确报错提示迁移，避免默默延续旧语义。本轮没有 commit/push。
