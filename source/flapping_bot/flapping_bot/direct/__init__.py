@@ -67,3 +67,11 @@ gym.register(
         "rsl_rl_cfg_entry_point": _RSL_RL_CFG,
     },
 )
+
+# Independent trajectory task: deliberately no PPO runner or legacy curriculum configuration.
+gym.register(
+    id="Isaac-FlappingBot-UnifiedTrajectory-Direct-v0",
+    entry_point="flapping_bot.direct.flapping_bot.unified_trajectory_env:UnifiedTrajectoryEnv",
+    disable_env_checker=True,
+    kwargs={"env_cfg_entry_point": "flapping_bot.direct.flapping_bot.unified_trajectory_env:UnifiedTrajectoryEnvCfg"},
+)
