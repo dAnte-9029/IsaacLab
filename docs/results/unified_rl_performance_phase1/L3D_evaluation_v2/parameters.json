@@ -1,0 +1,17 @@
+{
+  "backend": "L3D",
+  "sampling": "fixed",
+  "num_envs": 256,
+  "rollout_steps": 48,
+  "threads": 1,
+  "affinity": null,
+  "no_profile": false,
+  "detail": false,
+  "output": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase1/docs/results/unified_rl_performance_phase1/L3D_evaluation_v2",
+  "timeout": 600,
+  "plant_assets": "/home/zn/IsaacLab/.worktrees/control-oriented-3d-wing-aero",
+  "rules": "/home/zn/IsaacLab/.worktrees/control-oriented-3d-wing-aero/logs/unified_trajectory_phase2_v1/screening_rules_v2.json",
+  "evaluate_checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_physx_acceptance_20261106_v1/L3D_development/evaluation_smoke_only.pt",
+  "evaluation_root": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1",
+  "child": false
+}

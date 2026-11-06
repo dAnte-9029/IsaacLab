@@ -1,0 +1,5 @@
+{
+  "purpose": "performance only; never resume",
+  "checkpoints_deleted": [],
+  "child_wall_before_kit_close_s": 16.037439576815814
+}

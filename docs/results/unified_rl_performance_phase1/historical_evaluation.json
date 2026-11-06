@@ -1,0 +1,96 @@
+[
+  {
+    "source": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_physx_acceptance_20261106_v1/L3D_development/summary.json",
+    "backend": "L3D",
+    "suite": "development",
+    "budget": 256,
+    "active_episode_steps": 626,
+    "total_env_steps": 1280,
+    "padding_steps": 654,
+    "terminal_steps": [
+      125,
+      125,
+      125,
+      125,
+      126
+    ],
+    "all_finished_cycle": 126,
+    "all_finished_padding_cycles": 130,
+    "all_finished_padding_env_steps": 650,
+    "eval_wall_s": 9.996633437927812,
+    "process_wall_s": 16.502642808947712,
+    "all_finished_padding_wall_s": null,
+    "note": "Historical wall includes validation; padding wall not separately recorded. No source database opened."
+  },
+  {
+    "source": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_physx_acceptance_20261106_v1/L3D_final/summary.json",
+    "backend": "L3D",
+    "suite": "final",
+    "budget": 256,
+    "active_episode_steps": 748,
+    "total_env_steps": 1536,
+    "padding_steps": 788,
+    "terminal_steps": [
+      124,
+      124,
+      125,
+      125,
+      125,
+      125
+    ],
+    "all_finished_cycle": 125,
+    "all_finished_padding_cycles": 131,
+    "all_finished_padding_env_steps": 786,
+    "eval_wall_s": 10.28598846308887,
+    "process_wall_s": 16.756474580150098,
+    "all_finished_padding_wall_s": null,
+    "note": "Historical wall includes validation; padding wall not separately recorded. No source database opened."
+  },
+  {
+    "source": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_physx_acceptance_20261106_v1/I3D_final/summary.json",
+    "backend": "I3D",
+    "suite": "final",
+    "budget": 256,
+    "active_episode_steps": 565,
+    "total_env_steps": 1536,
+    "padding_steps": 971,
+    "terminal_steps": [
+      94,
+      94,
+      94,
+      94,
+      94,
+      95
+    ],
+    "all_finished_cycle": 95,
+    "all_finished_padding_cycles": 161,
+    "all_finished_padding_env_steps": 966,
+    "eval_wall_s": 11.48720960598439,
+    "process_wall_s": 17.86255621770397,
+    "all_finished_padding_wall_s": null,
+    "note": "Historical wall includes validation; padding wall not separately recorded. No source database opened."
+  },
+  {
+    "source": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_physx_acceptance_20261106_v1/I3D_development/summary.json",
+    "backend": "I3D",
+    "suite": "development",
+    "budget": 256,
+    "active_episode_steps": 471,
+    "total_env_steps": 1280,
+    "padding_steps": 809,
+    "terminal_steps": [
+      94,
+      94,
+      94,
+      94,
+      95
+    ],
+    "all_finished_cycle": 95,
+    "all_finished_padding_cycles": 161,
+    "all_finished_padding_env_steps": 805,
+    "eval_wall_s": 10.863835230004042,
+    "process_wall_s": 17.28081172518432,
+    "all_finished_padding_wall_s": null,
+    "note": "Historical wall includes validation; padding wall not separately recorded. No source database opened."
+  }
+]

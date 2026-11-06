@@ -1,0 +1,3 @@
+{
+  "reason": "Frozen physical identity includes absolute URDF paths; independent worktree path mismatch. No evaluation control steps performed; rerun reads original source checkout without changing it."
+}

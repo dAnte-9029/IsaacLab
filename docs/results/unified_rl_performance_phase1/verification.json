@@ -1,0 +1,70 @@
+{
+  "runs": [
+    {
+      "name": "I3D_adaptive_n256_t1",
+      "passed": true
+    },
+    {
+      "name": "I3D_evaluation_v2",
+      "passed": true
+    },
+    {
+      "name": "I3D_fixed_n256_t1",
+      "passed": true
+    },
+    {
+      "name": "I3D_fixed_n256_t1_detail",
+      "passed": true
+    },
+    {
+      "name": "I3D_fixed_n256_t1_off",
+      "passed": true
+    },
+    {
+      "name": "L3D_adaptive_n256_t1",
+      "passed": true
+    },
+    {
+      "name": "L3D_evaluation_v2",
+      "passed": true
+    },
+    {
+      "name": "L3D_fixed_n128_t1_on",
+      "passed": true
+    },
+    {
+      "name": "L3D_fixed_n256_t1_off",
+      "passed": true
+    },
+    {
+      "name": "L3D_fixed_n256_t1_v2",
+      "passed": true
+    },
+    {
+      "name": "L3D_fixed_n256_t4_on",
+      "passed": true
+    },
+    {
+      "name": "L3D_fixed_n256_t8_on",
+      "passed": true
+    },
+    {
+      "name": "L3D_fixed_n512_t1_on",
+      "passed": true
+    }
+  ],
+  "instrumentation_comparisons": [
+    {
+      "backend": "L3D",
+      "initial_and_final_policy_equal": true,
+      "losses_equal": true,
+      "observed_profile_time_increase_percent": 3.5571083694098116
+    },
+    {
+      "backend": "I3D",
+      "initial_and_final_policy_equal": true,
+      "losses_equal": true,
+      "observed_profile_time_increase_percent": 0.21525200900651686
+    }
+  ]
+}

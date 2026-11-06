@@ -1,0 +1,70 @@
+{
+  "passed": true,
+  "backend": "L3D",
+  "sampling": "fixed",
+  "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase1/docs/results/unified_rl_performance_phase1/L3D_fixed_n512_t1_on/run/model_000001_final.pt",
+  "initial": {
+    "speed_mps": 9.656337493598675,
+    "nose_up_pitch_deg": 13.971707797921283,
+    "frequency_hz": 3.043205868980297,
+    "symmetric_deg": 0.873482079293165,
+    "rudder_deg": 1.6310188600911404,
+    "differential_deg": -2.2054931298788647,
+    "phase_rad": 0.0
+  },
+  "initial_policy_digest": "5cda7f70879f8c070406a6ed94db08b7551d875a43182433f6ad7adfea0a797c",
+  "final_policy_digest": "ac5957974f7bb1f826db35929a2cbde8b4cb43af37fb364cf16fcfacf507a3e2",
+  "optimizer_step_before": 0.0,
+  "optimizer_step_after": 20.0,
+  "state": {
+    "updates": 1,
+    "train_transitions": 24576,
+    "eval_env_steps": 0,
+    "eval_active_steps": 0,
+    "evaluations": []
+  },
+  "local_train_transitions": 24576,
+  "train_seconds": 21.18605378968641,
+  "rollout_seconds": 19.45467849029228,
+  "update_seconds": 1.7313752993941307,
+  "measured_training_transitions_per_s": 1160.0083830601736,
+  "loop_wall_s": 25.22932198084891,
+  "resume": false,
+  "iterations": [
+    {
+      "update": 1,
+      "version": "7f189b12c22b:update000001",
+      "train_transitions": 24576,
+      "rollout_s": 19.45467849029228,
+      "update_s": 1.7313752993941307,
+      "transitions_per_s": 1160.0083830601736,
+      "parameter_delta_l2": 0.9242686629295349,
+      "losses": {
+        "value_function": 1.9127355933189392,
+        "surrogate": -0.005098708032164723,
+        "entropy": 5.681472849845886
+      },
+      "reward_mean": 0.09645559988954726,
+      "episode_outcomes": {
+        "failed": 76
+      },
+      "reset_sources": {
+        "base": 76
+      },
+      "reset_geometry_counts": {
+        "sustained": 56,
+        "reverse": 38,
+        "coupled_3d": 40,
+        "simple": 6
+      },
+      "effective_completion_rate": 0.0
+    }
+  ],
+  "environment_step_s": 19.148995012510568,
+  "sqlite_flush_s": 4.05354251107201,
+  "sqlite_flush_calls": 637,
+  "sqlite_bytes": 212971520,
+  "physical_resume_semantics": "fresh episodes; optimizer/RNG/reset sequence/sampler/evidence restored",
+  "process_wall_s": 43.10560274403542,
+  "peak_rss_mib": 3988.796875
+}

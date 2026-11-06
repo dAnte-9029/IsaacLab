@@ -1,0 +1,10 @@
+{
+  "purpose": "performance only; never resume",
+  "checkpoints_deleted": [
+    {
+      "name": "model_000001_final.pt",
+      "bytes": 3499118
+    }
+  ],
+  "child_wall_before_kit_close_s": 24.168246485758573
+}

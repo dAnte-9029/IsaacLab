@@ -1,0 +1,459 @@
+{
+  "passed": true,
+  "smoke_fixture": true,
+  "training_updates": 0,
+  "scene_layout": {
+    "actual": [
+      [
+        10.0,
+        -5.0,
+        0.0
+      ],
+      [
+        10.0,
+        5.0,
+        0.0
+      ],
+      [
+        0.0,
+        -5.0,
+        0.0
+      ],
+      [
+        0.0,
+        5.0,
+        0.0
+      ],
+      [
+        -10.0,
+        -5.0,
+        0.0
+      ]
+    ],
+    "expected": [
+      [
+        10.0,
+        -5.0,
+        0.0
+      ],
+      [
+        10.0,
+        5.0,
+        0.0
+      ],
+      [
+        0.0,
+        -5.0,
+        0.0
+      ],
+      [
+        0.0,
+        5.0,
+        0.0
+      ],
+      [
+        -10.0,
+        -5.0,
+        0.0
+      ]
+    ],
+    "cache_length_m": 60.0,
+    "cache_count": 301,
+    "episode_length_s": 120.0,
+    "max_steps": 7199,
+    "cache_analytic_max_error_m": 4.834344480286745e-09,
+    "projection_error_m": 0.0
+  },
+  "batch_validated": true,
+  "terminal_masks_match": true,
+  "sampler_created": false,
+  "policy_digest_before": "5cda7f70879f8c070406a6ed94db08b7551d875a43182433f6ad7adfea0a797c",
+  "policy_digest_after": "5cda7f70879f8c070406a6ed94db08b7551d875a43182433f6ad7adfea0a797c",
+  "sampling": "fixed",
+  "eval_suite": "development",
+  "trajectories": [
+    {
+      "name": "simple",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          5.0,
+          15.0,
+          25.0,
+          35.0,
+          45.0,
+          55.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0
+        ],
+        "length_m": 60.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 401
+      }
+    },
+    {
+      "name": "sustained",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          5.0,
+          15.0,
+          25.0,
+          35.0,
+          45.0,
+          55.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.012915761199314042,
+          -0.012915761199314042,
+          -0.012915761199314042,
+          -0.012915761199314042,
+          -0.012915761199314042,
+          -0.012915761199314042
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0
+        ],
+        "length_m": 60.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 402
+      }
+    },
+    {
+      "name": "reverse_right_first",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          5.0,
+          15.0,
+          25.0,
+          35.0,
+          45.0,
+          55.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.011141023741393353,
+          0.013548513789103218,
+          0.007295711182099528,
+          -0.005940123475721275,
+          0.017312088150659623,
+          0.018517607911157568
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          0.0
+        ],
+        "length_m": 60.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 403
+      }
+    },
+    {
+      "name": "reverse_left_first",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          5.0,
+          15.0,
+          25.0,
+          35.0,
+          45.0,
+          55.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0
+        ],
+        "kappa_coeff": [
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          0.011141023741393353,
+          -0.013548513789103218,
+          -0.007295711182099528,
+          0.005940123475721275,
+          -0.017312088150659623,
+          -0.018517607911157568
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          -0.0,
+          0.0
+        ],
+        "length_m": 60.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 404
+      }
+    },
+    {
+      "name": "coupled_3d",
+      "trajectory": {
+        "knots": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          5.0,
+          15.0,
+          25.0,
+          35.0,
+          45.0,
+          55.0,
+          60.0,
+          60.0,
+          60.0,
+          60.0
+        ],
+        "kappa_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.011787821905830215,
+          0.012644844235497707,
+          0.017185089118500304,
+          -0.00990287756758791,
+          -0.017032261417993157,
+          -0.01558710184027434
+        ],
+        "gamma_coeff": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.07897942755799027,
+          0.08011958383595527,
+          0.04347969640091695,
+          -0.04413007173750567,
+          -0.05364088793582484,
+          -0.09507540508289045
+        ],
+        "length_m": 60.0,
+        "origin": [
+          0.0,
+          0.0,
+          20.0
+        ],
+        "heading_rad": 0.0,
+        "seed": 405
+      }
+    }
+  ],
+  "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_physx_acceptance_20261106_v1/I3D_development/evaluation_smoke_only.pt",
+  "version": "smoke-only:I3D:seed0:3e486596fade",
+  "backend": "I3D",
+  "initial": {
+    "speed_mps": 9.250000002999998,
+    "nose_up_pitch_deg": 8.555604979240297,
+    "frequency_hz": 3.743224887001552,
+    "symmetric_deg": -3.5762117485716587,
+    "rudder_deg": 0.24606506496647979,
+    "differential_deg": -1.9969305732982099,
+    "phase_rad": 0.0
+  },
+  "policy_unchanged": true,
+  "optimizer_updates": 0,
+  "environment_steps": 1280,
+  "active_episode_steps": 471,
+  "padding_steps": 809,
+  "eval_step_budget": 256,
+  "wall_s": 10.918744600843638,
+  "completion_rate": 0.0,
+  "outcomes": {
+    "failed": 5
+  },
+  "tasks": [
+    {
+      "name": "simple",
+      "categories": {
+        "simple": true,
+        "sustained": false,
+        "reverse": false,
+        "coupled_3d": false
+      },
+      "outcome": "failed",
+      "steps": 94,
+      "effective_distance_m": 13.532529830932617,
+      "horizontal_rmse_m": 0.0031668324286033686,
+      "vertical_rmse_m": 3.5227976722562606,
+      "horizontal_max_m": 0.0145416259765625,
+      "vertical_max_m": 8.001992225646973,
+      "policy_execution": "single",
+      "frozen_checkpoint": "smoke-only:I3D:seed0:3e486596fade"
+    },
+    {
+      "name": "sustained",
+      "categories": {
+        "simple": false,
+        "sustained": true,
+        "reverse": false,
+        "coupled_3d": false
+      },
+      "outcome": "failed",
+      "steps": 94,
+      "effective_distance_m": 13.531980514526367,
+      "horizontal_rmse_m": 0.002746939049379845,
+      "vertical_rmse_m": 3.5230103823168726,
+      "horizontal_max_m": 0.009565867500998894,
+      "vertical_max_m": 8.002769470214844,
+      "policy_execution": "single",
+      "frozen_checkpoint": "smoke-only:I3D:seed0:3e486596fade"
+    },
+    {
+      "name": "reverse_right_first",
+      "categories": {
+        "simple": false,
+        "sustained": false,
+        "reverse": true,
+        "coupled_3d": false
+      },
+      "outcome": "failed",
+      "steps": 94,
+      "effective_distance_m": 13.532013893127441,
+      "horizontal_rmse_m": 0.002777795682389906,
+      "vertical_rmse_m": 3.522977287362383,
+      "horizontal_max_m": 0.010239154321049772,
+      "vertical_max_m": 8.002646446228027,
+      "policy_execution": "single",
+      "frozen_checkpoint": "smoke-only:I3D:seed0:3e486596fade"
+    },
+    {
+      "name": "reverse_left_first",
+      "categories": {
+        "simple": false,
+        "sustained": false,
+        "reverse": true,
+        "coupled_3d": false
+      },
+      "outcome": "failed",
+      "steps": 94,
+      "effective_distance_m": 13.532954216003418,
+      "horizontal_rmse_m": 0.00382959693811866,
+      "vertical_rmse_m": 3.5226267324500067,
+      "horizontal_max_m": 0.018820341467705556,
+      "vertical_max_m": 8.001350402832031,
+      "policy_execution": "single",
+      "frozen_checkpoint": "smoke-only:I3D:seed0:3e486596fade"
+    },
+    {
+      "name": "coupled_3d",
+      "categories": {
+        "simple": false,
+        "sustained": false,
+        "reverse": true,
+        "coupled_3d": true
+      },
+      "outcome": "failed",
+      "steps": 95,
+      "effective_distance_m": 13.74181079864502,
+      "horizontal_rmse_m": 0.019356456739508754,
+      "vertical_rmse_m": 3.5986629962735552,
+      "horizontal_max_m": 0.07157174457189133,
+      "vertical_max_m": 8.155878067016602,
+      "policy_execution": "single",
+      "frozen_checkpoint": "smoke-only:I3D:seed0:3e486596fade"
+    }
+  ],
+  "process_wall_s": 17.252750256098807,
+  "forbidden_training_calls": [],
+  "peak_rss_mib": 3604.828125
+}

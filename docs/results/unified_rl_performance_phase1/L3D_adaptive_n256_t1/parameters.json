@@ -1,0 +1,15 @@
+{
+  "backend": "L3D",
+  "sampling": "adaptive",
+  "num_envs": 256,
+  "rollout_steps": 48,
+  "threads": 1,
+  "affinity": null,
+  "no_profile": false,
+  "output": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase1/docs/results/unified_rl_performance_phase1/L3D_adaptive_n256_t1",
+  "timeout": 600,
+  "plant_assets": "/home/zn/IsaacLab/.worktrees/control-oriented-3d-wing-aero",
+  "rules": "/home/zn/IsaacLab/.worktrees/control-oriented-3d-wing-aero/logs/unified_trajectory_phase2_v1/screening_rules_v2.json",
+  "evaluate_checkpoint": null,
+  "child": false
+}

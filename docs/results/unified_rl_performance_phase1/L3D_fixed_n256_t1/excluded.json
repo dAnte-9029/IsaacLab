@@ -1,0 +1,9 @@
+{
+  "reason": "Kit fast shutdown bypassed outer finally; missing profiler export. Excluded from benchmark comparisons.",
+  "checkpoints_deleted": [
+    {
+      "name": "model_000001_final.pt",
+      "bytes": 3499118
+    }
+  ]
+}

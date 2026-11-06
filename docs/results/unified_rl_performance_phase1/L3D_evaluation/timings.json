@@ -1,0 +1,115 @@
+{
+  "enabled": true,
+  "timed_root_s": 6.201651909854263,
+  "rows": [
+    {
+      "path": "evaluate",
+      "calls": 1,
+      "inclusive_s": 2.487975435797125,
+      "exclusive_s": 0.07882633013650775,
+      "median_s": 2.487975435797125,
+      "p95_s": 2.487975435797125,
+      "exclusive_share": 0.012710537657112738
+    },
+    {
+      "path": "evaluate/build_env",
+      "calls": 1,
+      "inclusive_s": 2.1467021009884775,
+      "exclusive_s": 2.0838896268978715,
+      "median_s": 2.1467021009884775,
+      "p95_s": 2.1467021009884775,
+      "exclusive_share": 0.3360217015061141
+    },
+    {
+      "path": "evaluate/build_env/scene.update",
+      "calls": 1,
+      "inclusive_s": 5.5782031267881393e-05,
+      "exclusive_s": 1.1478085070848465e-05,
+      "median_s": 5.5782031267881393e-05,
+      "p95_s": 5.5782031267881393e-05,
+      "exclusive_share": 1.8508109190407942e-06
+    },
+    {
+      "path": "evaluate/build_env/scene.update/robot.update",
+      "calls": 1,
+      "inclusive_s": 4.430394619703293e-05,
+      "exclusive_s": 4.430394619703293e-05,
+      "median_s": 4.430394619703293e-05,
+      "p95_s": 4.430394619703293e-05,
+      "exclusive_share": 7.143894375405868e-06
+    },
+    {
+      "path": "evaluate/build_env/sim.reset",
+      "calls": 1,
+      "inclusive_s": 0.06267943885177374,
+      "exclusive_s": 0.06264102691784501,
+      "median_s": 0.06267943885177374,
+      "p95_s": 0.06267943885177374,
+      "exclusive_share": 0.010100700237352898
+    },
+    {
+      "path": "evaluate/build_env/sim.reset/robot.update",
+      "calls": 2,
+      "inclusive_s": 3.8411933928728104e-05,
+      "exclusive_s": 3.8411933928728104e-05,
+      "median_s": 1.9205966964364052e-05,
+      "p95_s": 2.301365602761507e-05,
+      "exclusive_share": 6.1938229502517775e-06
+    },
+    {
+      "path": "evaluate/build_env/sqlite.execute",
+      "calls": 2,
+      "inclusive_s": 7.725320756435394e-05,
+      "exclusive_s": 7.725320756435394e-05,
+      "median_s": 3.862660378217697e-05,
+      "p95_s": 6.766109727323056e-05,
+      "exclusive_share": 1.2456875794915321e-05
+    },
+    {
+      "path": "evaluate/close",
+      "calls": 1,
+      "inclusive_s": 0.2566126179881394,
+      "exclusive_s": 0.2566126179881394,
+      "median_s": 0.2566126179881394,
+      "p95_s": 0.2566126179881394,
+      "exclusive_share": 0.041378107271772
+    },
+    {
+      "path": "evaluate/store.close",
+      "calls": 1,
+      "inclusive_s": 0.005834386684000492,
+      "exclusive_s": 0.005825793836265802,
+      "median_s": 0.005834386684000492,
+      "p95_s": 0.005834386684000492,
+      "exclusive_share": 0.0009393938777842026
+    },
+    {
+      "path": "evaluate/store.close/store.flush",
+      "calls": 1,
+      "inclusive_s": 8.592847734689713e-06,
+      "exclusive_s": 7.800757884979248e-06,
+      "median_s": 8.592847734689713e-06,
+      "p95_s": 8.592847734689713e-06,
+      "exclusive_share": 1.2578516173382848e-06
+    },
+    {
+      "path": "evaluate/store.close/store.flush/sqlite.commit_including_sync",
+      "calls": 1,
+      "inclusive_s": 7.920898497104645e-07,
+      "exclusive_s": 7.920898497104645e-07,
+      "median_s": 7.920898497104645e-07,
+      "p95_s": 7.920898497104645e-07,
+      "exclusive_share": 1.2772239739090393e-07
+    },
+    {
+      "path": "kit_start",
+      "calls": 1,
+      "inclusive_s": 3.713676474057138,
+      "exclusive_s": 3.713676474057138,
+      "median_s": 3.713676474057138,
+      "p95_s": 3.713676474057138,
+      "exclusive_share": 0.5988205284718098
+    }
+  ],
+  "semantics": "Inclusive rows nest; sum exclusive only. Includes setup/close. Unwrapped native internals are unresolved."
+}

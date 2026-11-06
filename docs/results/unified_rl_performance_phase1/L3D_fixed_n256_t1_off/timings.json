@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "timed_root_s": 0,
+  "rows": [],
+  "semantics": "Inclusive rows nest; sum exclusive only. Includes setup/close. Unwrapped native internals are unresolved."
+}

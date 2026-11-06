@@ -1,0 +1,2515 @@
+{
+  "runs": [
+    {
+      "name": "I3D_adaptive_n256_t1",
+      "backend": "I3D",
+      "sampling": "adaptive",
+      "num_envs": 256,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 32.40851007262245,
+      "process_wall_s": 30.614741095341742,
+      "kit_start_s": 3.7010656180791557,
+      "build_env_s": 4.502712852321565,
+      "reset_s": 2.336593265645206,
+      "checkpoint_s": 0.049290179274976254,
+      "checkpoint_bytes": 3638766,
+      "iteration_s": 16.688066204078496,
+      "rollout_s": 15.779523016884923,
+      "update_s": 0.9085431871935725,
+      "env_s": 15.693084232974797,
+      "transitions": 12288,
+      "transitions_per_s": 736.33456685334,
+      "env_transitions_per_s": 783.0200754406244,
+      "update_sample_equivalent_per_s": 13524.948701620655,
+      "sqlite_bytes": 98902016,
+      "sqlite_flush_all_s": 2.0197805971838534,
+      "ppo_update_share": 0.05444268833087013,
+      "zero_update_speedup_ceiling": 1.0575773542851317,
+      "environment_partition": {
+        "_apply_action": 8.934177683666348,
+        "_get_dones": 5.592351609375328,
+        "_get_observations": 0.01522428309544921,
+        "_get_rewards": 0.007390657439827919,
+        "_pre_physics_step": 0.017992663197219372,
+        "_reset_idx": 0.008002109359949827,
+        "scene.update": 0.03254814399406314,
+        "scene.write_data_to_sim": 0.3646898427978158,
+        "sim.step": 0.7038266733288765,
+        "other": 0.016880566719919443
+      },
+      "aero_s": 8.107051816303283,
+      "aero_formula_s": 6.153719650581479,
+      "control_to_python_s": 0.8168456479907036,
+      "evidence_observe_s": 2.644781159237027,
+      "sqlite_commit_rollout_s": 0.5679215444251895,
+      "sqlite_execute_rollout_s": 0.054539003409445286,
+      "json_encode_rollout_s": 0.414867979940027,
+      "dones_excluding_reference_and_sql_s": 4.909593877848238,
+      "zero_dones_python_speedup_ceiling": 1.4168277295956913,
+      "zero_sql_speedup_ceiling": 1.0387449163855653,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 28,
+        "sampled_duration_s": 28.88315421808511,
+        "peak_rss_gib": 3.70404052734375,
+        "peak_threads": 194,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 139.35458605416983,
+        "peak_process_cpu_percent": 561.5,
+        "top_thread_cpu_s": [
+          [
+            1870326,
+            25.85
+          ],
+          [
+            1870395,
+            0.54
+          ],
+          [
+            1871107,
+            0.33999999999999997
+          ],
+          [
+            1871108,
+            0.33
+          ],
+          [
+            1871109,
+            0.33
+          ],
+          [
+            1871110,
+            0.33
+          ],
+          [
+            1871111,
+            0.33
+          ],
+          [
+            1871112,
+            0.32
+          ],
+          [
+            1871113,
+            0.32
+          ],
+          [
+            1871114,
+            0.32
+          ]
+        ],
+        "main_thread_cpu_s": 25.85,
+        "sampled_process_cpu_s": 40.25,
+        "io_delta": {
+          "read_count": 65506,
+          "write_count": 118189,
+          "read_bytes": 0,
+          "write_bytes": 236568576,
+          "read_chars": 239606195,
+          "write_chars": 235209503
+        },
+        "available_memory_min_gib": 95.38996887207031,
+        "per_core_mean_percent": [
+          6.956666666666667,
+          2.51,
+          6.523333333333333,
+          2.533333333333333,
+          5.883333333333333,
+          2.01,
+          6.386666666666667,
+          2.223333333333333,
+          57.26,
+          2.3033333333333332,
+          60.37,
+          2.3266666666666667,
+          10.996666666666666,
+          2.373333333333333,
+          8.146666666666667,
+          2.1133333333333333,
+          4.843333333333334,
+          3.7133333333333334,
+          3.3166666666666664,
+          3.026666666666667,
+          2.5666666666666664,
+          2.716666666666667,
+          2.68,
+          2.4033333333333333,
+          2.6799999999999997,
+          2.2666666666666666,
+          2.256666666666667,
+          2.5833333333333335,
+          2.1866666666666665,
+          2.3366666666666664,
+          2.0366666666666666,
+          2.51
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 7.811105854177633,
+        "peak_sampled_process_write_mib_s": 31.762207092480168
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 2.3333333333333335,
+          "util_peak": 8.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 2.0,
+          "util_peak": 7.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "I3D_evaluation_v2",
+      "backend": "I3D",
+      "sampling": "fixed",
+      "num_envs": 5,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 18.088955956045538,
+      "process_wall_s": 17.252750256098807,
+      "kit_start_s": 3.6924432045780122,
+      "build_env_s": 2.1916896319016814,
+      "reset_s": 0.020147874020040035,
+      "checkpoint_s": 0.0,
+      "checkpoint_bytes": 0,
+      "eval_budget": 256,
+      "num_eval_envs": 5,
+      "active_episode_steps": 471,
+      "total_env_steps": 1280,
+      "all_finished_cycle": 95,
+      "total_padding_env_steps": 809,
+      "all_finished_padding_cycles": 161,
+      "all_finished_padding_env_steps": 805,
+      "active_cycle_env_s": 4.437999011483043,
+      "all_finished_padding_env_s": 6.2815644522197545,
+      "validation_s": 0.12438081903383136,
+      "evaluation_wall_s": 10.918744600843638,
+      "timestep_limit_unchanged": true,
+      "resources": {
+        "samples": 16,
+        "sampled_duration_s": 15.95659414306283,
+        "peak_rss_gib": 3.520092010498047,
+        "peak_threads": 192,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 175.03735289364764,
+        "peak_process_cpu_percent": 491.1,
+        "top_thread_cpu_s": [
+          [
+            1888649,
+            13.94
+          ],
+          [
+            1888718,
+            0.30000000000000004
+          ],
+          [
+            1888798,
+            0.19
+          ],
+          [
+            1888800,
+            0.19
+          ],
+          [
+            1888803,
+            0.19
+          ],
+          [
+            1888945,
+            0.19
+          ],
+          [
+            1889394,
+            0.19
+          ],
+          [
+            1889395,
+            0.19
+          ],
+          [
+            1889396,
+            0.19
+          ],
+          [
+            1889397,
+            0.19
+          ]
+        ],
+        "main_thread_cpu_s": 13.94,
+        "sampled_process_cpu_s": 27.929999999999996,
+        "io_delta": {
+          "read_count": 34366,
+          "write_count": 39733,
+          "read_bytes": 0,
+          "write_bytes": 25833472,
+          "read_chars": 115409841,
+          "write_chars": 25219509
+        },
+        "available_memory_min_gib": 96.88505172729492,
+        "per_core_mean_percent": [
+          6.7176470588235295,
+          3.452941176470588,
+          8.83529411764706,
+          3.347058823529412,
+          7.747058823529412,
+          3.347058823529412,
+          6.4941176470588236,
+          3.4705882352941178,
+          43.04117647058823,
+          3.6,
+          50.16470588235294,
+          3.5470588235294116,
+          9.888235294117647,
+          3.6176470588235294,
+          8.276470588235295,
+          3.2941176470588234,
+          4.682352941176471,
+          4.211764705882353,
+          3.9647058823529413,
+          3.876470588235294,
+          3.776470588235294,
+          3.276470588235294,
+          3.576470588235294,
+          3.3,
+          3.5352941176470587,
+          3.2941176470588234,
+          5.7823529411764705,
+          4.4941176470588236,
+          3.0647058823529414,
+          3.2823529411764705,
+          3.288235294117647,
+          3.3294117647058825
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 1.5439835424222328,
+        "peak_sampled_process_write_mib_s": 14.981761710593041
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 1.0,
+          "util_peak": 6.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 0.6470588235294118,
+          "util_peak": 1.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "I3D_fixed_n256_t1",
+      "backend": "I3D",
+      "sampling": "fixed",
+      "num_envs": 256,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 30.12783700833097,
+      "process_wall_s": 29.26274324208498,
+      "kit_start_s": 3.7581988438032568,
+      "build_env_s": 4.293764349073172,
+      "reset_s": 1.2332767769694328,
+      "checkpoint_s": 0.041206288151443005,
+      "checkpoint_bytes": 3499182,
+      "iteration_s": 16.355946314055473,
+      "rollout_s": 15.418677763082087,
+      "update_s": 0.9372685509733856,
+      "env_s": 15.33443018887192,
+      "transitions": 12288,
+      "transitions_per_s": 751.2863984788404,
+      "env_transitions_per_s": 801.3339816772135,
+      "update_sample_equivalent_per_s": 13110.436690997996,
+      "sqlite_bytes": 98889728,
+      "sqlite_flush_all_s": 2.0484280358068645,
+      "ppo_update_share": 0.057304452642275086,
+      "zero_update_speedup_ceiling": 1.0607878681541387,
+      "environment_partition": {
+        "_apply_action": 8.672517082188278,
+        "_get_dones": 5.515294248238206,
+        "_get_observations": 0.014492210000753403,
+        "_get_rewards": 0.006861499976366758,
+        "_pre_physics_step": 0.01742761116474867,
+        "_reset_idx": 0.007509333081543446,
+        "scene.update": 0.032163168769329786,
+        "scene.write_data_to_sim": 0.35333552304655313,
+        "sim.step": 0.6992638562805951,
+        "other": 0.015565656125545502
+      },
+      "aero_s": 7.874755915720016,
+      "aero_formula_s": 5.980448915157467,
+      "control_to_python_s": 0.8064596150070429,
+      "evidence_observe_s": 2.615190112963319,
+      "sqlite_commit_rollout_s": 0.5583975547924638,
+      "sqlite_execute_rollout_s": 0.05564418435096741,
+      "json_encode_rollout_s": 0.40335721895098686,
+      "dones_excluding_reference_and_sql_s": 4.843451083172113,
+      "zero_dones_python_speedup_ceiling": 1.420712537641631,
+      "zero_sql_speedup_ceiling": 1.0390068264117185,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 27,
+        "sampled_duration_s": 27.95687263691798,
+        "peak_rss_gib": 3.7210617065429688,
+        "peak_threads": 193,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 138.74942488658948,
+        "peak_process_cpu_percent": 554.6,
+        "top_thread_cpu_s": [
+          [
+            1868738,
+            24.78
+          ],
+          [
+            1868812,
+            0.62
+          ],
+          [
+            1869551,
+            0.33
+          ],
+          [
+            1869556,
+            0.32999999999999996
+          ],
+          [
+            1869549,
+            0.32
+          ],
+          [
+            1869553,
+            0.32
+          ],
+          [
+            1869554,
+            0.32
+          ],
+          [
+            1869555,
+            0.31999999999999995
+          ],
+          [
+            1869550,
+            0.31
+          ],
+          [
+            1869552,
+            0.3
+          ]
+        ],
+        "main_thread_cpu_s": 24.78,
+        "sampled_process_cpu_s": 38.79,
+        "io_delta": {
+          "read_count": 68652,
+          "write_count": 121732,
+          "read_bytes": 0,
+          "write_bytes": 245510144,
+          "read_chars": 249955288,
+          "write_chars": 244022719
+        },
+        "available_memory_min_gib": 96.40730667114258,
+        "per_core_mean_percent": [
+          4.139285714285714,
+          2.1107142857142858,
+          4.089285714285714,
+          1.8928571428571428,
+          4.085714285714285,
+          1.7285714285714286,
+          4.328571428571428,
+          1.6642857142857144,
+          34.107142857142854,
+          1.675,
+          58.94285714285714,
+          1.8642857142857143,
+          5.817857142857143,
+          1.792857142857143,
+          6.007142857142857,
+          1.7321428571428572,
+          3.1357142857142857,
+          3.0642857142857145,
+          2.7535714285714286,
+          2.2964285714285713,
+          2.2607142857142857,
+          2.4214285714285713,
+          2.0035714285714286,
+          2.225,
+          1.9107142857142858,
+          1.9678571428571427,
+          2.1,
+          1.8071428571428572,
+          1.675,
+          1.8964285714285714,
+          1.8392857142857142,
+          1.6642857142857141
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 8.374925256869206,
+        "peak_sampled_process_write_mib_s": 26.761056856243602
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 1.5,
+          "util_peak": 7.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 2.3214285714285716,
+          "util_peak": 6.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "I3D_fixed_n256_t1_detail",
+      "backend": "I3D",
+      "sampling": "fixed",
+      "num_envs": 256,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 30.108185219112784,
+      "process_wall_s": 28.979179450776428,
+      "kit_start_s": 3.7186811943538487,
+      "build_env_s": 4.612072617281228,
+      "reset_s": 1.1417298391461372,
+      "checkpoint_s": 0.041145778726786375,
+      "checkpoint_bytes": 3499182,
+      "iteration_s": 16.555502478033304,
+      "rollout_s": 15.727848034817725,
+      "update_s": 0.8276544432155788,
+      "env_s": 15.638962772674859,
+      "transitions": 12288,
+      "transitions_per_s": 742.2305675290951,
+      "env_transitions_per_s": 785.7298580868918,
+      "update_sample_equivalent_per_s": 14846.775850388747,
+      "sqlite_bytes": 98897920,
+      "sqlite_flush_all_s": 2.0361368814483285,
+      "ppo_update_share": 0.04999271053921519,
+      "zero_update_speedup_ceiling": 1.052623502044485,
+      "environment_partition": {
+        "_apply_action": 8.764279445633292,
+        "_get_dones": 5.68585465522483,
+        "_get_observations": 0.015477526001632214,
+        "_get_rewards": 0.00783451460301876,
+        "_pre_physics_step": 0.01909117726609111,
+        "_reset_idx": 0.007616258691996336,
+        "scene.update": 0.03268178552389145,
+        "scene.write_data_to_sim": 0.3603836507536471,
+        "sim.step": 0.7286499608308077,
+        "other": 0.017093798145651817
+      },
+      "aero_s": 7.946933756582439,
+      "aero_formula_s": 6.050249584019184,
+      "control_to_python_s": 0.6709594642743468,
+      "evidence_observe_s": 2.8208922436460853,
+      "sqlite_commit_rollout_s": 0.5823288368992507,
+      "sqlite_execute_rollout_s": 0.055453896056860685,
+      "json_encode_rollout_s": 0.4125988455489278,
+      "dones_excluding_reference_and_sql_s": 4.988613980356604,
+      "zero_dones_python_speedup_ceiling": 1.4312840035899548,
+      "zero_sql_speedup_ceiling": 1.0400674684044087,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 27,
+        "sampled_duration_s": 27.94757555425167,
+        "peak_rss_gib": 3.7011642456054688,
+        "peak_threads": 193,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 139.11761299124635,
+        "peak_process_cpu_percent": 568.2,
+        "top_thread_cpu_s": [
+          [
+            1882399,
+            24.65
+          ],
+          [
+            1882468,
+            0.53
+          ],
+          [
+            1883219,
+            0.33
+          ],
+          [
+            1883222,
+            0.33
+          ],
+          [
+            1883223,
+            0.33
+          ],
+          [
+            1883224,
+            0.33
+          ],
+          [
+            1883225,
+            0.33
+          ],
+          [
+            1883218,
+            0.32
+          ],
+          [
+            1883220,
+            0.32
+          ],
+          [
+            1883221,
+            0.31
+          ]
+        ],
+        "main_thread_cpu_s": 24.65,
+        "sampled_process_cpu_s": 38.88000000000001,
+        "io_delta": {
+          "read_count": 67801,
+          "write_count": 122146,
+          "read_bytes": 0,
+          "write_bytes": 250417152,
+          "read_chars": 254801766,
+          "write_chars": 248904010
+        },
+        "available_memory_min_gib": 96.36661529541016,
+        "per_core_mean_percent": [
+          9.025,
+          2.4571428571428573,
+          9.989285714285714,
+          2.0678571428571426,
+          9.517857142857142,
+          1.6857142857142857,
+          9.517857142857142,
+          1.8928571428571428,
+          53.68571428571428,
+          2.0571428571428574,
+          60.510714285714286,
+          2.017857142857143,
+          13.232142857142858,
+          1.8785714285714286,
+          12.617857142857142,
+          2.0,
+          5.707142857142857,
+          4.4678571428571425,
+          3.8178571428571426,
+          3.642857142857143,
+          4.192857142857143,
+          2.967857142857143,
+          3.157142857142857,
+          2.8321428571428573,
+          2.7214285714285715,
+          2.592857142857143,
+          2.975,
+          2.3714285714285714,
+          2.325,
+          2.2392857142857143,
+          2.1142857142857143,
+          2.0285714285714285
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 8.545156476504053,
+        "peak_sampled_process_write_mib_s": 34.127683955498156
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 1.25,
+          "util_peak": 7.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 1.75,
+          "util_peak": 6.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "I3D_fixed_n256_t1_off",
+      "backend": "I3D",
+      "sampling": "fixed",
+      "num_envs": 256,
+      "threads": 1,
+      "affinity": null,
+      "profiled": false,
+      "end_to_end_s": 30.029767020139843,
+      "process_wall_s": 29.146122514735907,
+      "kit_start_s": null,
+      "build_env_s": null,
+      "reset_s": null,
+      "checkpoint_s": null,
+      "checkpoint_bytes": 3499118,
+      "iteration_s": 16.3208154309541,
+      "rollout_s": 15.414448437746614,
+      "update_s": 0.9063669932074845,
+      "env_s": 15.329165547620505,
+      "transitions": 12288,
+      "transitions_per_s": 752.9035575449587,
+      "env_transitions_per_s": 801.6091914349131,
+      "update_sample_equivalent_per_s": 13557.422205452096,
+      "sqlite_bytes": 98902016,
+      "sqlite_flush_all_s": 2.032571920193732,
+      "ppo_update_share": 0.05553441842669617,
+      "zero_update_speedup_ceiling": 1.0587998329533472,
+      "environment_partition": {},
+      "aero_s": null,
+      "aero_formula_s": null,
+      "control_to_python_s": null,
+      "evidence_observe_s": null,
+      "sqlite_commit_rollout_s": null,
+      "sqlite_execute_rollout_s": null,
+      "json_encode_rollout_s": null,
+      "dones_excluding_reference_and_sql_s": null,
+      "zero_dones_python_speedup_ceiling": null,
+      "zero_sql_speedup_ceiling": null,
+      "physics_calls": null,
+      "resources": {
+        "samples": 27,
+        "sampled_duration_s": 27.90967550408095,
+        "peak_rss_gib": 3.7080650329589844,
+        "peak_threads": 194,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 138.9840594682949,
+        "peak_process_cpu_percent": 562.9,
+        "top_thread_cpu_s": [
+          [
+            1874136,
+            24.71
+          ],
+          [
+            1874205,
+            0.6499999999999999
+          ],
+          [
+            1874932,
+            0.34
+          ],
+          [
+            1874933,
+            0.34
+          ],
+          [
+            1874931,
+            0.33
+          ],
+          [
+            1874926,
+            0.32
+          ],
+          [
+            1874927,
+            0.32
+          ],
+          [
+            1874929,
+            0.32
+          ],
+          [
+            1874930,
+            0.32
+          ],
+          [
+            1874928,
+            0.31
+          ]
+        ],
+        "main_thread_cpu_s": 24.71,
+        "sampled_process_cpu_s": 38.790000000000006,
+        "io_delta": {
+          "read_count": 66798,
+          "write_count": 122095,
+          "read_bytes": 0,
+          "write_bytes": 250294272,
+          "read_chars": 254596980,
+          "write_chars": 248792563
+        },
+        "available_memory_min_gib": 96.43424987792969,
+        "per_core_mean_percent": [
+          6.007142857142857,
+          2.142857142857143,
+          5.560714285714286,
+          2.0142857142857142,
+          9.528571428571428,
+          1.6714285714285715,
+          5.757142857142857,
+          1.6071428571428572,
+          41.878571428571426,
+          1.6464285714285714,
+          64.16428571428571,
+          1.7535714285714286,
+          11.239285714285714,
+          1.707142857142857,
+          7.607142857142857,
+          1.85,
+          4.307142857142857,
+          3.2857142857142856,
+          3.2714285714285714,
+          3.0464285714285713,
+          2.7071428571428573,
+          2.2071428571428573,
+          2.0357142857142856,
+          2.932142857142857,
+          1.9071428571428573,
+          1.7678571428571428,
+          2.0214285714285714,
+          1.775,
+          1.9142857142857144,
+          1.725,
+          1.6392857142857142,
+          1.7571428571428571
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 8.552561591592042,
+        "peak_sampled_process_write_mib_s": 30.022482587253627
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 1.25,
+          "util_peak": 7.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 1.7142857142857142,
+          "util_peak": 6.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "L3D_adaptive_n256_t1",
+      "backend": "L3D",
+      "sampling": "adaptive",
+      "num_envs": 256,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 27.839003024157137,
+      "process_wall_s": 25.9531195522286,
+      "kit_start_s": 3.6099853478372097,
+      "build_env_s": 4.644086019136012,
+      "reset_s": 2.662187671288848,
+      "checkpoint_s": 0.05030305590480566,
+      "checkpoint_bytes": 4635502,
+      "iteration_s": 11.43152349209413,
+      "rollout_s": 10.575457752216607,
+      "update_s": 0.856065739877522,
+      "env_s": 10.418326014187187,
+      "transitions": 12288,
+      "transitions_per_s": 1074.9223415844963,
+      "env_transitions_per_s": 1179.4601151151135,
+      "update_sample_equivalent_per_s": 14354.037812280694,
+      "sqlite_bytes": 104837120,
+      "sqlite_flush_all_s": 2.224955093115568,
+      "ppo_update_share": 0.07488640866368898,
+      "zero_update_speedup_ceiling": 1.0809483390634407,
+      "environment_partition": {
+        "_apply_action": 3.2327563310973346,
+        "_get_dones": 5.847296889405698,
+        "_get_observations": 0.03077383991330862,
+        "_get_rewards": 0.007091819774359465,
+        "_pre_physics_step": 0.017469746060669422,
+        "_reset_idx": 0.3401826689951122,
+        "scene.update": 0.02812752965837717,
+        "scene.write_data_to_sim": 0.31514679081737995,
+        "sim.step": 0.5854008486494422,
+        "other": 0.014079549815505743
+      },
+      "aero_s": 2.4834701572544873,
+      "aero_formula_s": 0.573416490573436,
+      "control_to_python_s": 0.8037348836660385,
+      "evidence_observe_s": 2.8697219882160425,
+      "sqlite_commit_rollout_s": 0.7716780682094395,
+      "sqlite_execute_rollout_s": 0.057458093389868736,
+      "json_encode_rollout_s": 0.4270589519292116,
+      "dones_excluding_reference_and_sql_s": 4.960946728941053,
+      "zero_dones_python_speedup_ceiling": 1.7666931265217864,
+      "zero_sql_speedup_ceiling": 1.0782027797847498,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 24,
+        "sampled_duration_s": 24.62296690000221,
+        "peak_rss_gib": 3.7209625244140625,
+        "peak_threads": 193,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 142.8747402490999,
+        "peak_process_cpu_percent": 559.1,
+        "top_thread_cpu_s": [
+          [
+            1867199,
+            21.33
+          ],
+          [
+            1867268,
+            0.54
+          ],
+          [
+            1867999,
+            0.32999999999999996
+          ],
+          [
+            1867997,
+            0.32
+          ],
+          [
+            1867998,
+            0.32
+          ],
+          [
+            1868000,
+            0.32
+          ],
+          [
+            1867996,
+            0.31000000000000005
+          ],
+          [
+            1868001,
+            0.31
+          ],
+          [
+            1868002,
+            0.31
+          ],
+          [
+            1867995,
+            0.3
+          ]
+        ],
+        "main_thread_cpu_s": 21.33,
+        "sampled_process_cpu_s": 35.18,
+        "io_delta": {
+          "read_count": 74716,
+          "write_count": 129916,
+          "read_bytes": 0,
+          "write_bytes": 266493952,
+          "read_chars": 272754136,
+          "write_chars": 264858815
+        },
+        "available_memory_min_gib": 96.29283905029297,
+        "per_core_mean_percent": [
+          3.95,
+          2.1,
+          5.1923076923076925,
+          2.123076923076923,
+          4.207692307692308,
+          1.7615384615384615,
+          4.75,
+          1.5038461538461538,
+          52.965384615384615,
+          2.0153846153846153,
+          39.56153846153846,
+          2.0,
+          4.842307692307692,
+          1.9846153846153847,
+          6.1038461538461535,
+          2.1653846153846152,
+          3.7576923076923077,
+          3.05,
+          2.9,
+          2.726923076923077,
+          2.4692307692307693,
+          2.5884615384615386,
+          2.1576923076923076,
+          2.1153846153846154,
+          2.076923076923077,
+          2.3346153846153848,
+          2.1615384615384614,
+          1.8692307692307693,
+          1.726923076923077,
+          2.0538461538461537,
+          1.8307692307692307,
+          1.8
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 10.32160090748354,
+        "peak_sampled_process_write_mib_s": 27.050334223564807
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 0.9615384615384616,
+          "util_peak": 5.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 1.5384615384615385,
+          "util_peak": 6.0,
+          "memory_peak_mib": 427.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "L3D_evaluation_v2",
+      "backend": "L3D",
+      "sampling": "fixed",
+      "num_envs": 5,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 17.04159191204235,
+      "process_wall_s": 15.995655783917755,
+      "kit_start_s": 3.6503613949753344,
+      "build_env_s": 2.0977824316360056,
+      "reset_s": 0.020061166025698185,
+      "checkpoint_s": 0.0,
+      "checkpoint_bytes": 0,
+      "eval_budget": 256,
+      "num_eval_envs": 5,
+      "active_episode_steps": 626,
+      "total_env_steps": 1280,
+      "all_finished_cycle": 126,
+      "total_padding_env_steps": 654,
+      "all_finished_padding_cycles": 130,
+      "all_finished_padding_env_steps": 650,
+      "active_cycle_env_s": 5.19282767130062,
+      "all_finished_padding_env_s": 4.354337295517325,
+      "validation_s": 0.16370595805346966,
+      "evaluation_wall_s": 9.78497206280008,
+      "timestep_limit_unchanged": true,
+      "resources": {
+        "samples": 15,
+        "sampled_duration_s": 14.926754001062363,
+        "peak_rss_gib": 3.518878936767578,
+        "peak_threads": 192,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 174.58584765412002,
+        "peak_process_cpu_percent": 464.9,
+        "top_thread_cpu_s": [
+          [
+            1887429,
+            12.790000000000001
+          ],
+          [
+            1887498,
+            0.26
+          ],
+          [
+            1888155,
+            0.2
+          ],
+          [
+            1888158,
+            0.2
+          ],
+          [
+            1888152,
+            0.19
+          ],
+          [
+            1888153,
+            0.19
+          ],
+          [
+            1888154,
+            0.19
+          ],
+          [
+            1888157,
+            0.19
+          ],
+          [
+            1888151,
+            0.18
+          ],
+          [
+            1888156,
+            0.18
+          ]
+        ],
+        "main_thread_cpu_s": 12.790000000000001,
+        "sampled_process_cpu_s": 26.06,
+        "io_delta": {
+          "read_count": 36073,
+          "write_count": 40839,
+          "read_bytes": 0,
+          "write_bytes": 28942336,
+          "read_chars": 121006929,
+          "write_chars": 28190024
+        },
+        "available_memory_min_gib": 96.31937026977539,
+        "per_core_mean_percent": [
+          5.8625,
+          3.53125,
+          6.825,
+          3.5437499999999997,
+          8.95625,
+          3.325,
+          5.425,
+          4.23125,
+          45.63125,
+          3.2,
+          40.025,
+          3.50625,
+          11.0,
+          3.25,
+          8.525,
+          3.2625,
+          5.4375,
+          3.7875,
+          3.6375,
+          3.70625,
+          4.55,
+          3.5,
+          4.19375,
+          3.31875,
+          3.3625,
+          3.1875,
+          4.03125,
+          4.5687500000000005,
+          3.25,
+          3.1999999999999997,
+          3.2875,
+          3.3
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 1.8491336092251234,
+        "peak_sampled_process_write_mib_s": 14.815688997721965
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 0.8125,
+          "util_peak": 2.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 0.5625,
+          "util_peak": 1.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "L3D_fixed_n128_t1_on",
+      "backend": "L3D",
+      "sampling": "fixed",
+      "num_envs": 128,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 17.16496741399169,
+      "process_wall_s": 15.94239884801209,
+      "kit_start_s": 3.9167492762207985,
+      "build_env_s": 2.861160726752132,
+      "reset_s": 0.620573379099369,
+      "checkpoint_s": 0.041405027732253075,
+      "checkpoint_bytes": 3498094,
+      "iteration_s": 6.6625613840296865,
+      "rollout_s": 6.198160787113011,
+      "update_s": 0.46440059691667557,
+      "env_s": 6.087211276870221,
+      "transitions": 6144,
+      "transitions_per_s": 922.1678639580432,
+      "env_transitions_per_s": 1009.3291854918132,
+      "update_sample_equivalent_per_s": 13229.957155077427,
+      "sqlite_bytes": 52535296,
+      "sqlite_flush_all_s": 1.3088022745214403,
+      "ppo_update_share": 0.06970301212231297,
+      "zero_update_speedup_ceiling": 1.0749255485405025,
+      "environment_partition": {
+        "_apply_action": 2.2181360367685556,
+        "_get_dones": 3.042048371396959,
+        "_get_observations": 0.02454398339614272,
+        "_get_rewards": 0.0065364898182451725,
+        "_pre_physics_step": 0.016403918154537678,
+        "_reset_idx": 0.13859879272058606,
+        "scene.update": 0.022008084692060947,
+        "scene.write_data_to_sim": 0.18800177378579974,
+        "sim.step": 0.41734380181878805,
+        "other": 0.013590024318546057
+      },
+      "aero_s": 1.6204275176860392,
+      "aero_formula_s": 0.33890803856775165,
+      "control_to_python_s": 0.3347821068018675,
+      "evidence_observe_s": 1.4981183572672307,
+      "sqlite_commit_rollout_s": 0.5755387861281633,
+      "sqlite_execute_rollout_s": 0.02998285461217165,
+      "json_encode_rollout_s": 0.22204014146700501,
+      "dones_excluding_reference_and_sql_s": 2.394361895043403,
+      "zero_dones_python_speedup_ceiling": 1.5609770352163352,
+      "zero_sql_speedup_ceiling": 1.0999698972441443,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 14,
+        "sampled_duration_s": 13.869203328154981,
+        "peak_rss_gib": 3.6171226501464844,
+        "peak_threads": 194,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 166.12345680467436,
+        "peak_process_cpu_percent": 546.2,
+        "top_thread_cpu_s": [
+          [
+            1875737,
+            11.99
+          ],
+          [
+            1875806,
+            0.27
+          ],
+          [
+            1876412,
+            0.19
+          ],
+          [
+            1876413,
+            0.18
+          ],
+          [
+            1876414,
+            0.18
+          ],
+          [
+            1876499,
+            0.18
+          ],
+          [
+            1876494,
+            0.17
+          ],
+          [
+            1876495,
+            0.17
+          ],
+          [
+            1876496,
+            0.17
+          ],
+          [
+            1876501,
+            0.17
+          ]
+        ],
+        "main_thread_cpu_s": 11.99,
+        "sampled_process_cpu_s": 23.04,
+        "io_delta": {
+          "read_count": 46762,
+          "write_count": 76237,
+          "read_bytes": 0,
+          "write_bytes": 123301888,
+          "read_chars": 167552459,
+          "write_chars": 122577182
+        },
+        "available_memory_min_gib": 96.59844589233398,
+        "per_core_mean_percent": [
+          8.76875,
+          3.96875,
+          6.3375,
+          2.96875,
+          7.25,
+          3.025,
+          8.39375,
+          3.49375,
+          34.725,
+          2.9000000000000004,
+          61.40625,
+          2.7687500000000003,
+          11.39375,
+          3.7687500000000003,
+          7.275,
+          3.08125,
+          5.5125,
+          5.15,
+          4.44375,
+          3.98125,
+          4.6875,
+          3.74375,
+          3.96875,
+          3.5125,
+          3.09375,
+          3.94375,
+          3.11875,
+          2.9875,
+          3.225,
+          3.6125000000000003,
+          2.80625,
+          3.1437500000000003
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 8.478485819822714,
+        "peak_sampled_process_write_mib_s": 17.902938117707667
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 0.5625,
+          "util_peak": 1.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 0.5625,
+          "util_peak": 1.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "L3D_fixed_n256_t1_off",
+      "backend": "L3D",
+      "sampling": "fixed",
+      "num_envs": 256,
+      "threads": 1,
+      "affinity": null,
+      "profiled": false,
+      "end_to_end_s": 25.84767895191908,
+      "process_wall_s": 24.13952445005998,
+      "kit_start_s": null,
+      "build_env_s": null,
+      "reset_s": null,
+      "checkpoint_s": null,
+      "checkpoint_bytes": 3499118,
+      "iteration_s": 11.04813410807401,
+      "rollout_s": 10.113948965910822,
+      "update_s": 0.9341851421631873,
+      "env_s": 9.956063535995781,
+      "transitions": 12288,
+      "transitions_per_s": 1112.2240081263942,
+      "env_transitions_per_s": 1234.222738291413,
+      "update_sample_equivalent_per_s": 13153.709522232459,
+      "sqlite_bytes": 104189952,
+      "sqlite_flush_all_s": 2.2668380830436945,
+      "ppo_update_share": 0.0845559198526095,
+      "zero_update_speedup_ceiling": 1.0923660130490938,
+      "environment_partition": {},
+      "aero_s": null,
+      "aero_formula_s": null,
+      "control_to_python_s": null,
+      "evidence_observe_s": null,
+      "sqlite_commit_rollout_s": null,
+      "sqlite_execute_rollout_s": null,
+      "json_encode_rollout_s": null,
+      "dones_excluding_reference_and_sql_s": null,
+      "zero_dones_python_speedup_ceiling": null,
+      "zero_sql_speedup_ceiling": null,
+      "physics_calls": null,
+      "resources": {
+        "samples": 22,
+        "sampled_duration_s": 22.525603351183236,
+        "peak_rss_gib": 3.6970787048339844,
+        "peak_threads": 194,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 145.34571833468877,
+        "peak_process_cpu_percent": 539.2,
+        "top_thread_cpu_s": [
+          [
+            1872639,
+            19.33
+          ],
+          [
+            1872708,
+            0.52
+          ],
+          [
+            1873425,
+            0.33
+          ],
+          [
+            1873430,
+            0.33
+          ],
+          [
+            1873424,
+            0.32
+          ],
+          [
+            1873429,
+            0.32
+          ],
+          [
+            1873431,
+            0.32
+          ],
+          [
+            1873426,
+            0.31
+          ],
+          [
+            1873427,
+            0.30000000000000004
+          ],
+          [
+            1873428,
+            0.3
+          ]
+        ],
+        "main_thread_cpu_s": 19.33,
+        "sampled_process_cpu_s": 32.74,
+        "io_delta": {
+          "read_count": 70932,
+          "write_count": 126951,
+          "read_bytes": 0,
+          "write_bytes": 258453504,
+          "read_chars": 259569723,
+          "write_chars": 256861246
+        },
+        "available_memory_min_gib": 96.41630935668945,
+        "per_core_mean_percent": [
+          5.4125,
+          2.3125,
+          4.65,
+          2.1875,
+          5.004166666666666,
+          2.2291666666666665,
+          4.904166666666667,
+          2.0708333333333333,
+          22.958333333333332,
+          2.0,
+          67.2375,
+          2.7041666666666666,
+          8.020833333333334,
+          2.158333333333333,
+          5.6125,
+          2.216666666666667,
+          3.8625,
+          3.5541666666666667,
+          3.3208333333333333,
+          2.6166666666666667,
+          2.5458333333333334,
+          2.7583333333333333,
+          2.7291666666666665,
+          2.3375,
+          2.1416666666666666,
+          2.125,
+          2.2625,
+          2.1458333333333335,
+          2.029166666666667,
+          2.058333333333333,
+          2.404166666666667,
+          2.075
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 10.942236037244825,
+        "peak_sampled_process_write_mib_s": 26.644144995374837
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 0.625,
+          "util_peak": 1.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 1.375,
+          "util_peak": 7.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "L3D_fixed_n256_t1_v2",
+      "backend": "L3D",
+      "sampling": "fixed",
+      "num_envs": 256,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 25.82299933861941,
+      "process_wall_s": 24.146188230253756,
+      "kit_start_s": 3.854370756074786,
+      "build_env_s": 4.355928129982203,
+      "reset_s": 1.17197081213817,
+      "checkpoint_s": 0.040972061920911074,
+      "checkpoint_bytes": 3499118,
+      "iteration_s": 11.44112821109593,
+      "rollout_s": 10.523856154177338,
+      "update_s": 0.9172720569185913,
+      "env_s": 10.366601838264614,
+      "transitions": 12288,
+      "transitions_per_s": 1074.0199544379504,
+      "env_transitions_per_s": 1185.3450331856318,
+      "update_sample_equivalent_per_s": 13396.243685084339,
+      "sqlite_bytes": 106348544,
+      "sqlite_flush_all_s": 2.2383765117265284,
+      "ppo_update_share": 0.08017321718578374,
+      "zero_update_speedup_ceiling": 1.0871612119626406,
+      "environment_partition": {
+        "_apply_action": 3.2748897345736623,
+        "_get_dones": 5.841476689558476,
+        "_get_observations": 0.031474008690565825,
+        "_get_rewards": 0.007400218863040209,
+        "_pre_physics_step": 0.017812292091548443,
+        "_reset_idx": 0.18810474406927824,
+        "scene.update": 0.030055503826588392,
+        "scene.write_data_to_sim": 0.33021283568814397,
+        "sim.step": 0.629389151930809,
+        "other": 0.015786658972501755
+      },
+      "aero_s": 2.4962556273676455,
+      "aero_formula_s": 0.5824797307141125,
+      "control_to_python_s": 0.8211843897588551,
+      "evidence_observe_s": 2.937035529408604,
+      "sqlite_commit_rollout_s": 0.7606337172910571,
+      "sqlite_execute_rollout_s": 0.05974109610542655,
+      "json_encode_rollout_s": 0.4318925077095628,
+      "dones_excluding_reference_and_sql_s": 4.961159334983677,
+      "zero_dones_python_speedup_ceiling": 1.7656146857853727,
+      "zero_sql_speedup_ceiling": 1.077242619490081,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 22,
+        "sampled_duration_s": 22.413073516916484,
+        "peak_rss_gib": 3.6964187622070312,
+        "peak_threads": 193,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 146.16469256335625,
+        "peak_process_cpu_percent": 549.7,
+        "top_thread_cpu_s": [
+          [
+            1865625,
+            19.3
+          ],
+          [
+            1865695,
+            0.45
+          ],
+          [
+            1866408,
+            0.34
+          ],
+          [
+            1866410,
+            0.34
+          ],
+          [
+            1866411,
+            0.34
+          ],
+          [
+            1866405,
+            0.33
+          ],
+          [
+            1866406,
+            0.33
+          ],
+          [
+            1866412,
+            0.33
+          ],
+          [
+            1866407,
+            0.32
+          ],
+          [
+            1866409,
+            0.31999999999999995
+          ]
+        ],
+        "main_thread_cpu_s": 19.3,
+        "sampled_process_cpu_s": 32.76,
+        "io_delta": {
+          "read_count": 71044,
+          "write_count": 125021,
+          "read_bytes": 0,
+          "write_bytes": 253456384,
+          "read_chars": 255328479,
+          "write_chars": 251936254
+        },
+        "available_memory_min_gib": 96.33095169067383,
+        "per_core_mean_percent": [
+          6.725,
+          2.6041666666666665,
+          7.0125,
+          2.5083333333333333,
+          6.320833333333334,
+          2.2916666666666665,
+          8.420833333333333,
+          2.033333333333333,
+          30.166666666666668,
+          2.0,
+          64.225,
+          2.45,
+          11.295833333333333,
+          2.1791666666666667,
+          8.316666666666666,
+          2.3541666666666665,
+          5.2375,
+          4.320833333333334,
+          4.3125,
+          3.5625,
+          2.9208333333333334,
+          2.5625,
+          2.6041666666666665,
+          2.725,
+          2.8833333333333333,
+          2.316666666666667,
+          2.4541666666666666,
+          2.1708333333333334,
+          2.095833333333333,
+          2.441666666666667,
+          2.0541666666666667,
+          2.254166666666667
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 10.784546955042261,
+        "peak_sampled_process_write_mib_s": 28.14837347076022
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 0.7916666666666666,
+          "util_peak": 4.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 1.2083333333333333,
+          "util_peak": 6.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "L3D_fixed_n256_t4_on",
+      "backend": "L3D",
+      "sampling": "fixed",
+      "num_envs": 256,
+      "threads": 4,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 24.775020534638315,
+      "process_wall_s": 23.466102711856365,
+      "kit_start_s": 3.74959385022521,
+      "build_env_s": 4.549474216997623,
+      "reset_s": 1.2465427578426898,
+      "checkpoint_s": 0.04113501496613026,
+      "checkpoint_bytes": 3499118,
+      "iteration_s": 10.923603089526296,
+      "rollout_s": 10.61969594284892,
+      "update_s": 0.30390714667737484,
+      "env_s": 10.488229299429804,
+      "transitions": 12288,
+      "transitions_per_s": 1124.9035596855315,
+      "env_transitions_per_s": 1171.5990992557763,
+      "update_sample_equivalent_per_s": 40433.402551881525,
+      "sqlite_bytes": 104316928,
+      "sqlite_flush_all_s": 2.2201146162115037,
+      "ppo_update_share": 0.027821145109965164,
+      "zero_update_speedup_ceiling": 1.028617311485459,
+      "environment_partition": {
+        "_apply_action": 3.346824172884226,
+        "_get_dones": 5.822186197619885,
+        "_get_observations": 0.03123639477416873,
+        "_get_rewards": 0.01473565073683858,
+        "_pre_physics_step": 0.018440904561430216,
+        "_reset_idx": 0.18959697894752026,
+        "scene.update": 0.028664832934737206,
+        "scene.write_data_to_sim": 0.32506897021085024,
+        "sim.step": 0.6958122653886676,
+        "other": 0.015662931371480227
+      },
+      "aero_s": 2.5244843810796738,
+      "aero_formula_s": 0.5287195397540927,
+      "control_to_python_s": 0.8507493529468775,
+      "evidence_observe_s": 2.9032340166158974,
+      "sqlite_commit_rollout_s": 0.780974926892668,
+      "sqlite_execute_rollout_s": 0.06148162949830294,
+      "json_encode_rollout_s": 0.422575784381479,
+      "dones_excluding_reference_and_sql_s": 4.9214306040667,
+      "zero_dones_python_speedup_ceiling": 1.819941548829025,
+      "zero_sql_speedup_ceiling": 1.0835675340718374,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 22,
+        "sampled_duration_s": 22.563965056091547,
+        "peak_rss_gib": 3.7245521545410156,
+        "peak_threads": 200,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 218.97747083534364,
+        "peak_process_cpu_percent": 517.9,
+        "top_thread_cpu_s": [
+          [
+            1878967,
+            19.04
+          ],
+          [
+            1879804,
+            5.62
+          ],
+          [
+            1879805,
+            5.619999999999999
+          ],
+          [
+            1879803,
+            5.609999999999999
+          ],
+          [
+            1879795,
+            0.37
+          ],
+          [
+            1879794,
+            0.35000000000000003
+          ],
+          [
+            1879797,
+            0.35000000000000003
+          ],
+          [
+            1879799,
+            0.35000000000000003
+          ],
+          [
+            1879798,
+            0.35
+          ],
+          [
+            1879796,
+            0.34
+          ]
+        ],
+        "main_thread_cpu_s": 19.04,
+        "sampled_process_cpu_s": 49.41,
+        "io_delta": {
+          "read_count": 74352,
+          "write_count": 130435,
+          "read_bytes": 90112,
+          "write_bytes": 272080896,
+          "read_chars": 277237942,
+          "write_chars": 270413613
+        },
+        "available_memory_min_gib": 96.45919418334961,
+        "per_core_mean_percent": [
+          18.160869565217393,
+          2.9652173913043476,
+          14.104347826086956,
+          2.5521739130434784,
+          13.782608695652174,
+          2.3347826086956522,
+          10.395652173913044,
+          2.239130434782609,
+          58.91304347826087,
+          2.1739130434782608,
+          62.58695652173913,
+          2.4,
+          30.12608695652174,
+          2.1565217391304348,
+          32.04347826086956,
+          2.0869565217391304,
+          7.6695652173913045,
+          5.782608695652174,
+          5.1521739130434785,
+          4.678260869565217,
+          4.839130434782609,
+          4.317391304347826,
+          3.926086956521739,
+          3.643478260869565,
+          3.365217391304348,
+          3.160869565217391,
+          3.617391304347826,
+          2.926086956521739,
+          2.760869565217391,
+          2.508695652173913,
+          2.6043478260869564,
+          2.4869565217391303
+        ],
+        "mean_process_read_mib_s": 0.003808616960111788,
+        "mean_process_write_mib_s": 11.499599554199348,
+        "peak_sampled_process_write_mib_s": 31.057791214865805
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 0.9565217391304348,
+          "util_peak": 7.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 1.4782608695652173,
+          "util_peak": 8.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "L3D_fixed_n256_t8_on",
+      "backend": "L3D",
+      "sampling": "fixed",
+      "num_envs": 256,
+      "threads": 8,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 24.841341060120612,
+      "process_wall_s": 23.792493529152125,
+      "kit_start_s": 3.623918860219419,
+      "build_env_s": 4.522574419155717,
+      "reset_s": 1.107353504281491,
+      "checkpoint_s": 0.04267709096893668,
+      "checkpoint_bytes": 3499118,
+      "iteration_s": 11.725784162990749,
+      "rollout_s": 11.51778559666127,
+      "update_s": 0.20799856632947922,
+      "env_s": 11.389676984399557,
+      "transitions": 12288,
+      "transitions_per_s": 1047.9469713235667,
+      "env_transitions_per_s": 1078.8716850206442,
+      "update_sample_equivalent_per_s": 59077.33027609069,
+      "sqlite_bytes": 104321024,
+      "sqlite_flush_all_s": 2.223215631209314,
+      "ppo_update_share": 0.01773856344601414,
+      "zero_update_speedup_ceiling": 1.01805890243258,
+      "environment_partition": {
+        "_apply_action": 4.139655233360827,
+        "_get_dones": 5.763156960718334,
+        "_get_observations": 0.031171299051493406,
+        "_get_rewards": 0.025045307353138924,
+        "_pre_physics_step": 0.01963833160698414,
+        "_reset_idx": 0.1921848701313138,
+        "scene.update": 0.031576672568917274,
+        "scene.write_data_to_sim": 0.36138754757121205,
+        "sim.step": 0.8095689238980412,
+        "other": 0.016291838139295578
+      },
+      "aero_s": 3.1165673132054508,
+      "aero_formula_s": 0.6254567210562527,
+      "control_to_python_s": 0.9478496764786541,
+      "evidence_observe_s": 2.788215764798224,
+      "sqlite_commit_rollout_s": 0.7993520814925432,
+      "sqlite_execute_rollout_s": 0.05650702957063913,
+      "json_encode_rollout_s": 0.40406165225431323,
+      "dones_excluding_reference_and_sql_s": 4.8227941216900945,
+      "zero_dones_python_speedup_ceiling": 1.6986529160313533,
+      "zero_sql_speedup_ceiling": 1.0787364316657742,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 22,
+        "sampled_duration_s": 22.67741298582405,
+        "peak_rss_gib": 3.6974868774414062,
+        "peak_threads": 207,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 346.11531769106614,
+        "peak_process_cpu_percent": 567.9,
+        "top_thread_cpu_s": [
+          [
+            1880475,
+            19.090000000000003
+          ],
+          [
+            1881283,
+            6.48
+          ],
+          [
+            1881284,
+            6.48
+          ],
+          [
+            1881285,
+            6.48
+          ],
+          [
+            1881288,
+            6.46
+          ],
+          [
+            1881286,
+            6.45
+          ],
+          [
+            1881287,
+            6.45
+          ],
+          [
+            1881289,
+            6.42
+          ],
+          [
+            1880544,
+            0.43
+          ],
+          [
+            1881276,
+            0.37
+          ]
+        ],
+        "main_thread_cpu_s": 19.090000000000003,
+        "sampled_process_cpu_s": 78.49,
+        "io_delta": {
+          "read_count": 74876,
+          "write_count": 130598,
+          "read_bytes": 0,
+          "write_bytes": 272273408,
+          "read_chars": 277207956,
+          "write_chars": 270626104
+        },
+        "available_memory_min_gib": 96.48316192626953,
+        "per_core_mean_percent": [
+          31.791304347826088,
+          2.6695652173913045,
+          30.2,
+          2.5782608695652174,
+          30.965217391304346,
+          2.269565217391304,
+          30.05217391304348,
+          2.1956521739130435,
+          68.78695652173913,
+          2.5130434782608697,
+          56.86086956521739,
+          2.6652173913043478,
+          34.69565217391305,
+          2.356521739130435,
+          33.35217391304348,
+          2.2956521739130435,
+          15.056521739130435,
+          9.52608695652174,
+          6.2956521739130435,
+          5.247826086956522,
+          5.426086956521739,
+          5.434782608695652,
+          4.482608695652174,
+          4.578260869565217,
+          4.247826086956522,
+          4.247826086956522,
+          4.260869565217392,
+          4.526086956521739,
+          4.278260869565218,
+          3.973913043478261,
+          3.6869565217391305,
+          3.6043478260869564
+        ],
+        "mean_process_read_mib_s": 0.0,
+        "mean_process_write_mib_s": 11.450166578185836,
+        "peak_sampled_process_write_mib_s": 35.46093142954656
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 0.9565217391304348,
+          "util_peak": 7.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 0.782608695652174,
+          "util_peak": 4.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    },
+    {
+      "name": "L3D_fixed_n512_t1_on",
+      "backend": "L3D",
+      "sampling": "fixed",
+      "num_envs": 512,
+      "threads": 1,
+      "affinity": null,
+      "profiled": true,
+      "end_to_end_s": 43.99295796500519,
+      "process_wall_s": 43.10560274403542,
+      "kit_start_s": 3.758617866784334,
+      "build_env_s": 10.148697170894593,
+      "reset_s": 2.514573148917407,
+      "checkpoint_s": 0.04068911913782358,
+      "checkpoint_bytes": 3501166,
+      "iteration_s": 21.18605378968641,
+      "rollout_s": 19.45467849029228,
+      "update_s": 1.7313752993941307,
+      "env_s": 19.148995012510568,
+      "transitions": 24576,
+      "transitions_per_s": 1160.0083830601736,
+      "env_transitions_per_s": 1283.409389575997,
+      "update_sample_equivalent_per_s": 14194.496137608068,
+      "sqlite_bytes": 212971520,
+      "sqlite_flush_all_s": 4.05354251107201,
+      "ppo_update_share": 0.08172240647463011,
+      "zero_update_speedup_ceiling": 1.0889953180289293,
+      "environment_partition": {
+        "_apply_action": 5.314932099077851,
+        "_get_dones": 11.639040268491954,
+        "_get_observations": 0.05074741691350937,
+        "_get_rewards": 0.008095421362668276,
+        "_pre_physics_step": 0.019266629591584206,
+        "_reset_idx": 0.4126629615202546,
+        "scene.update": 0.04581546084955335,
+        "scene.write_data_to_sim": 0.6133213168941438,
+        "sim.step": 1.027264934964478,
+        "other": 0.017848502844572067
+      },
+      "aero_s": 4.220452052541077,
+      "aero_formula_s": 1.0534110679291189,
+      "control_to_python_s": 1.8141971458680928,
+      "evidence_observe_s": 6.018891577608883,
+      "sqlite_commit_rollout_s": 1.1568909748457372,
+      "sqlite_execute_rollout_s": 0.24049888970330358,
+      "json_encode_rollout_s": 0.8580706953071058,
+      "dones_excluding_reference_and_sql_s": 10.152407576330006,
+      "zero_dones_python_speedup_ceiling": 1.9201316935502566,
+      "zero_sql_speedup_ceiling": 1.0706156752085698,
+      "physics_calls": 384,
+      "resources": {
+        "samples": 40,
+        "sampled_duration_s": 41.83434295281768,
+        "peak_rss_gib": 3.8952293395996094,
+        "peak_threads": 193,
+        "affinity": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "mean_process_cpu_percent": 130.27574034440343,
+        "peak_process_cpu_percent": 627.0,
+        "top_thread_cpu_s": [
+          [
+            1876922,
+            36.32
+          ],
+          [
+            1876991,
+            0.7699999999999999
+          ],
+          [
+            1877918,
+            0.62
+          ],
+          [
+            1877921,
+            0.62
+          ],
+          [
+            1877923,
+            0.62
+          ],
+          [
+            1877920,
+            0.61
+          ],
+          [
+            1877925,
+            0.61
+          ],
+          [
+            1877919,
+            0.6
+          ],
+          [
+            1877922,
+            0.59
+          ],
+          [
+            1877924,
+            0.59
+          ]
+        ],
+        "main_thread_cpu_s": 36.32,
+        "sampled_process_cpu_s": 54.49999999999999,
+        "io_delta": {
+          "read_count": 139181,
+          "write_count": 242549,
+          "read_bytes": 4096,
+          "write_bytes": 541315072,
+          "read_chars": 535888884,
+          "write_chars": 539680364
+        },
+        "available_memory_min_gib": 96.30428314208984,
+        "per_core_mean_percent": [
+          6.695121951219512,
+          2.1121951219512196,
+          7.160975609756098,
+          1.6829268292682926,
+          8.009756097560976,
+          1.3390243902439023,
+          7.068292682926829,
+          1.3829268292682926,
+          52.80731707317073,
+          1.5073170731707317,
+          55.980487804878045,
+          1.5560975609756098,
+          11.653658536585366,
+          1.4,
+          11.102439024390243,
+          1.4292682926829268,
+          5.621951219512195,
+          4.351219512195122,
+          3.6463414634146343,
+          3.1195121951219513,
+          3.2341463414634144,
+          2.4365853658536585,
+          2.5902439024390245,
+          1.9829268292682927,
+          1.9121951219512194,
+          1.7707317073170732,
+          1.9121951219512194,
+          1.6292682926829267,
+          1.5609756097560976,
+          1.3853658536585365,
+          1.4317073170731707,
+          1.3707317073170733
+        ],
+        "mean_process_read_mib_s": 9.337424049914237e-05,
+        "mean_process_write_mib_s": 12.34005950164516,
+        "peak_sampled_process_write_mib_s": 38.51062118228224
+      },
+      "gpu": {
+        "0": {
+          "util_mean": 2.4146341463414633,
+          "util_peak": 7.0,
+          "memory_peak_mib": 607.0,
+          "capacity_mib": 49140.0
+        },
+        "1": {
+          "util_mean": 2.8780487804878048,
+          "util_peak": 7.0,
+          "memory_peak_mib": 424.0,
+          "capacity_mib": 49140.0
+        }
+      }
+    }
+  ],
+  "excluded": [
+    {
+      "name": "L3D_evaluation",
+      "reason": "Frozen physical identity includes absolute URDF paths; independent worktree path mismatch. No evaluation control steps performed; rerun reads original source checkout without changing it."
+    },
+    {
+      "name": "L3D_fixed_n256_t1",
+      "reason": "Kit fast shutdown bypassed outer finally; missing profiler export. Excluded from benchmark comparisons.",
+      "checkpoints_deleted": [
+        {
+          "name": "model_000001_final.pt",
+          "bytes": 3499118
+        }
+      ]
+    }
+  ]
+}
