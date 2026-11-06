@@ -8,10 +8,33 @@ from time import perf_counter
 import numpy as np
 from .trajectory_evidence import canonical, identity
 
+# Raw actor output is retained before clipping. Remaining fields are sampled
+# after the decimated physics interval, including actuator internal state.
+CONTROL_FIELDS = ('raw_command', 'command', 'applied', 'actuator_state',
+                  'joint_pos', 'joint_vel', 'root_state', 'phase',
+                  'path_error_xyz', 'reference', 'projection')
+
+
+def valid_interval(finite, values, control):
+    return bool(finite and finite_tree(values) and
+                all(k in control and finite_tree(control[k]) for k in CONTROL_FIELDS))
+
+
+def terminal_outcome(contract, length, step, values, valid):
+    progress, error, height, tilt, rate = values
+    if not valid: return 'invalid_data'
+    if (height < contract['min_height_m'] or height > contract['max_height_m']
+            or error > contract['max_path_error_m'] or tilt < contract['min_tilt_cos']
+            or rate > contract['max_body_rate_rad_s']): return 'failed'
+    if progress >= length-contract['completion_tolerance_m'] and error <= contract['completion_tolerance_m']:
+        return 'completed'
+    if step >= contract['max_steps']: return 'timeout'
+    return None
+
 
 def finite_tree(value):
     if isinstance(value, dict):
-        return all(finite_tree(v) for v in value.values())
+        return bool(value) and all(finite_tree(v) for v in value.values())
     if isinstance(value, (list, tuple)):
         return bool(value) and all(finite_tree(v) for v in value)
     return isinstance(value, (float, int, np.number)) and bool(np.isfinite(value))
@@ -31,16 +54,22 @@ class FeedbackStore:
     Legacy JSONL is left untouched; explicit migration is needed to import it.
     Separate episode, steps, terminal and witness tables are insert-only.
     """
-    def __init__(self, directory, *, simulated=False):
+    def __init__(self, directory, *, simulated=False, readonly=False):
         self.simulated = simulated
+        self.readonly = readonly
         self.flush_seconds = 0.
         self.flush_calls = 0
-        directory = Path(directory); directory.mkdir(parents=True, exist_ok=True)
+        directory = Path(directory)
+        if not readonly: directory.mkdir(parents=True, exist_ok=True)
         legacy = directory / ('simulation_feedback.jsonl' if simulated else 'rollout_feedback.jsonl')
         if legacy.exists():
             raise ValueError('Legacy v1 JSONL present: preserve and explicitly migrate/re-evaluate it; '
                              'v1 sanitized actuator traces cannot be silently certified as v2 evidence')
         self.path = directory / ('simulation_feedback.sqlite3' if simulated else 'rollout_feedback.sqlite3')
+        if readonly:
+            self.db = sqlite3.connect(self.path.resolve().as_uri()+'?mode=ro', uri=True)
+            self.db.execute('BEGIN')  # one snapshot for validation and sampler receipts
+            return
         self.db = sqlite3.connect(self.path)
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('PRAGMA synchronous=FULL')
@@ -105,7 +134,8 @@ class FeedbackStore:
         finally: target.close()
 
     def close(self):
-        self.flush(); self.db.close()
+        if not self.readonly: self.flush()
+        self.db.close()
 
     def iter_records(self):
         for seq, payload in self.db.execute('SELECT seq,payload FROM terminals ORDER BY seq'):
@@ -171,7 +201,7 @@ class RolloutEvaluator:
     row binds that command, its actual applied actuator state and resulting body /
     joint state. No checkpoint attribution without an explicit frozen evaluation.
     """
-    CONTROL_FIELDS = ('command', 'applied', 'joint_pos', 'joint_vel', 'root_state', 'phase')
+    CONTROL_FIELDS = CONTROL_FIELDS
 
     def __init__(self, store):
         self.store = store
@@ -194,7 +224,7 @@ class RolloutEvaluator:
             plant=deepcopy(plant), initial=deepcopy(initial), contract=deepcopy(contract),
             reset_policy_version=policy_version, evaluation_mode=evaluation_mode, source=source,
             identity=identity(spec, plant, initial, contract), simulated=self.store.simulated,
-            evaluator='unified_terminal_v2', timing='command -> decimated physics -> applied/joint/body sample')
+            evaluator='unified_terminal_v3', timing='command -> decimated physics -> applied/joint/body sample')
         self.store._begin(r)
         self.active[env_id] = dict(record=r, step=0, versions=set(), modes=set(), valid=True,
                                    distance=0., error=None, error_squares=[0.,0.], error_max=[0.,0.])
@@ -227,14 +257,9 @@ class RolloutEvaluator:
         if execution_mode not in ('training', 'frozen'): raise ValueError('Invalid execution mode')
         c = state['record']['contract']
         values = [progress_m, path_error_m, height_m, tilt_cos, body_rate_rad_s]
-        data_valid = all(k in control and finite_tree(control[k]) for k in self.CONTROL_FIELDS)
-        valid = bool(finite and np.isfinite(values).all() and data_valid)
+        valid = valid_interval(finite, values, control)
         state['valid'] &= valid
-        failed = (height_m < c['min_height_m'] or height_m > c['max_height_m']
-                  or path_error_m > c['max_path_error_m'] or tilt_cos < c['min_tilt_cos']
-                  or body_rate_rad_s > c['max_body_rate_rad_s'])
-        completed = (valid and not failed and progress_m >= state['record']['trajectory']['length_m']-c['completion_tolerance_m']
-                     and path_error_m <= c['completion_tolerance_m'])
+        outcome = terminal_outcome(c, state['record']['trajectory']['length_m'], step, values, valid)
         sample = dict(zip(('progress_m', 'path_error_m', 'height_m', 'tilt_cos', 'body_rate_rad_s'), values))
         sample.update(finite=valid, step=int(step), control=control, policy_version=policy_version,
                       execution_mode=execution_mode)
@@ -247,8 +272,5 @@ class RolloutEvaluator:
         state['step'] = step; state['versions'].add(policy_version); state['modes'].add(execution_mode)
         state['distance'] = max(state['distance'], progress_m if np.isfinite(progress_m) else 0.)
         state['error'] = float(path_error_m) if np.isfinite(path_error_m) else None
-        if not valid: return self._finish(env_id, 'invalid_data')
-        if failed: return self._finish(env_id, 'failed')
-        if completed: return self._finish(env_id, 'completed')
-        if step >= c['max_steps']: return self._finish(env_id, 'timeout')
+        if outcome: return self._finish(env_id, outcome)
         return None

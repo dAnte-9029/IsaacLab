@@ -52,7 +52,7 @@ def test_checkpoint_contains_post_feedback_and_prefix(tmp_path):
         db=SimpleNamespace(execute=lambda _:SimpleNamespace(fetchone=lambda:(7,))))
     sampler=SimpleNamespace(state_dict=lambda:{'receipts':['evaluation-A']})
     env=SimpleNamespace(rollout_evaluator=SimpleNamespace(store=store),online_sampler=sampler,
-        reset_counts=np.array([3]),plant_identity={},evaluation_contract={})
+        reset_counts=np.array([3]),plant_identity={},evaluation_contract={},evaluation_initial={})
     alg=SimpleNamespace(policy=SimpleNamespace(state_dict=lambda:{'weight':torch.tensor([1.])}),
         optimizer=SimpleNamespace(state_dict=lambda:{'state':{'step':12}}))
     state={'updates':3,'pending_evaluation':False,'evaluations':['evaluation-A']}
@@ -63,17 +63,17 @@ def test_checkpoint_contains_post_feedback_and_prefix(tmp_path):
     assert Path((tmp_path/'latest_checkpoint.txt').read_text().strip())==p
 
 def test_feedback_batch_validation_and_final_isolation(tmp_path):
-    records=[dict(frozen_checkpoint='v3',policy_execution='single',plant={},contract={}) for _ in range(5)]
+    records=[dict(steps=1,frozen_checkpoint='v3',policy_execution='single',plant={},contract={}) for _ in range(5)]
     class Store:
-        def __init__(self,*args): pass
+        def __init__(self,*args,**kwargs): pass
         def iter_records(self): return iter(records)
         def close(self): pass
     calls=[]
-    sampler=SimpleNamespace(feedback_evaluation=lambda r,s:calls.append(r),_update=lambda:calls.append('update'))
-    env=SimpleNamespace(online_sampler=sampler,plant_identity={},evaluation_contract={})
+    sampler=SimpleNamespace(feedback_evaluation=lambda r,s:calls.append(r),_update=lambda:calls.append('update'),state_dict=lambda:{})
+    env=SimpleNamespace(online_sampler=sampler,plant_identity={},evaluation_contract={},evaluation_initial={})
     state=dict(eval_env_steps=0,eval_active_steps=0,evaluations=[],pending_evaluation=True)
-    summary=dict(trajectories=evaluation_tasks(),passed=True,eval_suite='final',version='v3',environment_steps=50,active_episode_steps=12)
-    receive=function('receive_evaluation',FeedbackStore=Store)
+    summary=dict(trajectories=evaluation_tasks(),passed=True,eval_suite='final',version='v3',environment_steps=50,active_episode_steps=5,eval_step_budget=10,policy_unchanged=True,optimizer_updates=0)
+    receive=function('receive_evaluation',FeedbackStore=Store,validate_evaluation_batch=lambda *a:records)
     with pytest.raises(ValueError): receive(env,state,tmp_path,summary,'v3',10)
     assert not calls and state['pending_evaluation']
     summary['eval_suite']='development'

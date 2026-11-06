@@ -17,7 +17,10 @@ import torch
 from tensordict import TensorDict
 from rsl_rl.modules import ActorCritic
 from rsl_rl.algorithms import PPO
-from .unified_ppo_contract import CANDIDATES,POLICY,PPO_CONFIG,evaluation_tasks,categories,source_identity,physical_source_identity,require_compatible_plant
+from .unified_ppo_contract import (
+    CANDIDATES, POLICY, PPO_CONFIG, evaluation_tasks, categories, source_identity,
+    physical_source_identity, require_compatible_plant, EVALUATION_PROTOCOL, EVALUATION_LAYOUT,
+    require_evaluation_checkpoint, validate_evaluation_batch, require_initial)
 from flapping_bot.path_tracking.unified_trajectory import TrajectorySpec
 from flapping_bot.path_tracking.trajectory_feedback import FeedbackStore
 
@@ -103,7 +106,7 @@ def save_checkpoint(env,alg,args,state,contract,version,output,*,tag):
         sampler=env.online_sampler.state_dict() if env.online_sampler else None,
         reset_counts=env.reset_counts.copy(),rng=dict(torch=torch.get_rng_state(),numpy=np.random.get_state(),python=random.getstate()),
         state=deepcopy(state),contract=contract,plant=env.plant_identity,evaluation_contract=env.evaluation_contract,
-        evaluation_tasks=evaluation_tasks(),version=version,evidence=str(evidence.resolve()),evidence_sequence=evidence_sequence,
+        evaluation_tasks=evaluation_tasks(),evaluation_initial=env.evaluation_initial,version=version,evidence=str(evidence.resolve()),evidence_sequence=evidence_sequence,
         policy_config=POLICY,ppo_config=PPO_CONFIG)
     temporary=target.with_suffix('.pt.tmp')
     payload['source_provenance']=source_identity(Path(__file__).resolve().parents[4])
@@ -134,7 +137,8 @@ def run_evaluation_subprocess(args,root,checkpoint,iteration):
 def train(args,root):
     torch.set_num_threads(args.threads); torch.manual_seed(args.seed); np.random.seed(args.seed); random.seed(args.seed)
     loaded=torch.load(args.checkpoint,map_location='cpu',weights_only=False) if args.checkpoint else None
-    contract=dict(schema=SCHEMA,backend=args.backend,sampling=args.sampling,seed=args.seed,num_envs=args.num_envs,
+    contract=dict(schema=SCHEMA,evaluation_protocol=EVALUATION_PROTOCOL,evaluation_layout=EVALUATION_LAYOUT,
+        backend=args.backend,sampling=args.sampling,seed=args.seed,num_envs=args.num_envs,
         rollout_steps=args.rollout_steps,ppo=PPO_CONFIG,policy=POLICY,eval_interval=args.eval_interval,
         sampling_sources={name:hashlib.sha256((root/'source/flapping_bot/flapping_bot/path_tracking'/name).read_bytes()).hexdigest() for name in ('unified_trajectory.py','online_trajectory.py','trajectory_capability.py')},eval_tasks=evaluation_tasks(),final_tasks=evaluation_tasks('final'),task_source=hashlib.sha256((root/'source/flapping_bot/flapping_bot/direct/flapping_bot/unified_trajectory_env.py').read_bytes()).hexdigest(),threads=args.threads,eval_step_budget=args.eval_step_budget)
     if loaded is not None:
@@ -158,6 +162,7 @@ def train(args,root):
             if env.evaluation_contract!=loaded['evaluation_contract']:
                 raise ValueError('Resume physical/evaluation identity mismatch')
             env.reset_counts[:]=loaded['reset_counts']
+            env.evaluation_initial=deepcopy(loaded['evaluation_initial'])
             if env.online_sampler is not None: env.online_sampler.load_state_dict(loaded['sampler'])
         if args.resume and state.get('pending_evaluation'):
             destination,ev=run_evaluation_subprocess(args,root,args.checkpoint,state['updates'])
@@ -256,7 +261,8 @@ def train(args,root):
 def evaluate(args,root):
     loaded=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
     if loaded.get('schema')!=SCHEMA: raise ValueError('Requires a Unified PPO checkpoint')
-    if loaded['contract']['backend']!=args.backend: raise ValueError('Checkpoint backend mismatch')
+    tasks = require_evaluation_checkpoint(loaded, backend=args.backend, sampling=args.sampling,
+        suite=args.eval_suite, budget=args.eval_step_budget)
     torch.set_num_threads(args.threads); torch.manual_seed(args.seed)
     env=build_env(args,root,evaluation=True)
     try:
@@ -266,6 +272,7 @@ def evaluate(args,root):
             raise ValueError('Evaluation plant/contract differs from checkpoint')
         env.set_policy_version(loaded['version'],evaluation_mode='frozen')
         obs,_=env.reset(); initial=check_initial(env,args.backend)
+        require_initial(env.evaluation_initial, loaded['evaluation_initial'])
         obs=tensor_obs(obs,env.num_envs); policy=make_policy(obs); policy.load_state_dict(loaded['policy']); policy.eval()
         before=policy_digest(policy); records=[]; steps=0; started=perf_counter()
         collect_logs(env,args.output)
@@ -281,13 +288,15 @@ def evaluate(args,root):
             raise RuntimeError('Evaluation budget exhausted with incomplete episodes; no frozen capability claim')
         assert policy_digest(policy)==before and len(records)==env.num_envs
         assert all(r['policy_execution']=='single' and r['frozen_checkpoint']==loaded['version'] for r in records)
+        records = validate_evaluation_batch(env.rollout_evaluator.store, tasks, env.plant_identity,
+            env.evaluation_contract, loaded['evaluation_initial'], loaded['version'])
         outcomes=Counter(r['outcome'] for r in records)
-        return dict(passed=True,eval_suite=args.eval_suite,trajectories=evaluation_tasks(args.eval_suite),checkpoint=str(args.checkpoint),version=loaded['version'],backend=args.backend,initial=initial,
+        return dict(passed=True,sampling=args.sampling,eval_suite=args.eval_suite,trajectories=evaluation_tasks(args.eval_suite),checkpoint=str(args.checkpoint),version=loaded['version'],backend=args.backend,initial=initial,
             policy_unchanged=True,optimizer_updates=0,environment_steps=steps*env.num_envs,
             active_episode_steps=sum(r['steps'] for r in records),
             padding_steps=steps*env.num_envs-sum(r['steps'] for r in records),eval_step_budget=args.eval_step_budget,wall_s=perf_counter()-started,
             completion_rate=outcomes['completed']/len(records),outcomes=dict(outcomes),
-            tasks=[dict(name=next(t['name'] for t in evaluation_tasks(args.eval_suite) if t['trajectory']['seed']==r['trajectory']['seed']),
+            tasks=[dict(name=tasks[r['initial']['scene']['env_index']]['name'],
                         categories=categories(TrajectorySpec(**r['trajectory'])),
                         **{k:r[k] for k in ('outcome','steps','effective_distance_m','horizontal_rmse_m','vertical_rmse_m',
                                            'horizontal_max_m','vertical_max_m','policy_execution','frozen_checkpoint')}) for r in records])
@@ -301,15 +310,22 @@ def receive_evaluation(env,state,destination,summary,version,budget):
         raise ValueError('Invalid development evaluation receipt/budget')
     if not state.get('pending_evaluation'): raise ValueError('No pending evaluation; duplicate batch rejected')
     if summary.get('trajectories')!=evaluation_tasks(): raise ValueError('Development task contract mismatch')
-    store=FeedbackStore(destination/'evidence')
+    store=FeedbackStore(destination/'evidence', readonly=True)
     try:
-        records=list(store.iter_records())
-        if len(records)!=5 or any(r.get('frozen_checkpoint')!=version or r.get('policy_execution')!='single'
-                or r['plant']!=env.plant_identity or r['contract']!=env.evaluation_contract for r in records):
-            raise ValueError('Invalid frozen evidence batch')
+        records = validate_evaluation_batch(store, evaluation_tasks(), env.plant_identity,
+            env.evaluation_contract, env.evaluation_initial, version)
+        if (summary.get('active_episode_steps') != sum(r['steps'] for r in records)
+                or summary.get('eval_step_budget') != budget
+                or summary.get('policy_unchanged') is not True or summary.get('optimizer_updates') != 0):
+            raise ValueError('Invalid frozen evaluation accounting')
         if env.online_sampler is not None:
-            for record in records: env.online_sampler.feedback_evaluation(record,store)
-            env.online_sampler._update()
+            previous = env.online_sampler.state_dict()
+            try:
+                for record in records: env.online_sampler.feedback_evaluation(record,store)
+                env.online_sampler._update()
+            except BaseException:
+                env.online_sampler.load_state_dict(previous)
+                raise
     finally: store.close()
     state['eval_env_steps']+=summary['environment_steps']
     state['eval_active_steps']+=summary['active_episode_steps']

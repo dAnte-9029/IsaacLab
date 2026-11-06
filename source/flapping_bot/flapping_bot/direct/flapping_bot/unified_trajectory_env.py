@@ -9,6 +9,8 @@ from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_apply_inverse
 from flapping_bot.path_tracking.unified_trajectory import GeometryLimits, SamplingConfig, Trajectory, sample_trajectory
 from flapping_bot.path_tracking.unified_trajectory_cache import TrajectoryCache
+from flapping_bot.path_tracking.trajectory_feedback import valid_interval, terminal_outcome
+from flapping_bot.analysis.unified_ppo_contract import normalized_initial, require_initial
 from .straight_flight_env import FlappingBotStraightFlightEnv, FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
 
 
@@ -109,7 +111,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                 min_tilt_cos=float(np.cos(np.deg2rad(cfg.terminate_tilt_deg))),
                 max_body_rate_rad_s=cfg.max_body_rate_rad_s, max_steps=int(self.max_episode_length-1),
                 evaluation_dt_s=float(self.step_dt), failure_precedes_completion=True,
-                completion_precedes_timeout=True)
+                completion_precedes_timeout=True, validity='unified_interval_v3')
             store = FeedbackStore(cfg.online_feedback_directory)
             self.rollout_evaluator = RolloutEvaluator(store)
             self.plant_identity, self.evaluation_contract = plant, contract
@@ -179,6 +181,10 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                     wind=self._wind_w[i].detach().cpu().tolist(),
                     env_origin=self.scene.env_origins[i].detach().cpu().tolist(),
                     scene=dict(num_envs=self.num_envs, env_index=i, env_spacing_m=self.cfg.scene.env_spacing))
+                if not hasattr(self, 'evaluation_initial'):
+                    self.evaluation_initial = normalized_initial(initial)
+                else:
+                    require_initial(normalized_initial(initial), self.evaluation_initial)
                 self.task_sampling_sources[i] = source
                 self.rollout_evaluator.begin(i, path.spec, self.plant_identity, initial,
                     self.evaluation_contract, self._current_policy_version, source,
@@ -200,7 +206,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         # Capture provenance at the action boundary, not at reset or termination.
         self._action_versions = [self._current_policy_version]*self.num_envs
         self._action_modes = [self._evaluation_mode]*self.num_envs
-        self._raw_actions_finite = torch.isfinite(actions).all(-1)
+        self._raw_actions = actions.detach().clone()
         super()._pre_physics_step(actions)
 
     def _update_reference(self):
@@ -236,39 +242,62 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
     def _get_dones(self):
         self._update_reference()
         distance = torch.linalg.vector_norm(self.reference["error"], dim=-1)
-        finite = torch.isfinite(self._robot.data.root_state_w).all(-1)
         height = self._robot.data.root_pos_w[:, 2]-self.scene.env_origins[:, 2]
         tilt_cos = -self._robot.data.projected_gravity_b[:, 2]
-        self.failed = (~finite | ~self._raw_actions_finite | (height < self.cfg.terminate_ground_height)
-                       | (height > self.cfg.geometry_limits.max_height)
-                       | (distance > self.cfg.max_path_error_m)
-                       | (tilt_cos < np.cos(np.deg2rad(self.cfg.terminate_tilt_deg)))
-                       | (torch.linalg.vector_norm(self._robot.data.root_ang_vel_b, dim=-1) > self.cfg.max_body_rate_rad_s))
-        self.completed = ((self.progress >= self.cfg.sampling.length_m-self.cfg.completion_tolerance_m)
-                          & (distance <= self.cfg.completion_tolerance_m) & ~self.failed)
-        timeout = self.episode_length_buf >= self.max_episode_length-1
+        rate = torch.linalg.vector_norm(self._robot.data.root_ang_vel_b, dim=-1)
+        contract = dict(completion_tolerance_m=self.cfg.completion_tolerance_m,
+            min_height_m=self.cfg.terminate_ground_height, max_height_m=self.cfg.geometry_limits.max_height,
+            max_path_error_m=self.cfg.max_path_error_m,
+            min_tilt_cos=float(np.cos(np.deg2rad(self.cfg.terminate_tilt_deg))),
+            max_body_rate_rad_s=self.cfg.max_body_rate_rad_s, max_steps=int(self.max_episode_length-1))
+        controls = [self._interval_control(i) for i in range(self.num_envs)]
+        values = [[float(x[i]) for x in (self.progress, distance, height, tilt_cos, rate)]
+                  for i in range(self.num_envs)]
+        valid = [valid_interval(True, v, c) for v, c in zip(values, controls)]
+        outcomes = [terminal_outcome(contract, self.cfg.sampling.length_m,
+                    int(self.episode_length_buf[i]), values[i], valid[i]) for i in range(self.num_envs)]
+        mask = lambda name: torch.tensor([o == name for o in outcomes], device=self.device)
+        self.invalid_data = mask('invalid_data')
+        self.failed = mask('failed')
+        self.completed = mask('completed')
+        timeout = mask('timeout')
         self.extras["unified"] = {"completed": self.completed.clone(), "failed": self.failed.clone(),
                                   "progress_m": self.progress.clone(), "path_error_m": distance.clone(),
-                                  "timeout": timeout.clone()}
+                                  "timeout": timeout.clone(), "invalid_data": self.invalid_data.clone()}
         if self.rollout_evaluator is not None:
             for i in range(self.num_envs):
                 record = self.rollout_evaluator.observe(i, progress_m=float(self.progress[i]),
                     path_error_m=float(distance[i]), height_m=float(height[i]), tilt_cos=float(tilt_cos[i]),
                     body_rate_rad_s=float(torch.linalg.vector_norm(self._robot.data.root_ang_vel_b[i])),
-                    finite=bool(finite[i] & self._raw_actions_finite[i]), step=int(self.episode_length_buf[i]),
+                    finite=valid[i], step=int(self.episode_length_buf[i]),
                     policy_version=self._action_versions[i], execution_mode=self._action_modes[i],
-                    control=dict(command=self._actions[i].detach().cpu().tolist(),
-                        applied=self._act_cmd[i].detach().cpu().tolist(),
-                        joint_pos=self._robot.data.joint_pos[i].detach().cpu().tolist(),
-                        joint_vel=self._robot.data.joint_vel[i].detach().cpu().tolist(),
-                        root_state=self._robot.data.root_state_w[i].detach().cpu().tolist(),
-                        path_error_xyz=self.reference['error'][i].detach().cpu().tolist(),
-                        phase=float(self._phase[i])))
+                    control=controls[i])
                 if record is not None:
+                    assert record['outcome'] == outcomes[i]
                     self.accept_terminal(record)
                     if self.cfg.evaluation_tasks is not None: self._evaluation_finished[i] = True
             self.rollout_evaluator.store.flush()
-        return self.failed | self.completed, timeout & ~self.completed & ~self.failed
+        return self.failed | self.completed | self.invalid_data, timeout
+
+    def _interval_control(self, i):
+        row = lambda x: x[i].detach().cpu().tolist()
+        # Actual filter/governor/phase-drive state, not reconstructed commands.
+        actuator = {name: row(getattr(self, name)) for name in (
+            '_act_lpf', '_freq', '_requested_frequency_hz', '_applied_frequency_hz',
+            '_frequency_slew_hz_per_s', '_phase_throttle', '_phase_target_frequency_hz',
+            '_phase_acceleration_rad_s2') if getattr(self, name, None) is not None}
+        for name in ('_ideal_inverse_phase_state', '_sinusoidal_phase_drive_state'):
+            state = getattr(self, name, None)
+            if state is not None:
+                actuator[name] = {k: row(v) for k, v in vars(state).items() if torch.is_tensor(v)}
+        return dict(raw_command=row(self._raw_actions), command=row(self._actions),
+            applied=row(self._act_cmd), actuator_state=actuator,
+            joint_pos=row(self._robot.data.joint_pos), joint_vel=row(self._robot.data.joint_vel),
+            root_state=row(self._robot.data.root_state_w), phase=row(self._phase),
+            path_error_xyz=row(self.reference['error']),
+            reference={k: row(v) for k, v in self.reference.items()},
+            projection=dict(progress=row(self.progress), previous_position=row(self.previous_position),
+                            high_water=row(self.high_water)))
 
     def _get_rewards(self):
         self._update_reference()
@@ -279,7 +308,8 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         action_change = torch.mean((self._actions-self.previous_action)**2, -1)
         reward = (self.cfg.progress_weight*forward + self.cfg.tracking_weight*(tracking-1)*self.step_dt
                   - self.cfg.action_change_weight*action_change
-                  + self.cfg.completion_bonus*self.completed - self.cfg.failure_penalty*self.failed)
+                  + self.cfg.completion_bonus*self.completed
+                  - self.cfg.failure_penalty*(self.failed | self.invalid_data))
         self.extras["log"] = {"Unified/path_error_m": torch.sqrt(error2).mean(),
                               "Unified/new_progress_m": forward.mean(), "Unified/reward": reward.mean()}
         return torch.nan_to_num(reward, nan=-self.cfg.failure_penalty)

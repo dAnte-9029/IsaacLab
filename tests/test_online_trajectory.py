@@ -15,7 +15,8 @@ PLANT=dict(backend='L3D',twist_deg=35.,scope='synthetic fixture')
 INITIAL=dict(position=[0.,0.,20.],speed=8.)
 CONTRACT=dict(kind='unified_terminal_v1',completion_tolerance_m=.5,max_path_error_m=8.,min_height_m=1.,
               max_height_m=60.,min_tilt_cos=.1,max_body_rate_rad_s=20.,max_steps=4)
-CONTROL=dict(command=[0.]*4,applied=[0.]*4,joint_pos=[0.]*5,joint_vel=[0.]*5,root_state=[0.]*13,phase=0.)
+CONTROL=dict(raw_command=[0.]*4,actuator_state={'frequency':3.},
+    path_error_xyz=[0.,0.,0.],reference={'position':[0.,0.,20.]},projection={'progress':0.},command=[0.]*4,applied=[0.]*4,joint_pos=[0.]*5,joint_vel=[0.]*5,root_state=[0.]*13,phase=0.)
 
 
 def make(tmp_path, cfg=OnlineConfig(region_count=16,capacity=64)):
