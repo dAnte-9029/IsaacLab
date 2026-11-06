@@ -1,4 +1,4 @@
-"""Bounded real-plant performance harness. No physics/PPO changes; one update only.
+"""Bounded real-plant performance harness. No physics/PPO changes; one or two updates only.
 
 Run with ./isaaclab.sh -p scripts/flapping_px4/benchmark_unified_performance.py.
 Each invocation owns a new output directory; profiling checkpoints are deleted
@@ -100,11 +100,13 @@ def install(t, output, detail=False):
     from rsl_rl.algorithms import PPO
     from rsl_rl.modules import ActorCritic
     settings = carb.settings.get_settings()
+    built_env = []
     original_build = r.build_env
     def build(*a, **kw):
         if getattr(BENCH_ARGS, 'evaluation_root', None):
             a = (a[0], BENCH_ARGS.evaluation_root, *a[2:])
         env = t.call('build_env', original_build, *a, **kw)
+        built_env.append(env)
         versions = {}
         for name in ('torch', 'isaacsim', 'isaaclab', 'rsl-rl-lib', 'tensordict', 'numpy'):
             try: versions[name] = importlib.metadata.version(name)
@@ -122,6 +124,38 @@ def install(t, output, detail=False):
         assert env.cfg.decimation == 8 and abs(env.physics_dt-1/480) < 1e-12 and env.device == 'cpu'
         return env
     r.build_env = build
+    if getattr(BENCH_ARGS, 'export_rollout', False):
+        original_process = PPO.process_env_step
+        original_returns = PPO.compute_returns
+        captured = []
+        exported = False
+        def process(self, obs, rewards, dones, extras):
+            if not exported:
+                captured.append((rewards.clone(), dones.clone(), extras['time_outs'].clone()))
+            return original_process(self, obs, rewards, dones, extras)
+        def returns(self, obs):
+            nonlocal exported
+            result = original_returns(self, obs)
+            if not exported:
+                started = time.perf_counter()
+                storage = self.storage
+                payload = {name: getattr(storage, name).clone() for name in
+                    ('actions','rewards','dones','values','actions_log_prob','mu','sigma','returns','advantages')}
+                payload['observations'] = {k: v.clone() for k,v in storage.observations.items()}
+                payload['last_observations'] = {k: v.clone() for k,v in obs.items()}
+                payload['raw_rewards'] = torch.stack([x[0] for x in captured])
+                payload['done_or_timeout'] = torch.stack([x[1] for x in captured])
+                payload['timeouts'] = torch.stack([x[2] for x in captured])
+                payload['terminated'] = payload['done_or_timeout'] & ~payload['timeouts']
+                payload['policy'] = {k:v.clone() for k,v in self.policy.state_dict().items()}
+                payload['version'] = built_env[0]._current_policy_version
+                payload['last_values'] = self.policy.evaluate(obs).detach().clone().unsqueeze(0)
+                torch.save(payload, output/'real_rollout.pt')
+                write(output/'export_cost.json', {'seconds':time.perf_counter()-started})
+                exported = True
+            return result
+        PPO.process_env_step = process
+        PPO.compute_returns = returns
     if not t.enabled:
         return
     for name in ('train', 'evaluate', 'collect_logs', 'append_json', 'save_checkpoint', 'tensor_obs', 'make_policy', 'validate_evaluation_batch'):
@@ -202,9 +236,9 @@ def child(args):
             return old_close(*a, **kw)
         self.app.close = close
     AppLauncher.__init__ = launch
-    argv = ['--backend', args.backend, '--sampling', args.sampling, '--seed', '0',
+    argv = ['--backend', args.backend, '--sampling', args.sampling, '--seed', str(args.seed),
             '--num-envs', str(args.num_envs), '--rollout-steps', str(args.rollout_steps),
-            '--iterations', '1', '--threads', str(args.threads), '--output', str(output/'run'),
+            '--iterations', str(args.iterations), '--threads', str(args.threads), '--output', str(output/'run'),
             '--plant-assets', str(args.plant_assets), '--rules', str(args.rules)]
     if args.evaluate_checkpoint:
         argv += ['--evaluate', '--smoke-evaluation', '--checkpoint', str(args.evaluate_checkpoint), '--eval-step-budget', str(args.eval_step_budget)]
@@ -266,7 +300,7 @@ def parent(args):
             gpu = command(['nvidia-smi', '--query-gpu=index,utilization.gpu,memory.used,memory.total,power.draw', '--format=csv,noheader,nounits'])
             db = {str(p.relative_to(args.output)): p.stat().st_size for p in (args.output/'run/evidence').glob('*.sqlite3*')}
             trace.write(json.dumps(dict(elapsed_s=now-started, processes=processes, cpu_per_core=psutil.cpu_percent(percpu=True),
-                  memory=psutil.virtual_memory()._asdict(), disk=psutil.disk_io_counters()._asdict(), gpu=gpu, sqlite_bytes=db))+'\n'); trace.flush()
+                  memory=psutil.virtual_memory()._asdict(), disk=psutil.disk_io_counters()._asdict(), gpu=gpu, sqlite_bytes=db, frequency=[x._asdict() for x in psutil.cpu_freq(percpu=True)], temperatures={k:[x._asdict() for x in v] for k,v in psutil.sensors_temperatures().items()}))+'\n'); trace.flush()
             time.sleep(1)
     status = args.output/'run/status.json'
     passed = status.exists() and json.loads(status.read_text()).get('status') == 'completed' and not timed_out and (args.output/'timings.json').exists() and (args.output/'benchmark_only.json').exists()
@@ -282,6 +316,9 @@ def main():
     p.add_argument('--sampling', choices=['fixed', 'adaptive'], default='fixed')
     p.add_argument('--num-envs', type=int, default=256)
     p.add_argument('--rollout-steps', type=int, default=48)
+    p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--iterations', type=int, choices=(1, 2), default=1)
+    p.add_argument('--export-rollout', action='store_true', help='Export first real storage for offline IPC benchmark only')
     p.add_argument('--threads', type=int, default=1)
     p.add_argument('--affinity', help='Linux taskset CPU list; inherited by PhysX and torch')
     p.add_argument('--no-profile', action='store_true')

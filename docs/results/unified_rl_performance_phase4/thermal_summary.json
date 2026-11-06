@@ -1,0 +1,86 @@
+{
+  "adaptive1": {
+    "samples": 40,
+    "samples_cpu_at_100": 9,
+    "P_logical_mean_mhz": 3402.2686765624994,
+    "E_mean_mhz": 3202.13946875,
+    "mean_busy_logical_equivalents": 1.5456000000000008
+  },
+  "aff2": {
+    "samples": 41,
+    "samples_cpu_at_100": 13,
+    "P_logical_mean_mhz": 3497.841111280487,
+    "E_mean_mhz": 3210.7777179878053,
+    "mean_busy_logical_equivalents": 2.823414634146341
+  },
+  "b2": {
+    "samples": 26,
+    "samples_cpu_at_100": 5,
+    "P_logical_mean_mhz": 3514.6061634615376,
+    "E_mean_mhz": 3213.8268125,
+    "mean_busy_logical_equivalents": 3.1873461538461543
+  },
+  "b4": {
+    "samples": 23,
+    "samples_cpu_at_100": 4,
+    "P_logical_mean_mhz": 3691.6339646739134,
+    "E_mean_mhz": 3303.121698369566,
+    "mean_busy_logical_equivalents": 5.653739130434781
+  },
+  "i1": {
+    "samples": 39,
+    "samples_cpu_at_100": 9,
+    "P_logical_mean_mhz": 3355.3281458333336,
+    "E_mean_mhz": 3201.5787003205132,
+    "mean_busy_logical_equivalents": 1.5677179487179482
+  },
+  "i2": {
+    "samples": 41,
+    "samples_cpu_at_100": 12,
+    "P_logical_mean_mhz": 3498.3337500000007,
+    "E_mean_mhz": 3227.674609756098,
+    "mean_busy_logical_equivalents": 3.0562439024390256
+  },
+  "i4": {
+    "samples": 47,
+    "samples_cpu_at_100": 7,
+    "P_logical_mean_mhz": 3639.52038430851,
+    "E_mean_mhz": 3229.501018617021,
+    "mean_busy_logical_equivalents": 5.425808510638298
+  },
+  "ipc_source": {
+    "samples": 39,
+    "samples_cpu_at_100": 7,
+    "P_logical_mean_mhz": 3393.1595528846156,
+    "E_mean_mhz": 3214.490068910256,
+    "mean_busy_logical_equivalents": 1.5653589743589753
+  },
+  "l1": {
+    "samples": 29,
+    "samples_cpu_at_100": 5,
+    "P_logical_mean_mhz": 3409.6857456896555,
+    "E_mean_mhz": 3207.7210926724138,
+    "mean_busy_logical_equivalents": 1.708655172413794
+  },
+  "l2": {
+    "samples": 31,
+    "samples_cpu_at_100": 12,
+    "P_logical_mean_mhz": 3541.3341129032256,
+    "E_mean_mhz": 3237.363800403226,
+    "mean_busy_logical_equivalents": 3.1474516129032257
+  },
+  "mixed2": {
+    "samples": 40,
+    "samples_cpu_at_100": 11,
+    "P_logical_mean_mhz": 3534.9241281249997,
+    "E_mean_mhz": 3236.310709375,
+    "mean_busy_logical_equivalents": 2.926875
+  },
+  "seed1": {
+    "samples": 38,
+    "samples_cpu_at_100": 8,
+    "P_logical_mean_mhz": 3430.0820855263155,
+    "E_mean_mhz": 3221.38021381579,
+    "mean_busy_logical_equivalents": 1.5952105263157899
+  }
+}

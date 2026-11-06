@@ -1,0 +1,243 @@
+{
+  "passed": true,
+  "scope": "offline actual storage transport, no live synchronized sampler",
+  "startup_s": 0.6794365206733346,
+  "ready": [
+    [
+      "ready",
+      494010368
+    ],
+    [
+      "ready",
+      493834240
+    ]
+  ],
+  "source": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase4/docs/results/unified_rl_performance_phase4/ipc_source/w0/real_rollout.pt",
+  "shapes": {
+    "actions": [
+      48,
+      256,
+      4
+    ],
+    "rewards": [
+      48,
+      256,
+      1
+    ],
+    "dones": [
+      48,
+      256,
+      1
+    ],
+    "values": [
+      48,
+      256,
+      1
+    ],
+    "actions_log_prob": [
+      48,
+      256,
+      1
+    ],
+    "mu": [
+      48,
+      256,
+      4
+    ],
+    "sigma": [
+      48,
+      256,
+      4
+    ],
+    "returns": [
+      48,
+      256,
+      1
+    ],
+    "advantages": [
+      48,
+      256,
+      1
+    ],
+    "raw_rewards": [
+      48,
+      256
+    ],
+    "done_or_timeout": [
+      48,
+      256
+    ],
+    "timeouts": [
+      48,
+      256
+    ],
+    "terminated": [
+      48,
+      256
+    ],
+    "last_values": [
+      1,
+      256,
+      1
+    ]
+  },
+  "rounds": [
+    {
+      "round": 0,
+      "policy_bytes": 1140679,
+      "policy_encode_s": 0.000348429661244154,
+      "broadcast_ack_s": 0.0013886732049286366,
+      "rollout_receive_decode_s": 0.0015707877464592457,
+      "learner_decode_s": 0.00018340861424803734,
+      "merge_s": 0.00020320899784564972,
+      "workers": [
+        {
+          "encode_s": 0.00040303077548742294,
+          "ready_at": 3261144.5604246,
+          "payload_bytes": 1446861,
+          "rss": 497971200
+        },
+        {
+          "encode_s": 0.0004494846798479557,
+          "ready_at": 3261144.560902345,
+          "payload_bytes": 1446861,
+          "rss": 497922048
+        }
+      ],
+      "readiness_skew_s": 0.0004777451977133751,
+      "receive_skew_s": 0.0007574246264994144,
+      "learner_rss": 501714944
+    },
+    {
+      "round": 1,
+      "policy_bytes": 1140679,
+      "policy_encode_s": 0.00023979274556040764,
+      "broadcast_ack_s": 0.0009487038478255272,
+      "rollout_receive_decode_s": 0.0010314458049833775,
+      "learner_decode_s": 0.0001460411585867405,
+      "merge_s": 0.00013219937682151794,
+      "workers": [
+        {
+          "encode_s": 0.00016614841297268867,
+          "ready_at": 3261144.56420357,
+          "payload_bytes": 1446861,
+          "rss": 498593792
+        },
+        {
+          "encode_s": 0.0004635876975953579,
+          "ready_at": 3261144.564371473,
+          "payload_bytes": 1446861,
+          "rss": 498941952
+        }
+      ],
+      "readiness_skew_s": 0.00016790302470326424,
+      "receive_skew_s": 0.0003782990388572216,
+      "learner_rss": 504315904
+    },
+    {
+      "round": 2,
+      "policy_bytes": 1140679,
+      "policy_encode_s": 0.00011996226385235786,
+      "broadcast_ack_s": 0.0009361649863421917,
+      "rollout_receive_decode_s": 0.0008321837522089481,
+      "learner_decode_s": 0.00016994867473840714,
+      "merge_s": 0.0001388811506330967,
+      "workers": [
+        {
+          "encode_s": 0.0001652413047850132,
+          "ready_at": 3261144.566664526,
+          "payload_bytes": 1446861,
+          "rss": 500752384
+        },
+        {
+          "encode_s": 0.0001466679386794567,
+          "ready_at": 3261144.566907067,
+          "payload_bytes": 1446861,
+          "rss": 499335168
+        }
+      ],
+      "readiness_skew_s": 0.00024254107847809792,
+      "receive_skew_s": 0.00024645496159791946,
+      "learner_rss": 505397248
+    },
+    {
+      "round": 3,
+      "policy_bytes": 1140679,
+      "policy_encode_s": 9.364169090986252e-05,
+      "broadcast_ack_s": 0.0004401267506182194,
+      "rollout_receive_decode_s": 0.0006291591562330723,
+      "learner_decode_s": 0.0001364452764391899,
+      "merge_s": 0.00012626824900507927,
+      "workers": [
+        {
+          "encode_s": 0.000111347995698452,
+          "ready_at": 3261144.56864395,
+          "payload_bytes": 1446861,
+          "rss": 500752384
+        },
+        {
+          "encode_s": 0.00041022617369890213,
+          "ready_at": 3261144.568728075,
+          "payload_bytes": 1446861,
+          "rss": 500785152
+        }
+      ],
+      "readiness_skew_s": 8.412497118115425e-05,
+      "receive_skew_s": 0.0003189421258866787,
+      "learner_rss": 505397248
+    },
+    {
+      "round": 4,
+      "policy_bytes": 1140679,
+      "policy_encode_s": 0.00010557519271969795,
+      "broadcast_ack_s": 0.0005038431845605373,
+      "rollout_receive_decode_s": 0.0005159042775630951,
+      "learner_decode_s": 0.00013940827921032906,
+      "merge_s": 0.0001589842140674591,
+      "workers": [
+        {
+          "encode_s": 0.00013125035911798477,
+          "ready_at": 3261144.570222185,
+          "payload_bytes": 1446861,
+          "rss": 500752384
+        },
+        {
+          "encode_s": 0.00015865406021475792,
+          "ready_at": 3261144.57034909,
+          "payload_bytes": 1446861,
+          "rss": 499335168
+        }
+      ],
+      "readiness_skew_s": 0.00012690480798482895,
+      "receive_skew_s": 0.000202894676476717,
+      "learner_rss": 505397248
+    },
+    {
+      "round": 5,
+      "policy_bytes": 1140679,
+      "policy_encode_s": 0.00011711008846759796,
+      "broadcast_ack_s": 0.00044904788956046104,
+      "rollout_receive_decode_s": 0.0006852871738374233,
+      "learner_decode_s": 0.00014902884140610695,
+      "merge_s": 0.00013879872858524323,
+      "workers": [
+        {
+          "encode_s": 0.00014888308942317963,
+          "ready_at": 3261144.571752497,
+          "payload_bytes": 1446861,
+          "rss": 500752384
+        },
+        {
+          "encode_s": 0.0004727090708911419,
+          "ready_at": 3261144.571857918,
+          "payload_bytes": 1446861,
+          "rss": 500785152
+        }
+      ],
+      "readiness_skew_s": 0.00010542105883359909,
+      "receive_skew_s": 0.0003655422478914261,
+      "learner_rss": 505397248
+    }
+  ],
+  "steady_median_total_s": 0.0013902438804507256
+}
