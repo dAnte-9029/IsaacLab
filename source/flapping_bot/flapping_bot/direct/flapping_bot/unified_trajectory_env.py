@@ -1,5 +1,6 @@
 """Independent geometric trajectory task on the unchanged CPU-native plant."""
 from dataclasses import replace
+import json
 
 import numpy as np
 import torch
@@ -17,6 +18,11 @@ class UnifiedTrajectoryEnvCfg(FlappingBotStraightFlightDeLaurierMeasuredPureRLEn
     use_pure_rl_curriculum1_reward: bool = False
     pure_rl_reward_telemetry_enabled: bool = False
     observation_space: int = 39
+    online_sampling: bool = False
+    online_rules_path: str = ""
+    online_feedback_directory: str = ""
+    online_policy_version: str = ""
+    online_sampler_config: object = None
     sampling: SamplingConfig = SamplingConfig()
     geometry_limits: GeometryLimits = GeometryLimits()
     preview_distances_m: tuple[float, ...] = (2., 5., 10.)
@@ -55,6 +61,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         self.preview_distances = torch.tensor(cfg.preview_distances_m, device=self.device)
         self.paths = [None]*self.num_envs
         self.task_records = [None]*self.num_envs
+        self.task_sampling_sources = [None]*self.num_envs
         self.reset_counts = np.zeros(self.num_envs, dtype=np.int64)
         self.progress = torch.zeros(self.num_envs, device=self.device)
         self.high_water = self.progress.clone()
@@ -63,6 +70,37 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         self.previous_position = torch.zeros(self.num_envs, 3, device=self.device)
         self.reference = {}
         self._reference_valid = False
+        self.online_sampler = None
+        self.rollout_evaluator = None
+        if cfg.online_sampling:
+            from flapping_bot.path_tracking.online_trajectory import (
+                OfflineEvidence, FeedbackStore, RolloutEvaluator, OnlineSampler, OnlineConfig)
+            if not cfg.online_rules_path or not cfg.online_feedback_directory or not cfg.online_policy_version:
+                raise ValueError("Online mode requires evidence path, journal directory and policy version")
+            # Conservative full configuration scope: no inferred equivalence to L/I or other revisions.
+            snapshot = cfg.to_dict()
+            for key in list(snapshot):
+                if key.startswith('online_'):
+                    del snapshot[key]
+            snapshot = json.loads(json.dumps(snapshot, default=str))
+            backend_cfg = getattr(cfg, 'control_aero_3d', None)
+            plant = dict(backend=getattr(backend_cfg, 'backend', 'DeLaurier'),
+                         configuration=snapshot, physics_dt=float(self.physics_dt), control_dt=float(self.step_dt),
+                         scope='native unified environment d343f74d; full config; no cross-revision equivalence')
+            contract = dict(kind='unified_terminal_v1', reference='base_link world z-up',
+                projection='cache local movement + margin', projection_margin_m=cfg.projection_margin_m,
+                cache_spacing_m=cfg.reference_cache_spacing_m,
+                completion_tolerance_m=cfg.completion_tolerance_m, max_path_error_m=cfg.max_path_error_m,
+                min_height_m=cfg.terminate_ground_height, max_height_m=cfg.geometry_limits.max_height,
+                min_tilt_cos=float(np.cos(np.deg2rad(cfg.terminate_tilt_deg))),
+                max_body_rate_rad_s=cfg.max_body_rate_rad_s, max_steps=int(self.max_episode_length-1),
+                evaluation_dt_s=float(self.step_dt), failure_precedes_completion=True,
+                completion_precedes_timeout=True)
+            store = FeedbackStore(cfg.online_feedback_directory)
+            self.rollout_evaluator = RolloutEvaluator(store)
+            self.online_sampler = OnlineSampler(OfflineEvidence(cfg.online_rules_path), store, plant,
+                contract, cfg.online_policy_version, cfg.online_sampler_config or OnlineConfig(),
+                cfg.sampling, cfg.geometry_limits)
 
     def _reset_idx(self, env_ids):
         # Parent owns only robot/actuator/PhysX reset. All legacy task stages are None.
@@ -74,10 +112,27 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             # Screen heights relative to env origin, then translate the complete route.
             local_origin = origin-self.scene.env_origins[i].cpu().numpy()
             heading = float(self._straight_line_heading_rad[i])
-            path = sample_trajectory(seed, self.cfg.sampling, self.cfg.geometry_limits, local_origin, heading)
+            source = 'base'
+            if self.online_sampler is None:
+                path = sample_trajectory(seed, self.cfg.sampling, self.cfg.geometry_limits, local_origin, heading)
+            else:
+                spec, source = self.online_sampler.sample(seed, local_origin, heading)
+                path = Trajectory(spec)
             path = Trajectory(replace(path.spec, origin=tuple(origin)))
             self.paths[i] = path
             self.task_records[i] = path.spec.to_dict()
+            if self.online_sampler is not None:
+                d = self._robot.data
+                initial = dict(root_state=d.root_state_w[i].detach().cpu().tolist(),
+                    joint_pos=d.joint_pos[i].detach().cpu().tolist(), joint_vel=d.joint_vel[i].detach().cpu().tolist(),
+                    phase=float(self._phase[i]), frequency=float(self._freq[i]),
+                    action=self._actions[i].detach().cpu().tolist(),
+                    applied_action=self._act_cmd[i].detach().cpu().tolist(),
+                    wind=self._wind_w[i].detach().cpu().tolist(),
+                    env_origin=self.scene.env_origins[i].detach().cpu().tolist())
+                self.task_sampling_sources[i] = source
+                self.rollout_evaluator.begin(i, path.spec, self.online_sampler.plant, initial,
+                    self.online_sampler.contract, self.online_sampler.policy_version, source)
             self.reset_counts[i] += 1
         self.path_cache.update_rows(ids, [self.paths[i] for i in ids.tolist()])
         self.progress[ids] = 0
@@ -141,6 +196,19 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         self.extras["unified"] = {"completed": self.completed.clone(), "failed": self.failed.clone(),
                                   "progress_m": self.progress.clone(), "path_error_m": distance.clone(),
                                   "timeout": timeout.clone()}
+        if self.rollout_evaluator is not None:
+            for i in range(self.num_envs):
+                record = self.rollout_evaluator.observe(i, progress_m=float(self.progress[i]),
+                    path_error_m=float(distance[i]), height_m=float(height[i]), tilt_cos=float(tilt_cos[i]),
+                    body_rate_rad_s=float(torch.linalg.vector_norm(self._robot.data.root_ang_vel_b[i])),
+                    finite=bool(finite[i]), step=int(self.episode_length_buf[i]),
+                    control=dict(command=torch.nan_to_num(self._actions[i]).detach().cpu().tolist(),
+                        applied=torch.nan_to_num(self._act_cmd[i]).detach().cpu().tolist(),
+                        joint_pos=torch.nan_to_num(self._robot.data.joint_pos[i]).detach().cpu().tolist(),
+                        joint_vel=torch.nan_to_num(self._robot.data.joint_vel[i]).detach().cpu().tolist(),
+                        phase=float(torch.nan_to_num(self._phase[i]))))
+                if record is not None:
+                    self.online_sampler.feedback(record)
         return self.failed | self.completed, timeout & ~self.completed & ~self.failed
 
     def _get_rewards(self):

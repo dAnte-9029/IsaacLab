@@ -1,0 +1,84 @@
+{
+  "synthetic_only": true,
+  "offline_count": 88,
+  "config": {
+    "base_weight": 0.4,
+    "retention_weight": 0.25,
+    "exploration_weight": 0.35,
+    "base_floor": 0.2,
+    "update_interval": 8,
+    "update_rate": 0.2,
+    "neighborhood_radius": 0.08,
+    "scales": [
+      0.025,
+      0.15,
+      0.01,
+      0.05,
+      150.0,
+      60.0,
+      60.0,
+      20.0,
+      20.0,
+      60.0,
+      0.1
+    ],
+    "candidate_count": 16,
+    "history_window": 32,
+    "exploration_floor": 0.15,
+    "offline_bonus": 1.0
+  },
+  "columns": [
+    "simple",
+    "hard",
+    "unknown"
+  ],
+  "failure_then_success": [
+    [
+      0.35963298723848636,
+      0.3109936997796064,
+      0.32937331298190725
+    ],
+    [
+      0.3746682422360063,
+      0.2824227133549466,
+      0.34290904440904707
+    ],
+    [
+      0.3498534868140957,
+      0.33026732710767404,
+      0.31987918607823024
+    ]
+  ],
+  "forgetting": {
+    "current_rate": 0.0,
+    "historical_witnesses": 32,
+    "probabilities": [
+      0.2857131899576366,
+      0.45569081296225183,
+      0.2585959970801115
+    ]
+  },
+  "long_unknown": [
+    0.29423281860690154,
+    0.501002610588658,
+    0.20476457080444038
+  ],
+  "complex_pressure": [
+    [
+      0.31227055335262577,
+      0.4829714816197604,
+      0.2047579650276138
+    ],
+    [
+      0.38290568663639923,
+      0.4120703702307513,
+      0.20502394313284947
+    ]
+  ],
+  "coverage": {
+    "base_component": 0.4,
+    "retention_component": 0.25,
+    "exploration_component": 0.35,
+    "candidate_base_floor": 0.13333333333333333
+  }
+}
