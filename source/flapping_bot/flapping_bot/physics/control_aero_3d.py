@@ -83,10 +83,8 @@ def horseshoe_influence(g, targets, direction, *, omit_self_bound=False):
     """
     a, b = g.edge_start_w_m, g.edge_end_w_m
 
-    def ray(origin):
-        r = targets[:, :, None] - origin[:, None]
+    def ray(r, rad):
         d = direction[:, None].expand_as(r)
-        rad = r.norm(dim=-1)
         proj = (r * d).sum(-1)
         cross = torch.linalg.cross(d, r)
         den = rad * (rad - proj)
@@ -96,6 +94,8 @@ def horseshoe_influence(g, targets, direction, *, omit_self_bound=False):
         return cross / (4 * math.pi * den[..., None])
 
     ra, rb = targets[:, :, None] - a[:, None], targets[:, :, None] - b[:, None]
+    # Reuse current-call endpoint vectors and norms; never cache moving geometry.
+    ra_norm, rb_norm = ra.norm(dim=-1), rb.norm(dim=-1)
     cross = torch.linalg.cross(ra, rb)
     den = cross.square().sum(-1)
     eye = torch.eye(den.shape[-1], device=den.device, dtype=torch.bool)[None]
@@ -104,12 +104,12 @@ def horseshoe_influence(g, targets, direction, *, omit_self_bound=False):
         raise RuntimeError("I3D singular bound segment")
     factor = (
         (b - a)[:, None]
-        * (ra / ra.norm(dim=-1, keepdim=True).clamp_min(1e-12) - rb / rb.norm(dim=-1, keepdim=True).clamp_min(1e-12))
+        * (ra / ra_norm[..., None].clamp_min(1e-12) - rb / rb_norm[..., None].clamp_min(1e-12))
     ).sum(-1)
     bound = cross * (factor / (4 * math.pi * den.clamp_min(1e-16)))[..., None]
     if omit_self_bound:
         bound = bound.masked_fill(eye[..., None], 0.0)
-    return bound + ray(b) - ray(a), bound
+    return bound + ray(rb, rb_norm) - ray(ra, ra_norm), bound
 
 
 class ControlAero3D:

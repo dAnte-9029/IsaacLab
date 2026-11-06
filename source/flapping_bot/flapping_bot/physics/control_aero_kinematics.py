@@ -80,15 +80,22 @@ class LinkKinematics3D:
             om = omega[:, i, None].expand_as(world.quarter_chord_w_m)
             w = wind[:, None] if wind.ndim == 2 else wind[:, i]
 
-            def flow(point, local_flow):
-                return w - velocity[:, i, None] - torch.linalg.cross(om, point - com[:, i, None]) + rot(local_flow)
+            # I3D reuses only values from this sample; pose/twist are never
+            # retained across physics steps. Keep the L3D execution path intact.
+            reuse = self.config.backend == "I3D"
+            third = world.three_quarter_chord_w_m if reuse else None
+            twist_flow = rot(t.flow_three_quarter_w_mps) if reuse else None
+            twist_omega = rot(t.angular_velocity_w_rad_s) if reuse else None
+
+            def flow(point, local_flow, rotated=None):
+                return w - velocity[:, i, None] - torch.linalg.cross(om, point - com[:, i, None]) + (rot(local_flow) if rotated is None else rotated)
 
             qaxis = phase.new_zeros((b, 1, 3))
             qaxis[..., 0] = 1
             relom = rot(qaxis * joint_rate[:, i, None, None])
             relalpha = rot(qaxis * joint_accel[:, i, None, None])
-            arm = world.three_quarter_chord_w_m - position[:, i, None]
-            twist_v = -rot(t.flow_three_quarter_w_mps)
+            arm = (third if reuse else world.three_quarter_chord_w_m) - position[:, i, None]
+            twist_v = -(twist_flow if reuse else rot(t.flow_three_quarter_w_mps))
             rv = torch.linalg.cross(relom.expand_as(arm), arm) + twist_v
             ra = (
                 torch.linalg.cross(relalpha.expand_as(arm), arm)
@@ -96,18 +103,18 @@ class LinkKinematics3D:
                 + 2 * torch.linalg.cross(relom.expand_as(arm), twist_v)
                 + rot(t.acceleration_w_mps2)
             )
-            rom = relom + rot(t.angular_velocity_w_rad_s)
+            rom = relom + (twist_omega if reuse else rot(t.angular_velocity_w_rad_s))
             ralpha = (
                 relalpha
                 + rot(t.angular_acceleration_w_rad_s2)
-                + torch.linalg.cross(relom.expand_as(arm), rot(t.angular_velocity_w_rad_s))
+                + torch.linalg.cross(relom.expand_as(arm), twist_omega if reuse else rot(t.angular_velocity_w_rad_s))
             )
             full = ULLTMotion(
-                flow(world.three_quarter_chord_w_m, t.flow_three_quarter_w_mps),
+                flow(third if reuse else world.three_quarter_chord_w_m, t.flow_three_quarter_w_mps, twist_flow),
                 flow(world.edge_start_w_m, t.flow_edge_start_w_mps),
                 flow(world.edge_end_w_m, t.flow_edge_end_w_mps),
                 ra,
-                om + rot(t.angular_velocity_w_rad_s),
+                om + (twist_omega if reuse else rot(t.angular_velocity_w_rad_s)),
                 ralpha,
             )
             rel = ULLTMotion(-rv, torch.zeros_like(rv), torch.zeros_like(rv), ra, rom, ralpha)

@@ -1,0 +1,72 @@
+{
+  "passed": true,
+  "backend": "L3D",
+  "sampling": "fixed",
+  "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase3/docs/results/unified_rl_performance_phase3/final/L3D_fixed/run/model_000001_final.pt",
+  "initial": {
+    "speed_mps": 9.656337493598675,
+    "nose_up_pitch_deg": 13.971707797921283,
+    "frequency_hz": 3.043205868980297,
+    "symmetric_deg": 0.873482079293165,
+    "rudder_deg": 1.6310188600911404,
+    "differential_deg": -2.2054931298788647,
+    "phase_rad": 0.0
+  },
+  "initial_policy_digest": "5cda7f70879f8c070406a6ed94db08b7551d875a43182433f6ad7adfea0a797c",
+  "final_policy_digest": "9296b6d56a8187e503410a80f31f0e154c1b07c699a905f6215125526a54613a",
+  "optimizer_step_before": 0.0,
+  "optimizer_step_after": 20.0,
+  "state": {
+    "updates": 1,
+    "train_transitions": 12288,
+    "eval_env_steps": 0,
+    "eval_active_steps": 0,
+    "eval_reserved_env_steps": 0,
+    "eval_padding_steps": 0,
+    "evaluations": []
+  },
+  "local_train_transitions": 12288,
+  "train_seconds": 8.906178874894977,
+  "rollout_seconds": 7.9967610579915345,
+  "update_seconds": 0.9094178169034421,
+  "measured_training_transitions_per_s": 1379.7162815399777,
+  "loop_wall_s": 10.688222469761968,
+  "resume": false,
+  "iterations": [
+    {
+      "update": 1,
+      "version": "a20ec90f097c:update000001",
+      "train_transitions": 12288,
+      "rollout_s": 7.9967610579915345,
+      "update_s": 0.9094178169034421,
+      "transitions_per_s": 1379.7162815399777,
+      "parameter_delta_l2": 0.9130127429962158,
+      "losses": {
+        "value_function": 1.9014917075634004,
+        "surrogate": -0.005841546121519059,
+        "entropy": 5.684458827972412
+      },
+      "reward_mean": 0.09887679350019123,
+      "episode_outcomes": {
+        "failed": 35
+      },
+      "reset_sources": {
+        "base": 35
+      },
+      "reset_geometry_counts": {
+        "sustained": 30,
+        "reverse": 24,
+        "coupled_3d": 24,
+        "simple": 2
+      },
+      "effective_completion_rate": 0.0
+    }
+  ],
+  "environment_step_s": 7.834273404441774,
+  "sqlite_flush_s": 2.19718114240095,
+  "sqlite_flush_calls": 340,
+  "sqlite_bytes": 104198144,
+  "physical_resume_semantics": "fresh episodes; optimizer/RNG/reset sequence/sampler/evidence restored",
+  "process_wall_s": 21.817454871721566,
+  "peak_rss_mib": 3786.33984375
+}

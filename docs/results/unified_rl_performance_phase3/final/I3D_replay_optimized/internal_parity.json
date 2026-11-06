@@ -1,0 +1,195 @@
+{
+  "passed": true,
+  "statistics": {
+    "geometry.edge_start_w_m": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "geometry.edge_end_w_m": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "geometry.quarter_chord_w_m": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "geometry.chord_forward_w": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "geometry.chord_m": {
+      "calls": 384,
+      "elements": 1966080,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "motion.flow_three_quarter_w_mps": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "motion.flow_edge_start_w_mps": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "motion.flow_edge_end_w_mps": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "motion.acceleration_w_mps2": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "motion.angular_velocity_w_rad_s": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "motion.angular_acceleration_w_rad_s2": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "relative.flow_three_quarter_w_mps": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "relative.flow_edge_start_w_mps": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "relative.flow_edge_end_w_mps": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "relative.acceleration_w_mps2": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "relative.angular_velocity_w_rad_s": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "relative.angular_acceleration_w_rad_s2": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "influence": {
+      "calls": 384,
+      "elements": 117964800,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "bound": {
+      "calls": 384,
+      "elements": 117964800,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "loads.force": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "loads.moment": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "loads.gamma": {
+      "calls": 384,
+      "elements": 1966080,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "loads.alpha": {
+      "calls": 384,
+      "elements": 1966080,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "loads.separation": {
+      "calls": 384,
+      "elements": 1966080,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "loads.residual": {
+      "calls": 384,
+      "elements": 98304,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "loads.condition": {
+      "calls": 384,
+      "elements": 98304,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    },
+    "loads.induced": {
+      "calls": 384,
+      "elements": 5898240,
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "unequal": 0
+    }
+  },
+  "error_distribution": "All differences exactly zero; all quantiles zero."
+}

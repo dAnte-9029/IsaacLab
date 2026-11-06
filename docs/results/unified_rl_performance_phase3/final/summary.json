@@ -1,0 +1,907 @@
+{
+  "training": {
+    "I3D_fixed": {
+      "baseline": {
+        "rollout_s": 13.18272677110508,
+        "update_s": 0.9760713493451476,
+        "iteration_s": 14.158798120450228,
+        "transitions_per_s": 867.8702736958905,
+        "process_s": 27.693700092844665,
+        "aero_s": 8.23227165080607,
+        "horseshoe_s": 3.903822422493249,
+        "kinematics_s": 1.6844964073970914,
+        "condition_s": 1.0855890158563852,
+        "get_dones_s": 2.823353625833988,
+        "peak_rss_mib": 3810.15234375,
+        "sampled_tree_peak_rss_mib": 3813.1953125,
+        "sampled_tree_mean_cpu_percent": 126.35384615384615,
+        "sampled_tree_peak_cpu_percent": 527.9,
+        "kit_start_s": 3.7549093971028924,
+        "build_env_s": 4.470829478930682
+      },
+      "optimized": {
+        "rollout_s": 11.740262574050575,
+        "update_s": 0.8303030873648822,
+        "iteration_s": 12.570565661415458,
+        "transitions_per_s": 977.5216430965573,
+        "process_s": 25.791374176740646,
+        "aero_s": 6.997212144546211,
+        "horseshoe_s": 3.0551887140609324,
+        "kinematics_s": 1.5609481227584183,
+        "condition_s": 0.9546101158484817,
+        "get_dones_s": 2.632371515966952,
+        "peak_rss_mib": 3792.44921875,
+        "sampled_tree_peak_rss_mib": 3795.875,
+        "sampled_tree_mean_cpu_percent": 125.1125,
+        "sampled_tree_peak_cpu_percent": 512.7,
+        "kit_start_s": 3.7295786067843437,
+        "build_env_s": 4.178672694601119
+      },
+      "speedup": 1.1263453452941858,
+      "consistency": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase2/docs/results/unified_rl_performance_phase2/I3D_fixed",
+        "right": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase3/docs/results/unified_rl_performance_phase3/final/I3D_fixed",
+        "ppo_summary_equal": {
+          "initial_policy_digest": true,
+          "final_policy_digest": true,
+          "optimizer_step_before": true,
+          "optimizer_step_after": true
+        },
+        "losses_equal": true,
+        "reward_mean_equal": true,
+        "counts": [
+          {
+            "episodes": 257,
+            "steps": 12288,
+            "terminals": 257,
+            "witnesses": 0
+          },
+          {
+            "episodes": 257,
+            "steps": 12288,
+            "terminals": 257,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          100052992,
+          100057088
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "physical source identity checked separately by summarize_unified_phase3.identity"
+        ]
+      },
+      "identity": {
+        "source_identity_equal": false,
+        "changed_sources": {
+          "source/flapping_bot/flapping_bot/physics/control_aero_3d.py": [
+            "2edd61d28cc8908586146448b7b158072c0850bb343bf90ee2b60c1022775c7c",
+            "4defd4057634c72ee569674bdbee9462acc04cde52acb9d3956d383d2b43e629"
+          ],
+          "source/flapping_bot/flapping_bot/physics/control_aero_kinematics.py": [
+            "43599f60ab344777939ae49a21e06d643af58da23db70e92f74645672fbcd0f2",
+            "0a20725bbca2092c5d4268b971ed90c261eedb5e746b127713926e3219373b0b"
+          ]
+        },
+        "snapshots_verified": true,
+        "remaining_plant_contract_equal": true
+      },
+      "journal": {
+        "passed": true,
+        "episodes": 257,
+        "steps": 12288,
+        "witnesses": 0
+      }
+    },
+    "I3D_adaptive": {
+      "baseline": {
+        "rollout_s": 12.501647077035159,
+        "update_s": 0.9078911682590842,
+        "iteration_s": 13.409538245294243,
+        "transitions_per_s": 916.3626498706755,
+        "process_s": 28.838818640913814,
+        "aero_s": 7.753645031247288,
+        "horseshoe_s": 3.6422901009209454,
+        "kinematics_s": 1.6271473742090166,
+        "condition_s": 1.026003582868725,
+        "get_dones_s": 2.7562822718173265,
+        "peak_rss_mib": 3801.66796875,
+        "sampled_tree_peak_rss_mib": 3805.12890625,
+        "sampled_tree_mean_cpu_percent": 128.42592592592592,
+        "sampled_tree_peak_cpu_percent": 549.5,
+        "kit_start_s": 3.7675423538312316,
+        "build_env_s": 4.648753210902214
+      },
+      "optimized": {
+        "rollout_s": 11.795464316848665,
+        "update_s": 0.8382698241621256,
+        "iteration_s": 12.633734141010791,
+        "transitions_per_s": 972.6340496679844,
+        "process_s": 27.620781873818487,
+        "aero_s": 7.058594359550625,
+        "horseshoe_s": 3.0989516847766936,
+        "kinematics_s": 1.5473393006250262,
+        "condition_s": 0.9729921850375831,
+        "get_dones_s": 2.666092362254858,
+        "peak_rss_mib": 3797.890625,
+        "sampled_tree_peak_rss_mib": 3801.1328125,
+        "sampled_tree_mean_cpu_percent": 124.73461538461538,
+        "sampled_tree_peak_cpu_percent": 522.6,
+        "kit_start_s": 3.785607720259577,
+        "build_env_s": 4.610143882222474
+      },
+      "speedup": 1.061407347631694,
+      "consistency": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase2/docs/results/unified_rl_performance_phase2/I3D_adaptive",
+        "right": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase3/docs/results/unified_rl_performance_phase3/final/I3D_adaptive",
+        "ppo_summary_equal": {
+          "initial_policy_digest": true,
+          "final_policy_digest": true,
+          "optimizer_step_before": true,
+          "optimizer_step_after": true
+        },
+        "losses_equal": true,
+        "reward_mean_equal": true,
+        "counts": [
+          {
+            "episodes": 257,
+            "steps": 12288,
+            "terminals": 257,
+            "witnesses": 0
+          },
+          {
+            "episodes": 257,
+            "steps": 12288,
+            "terminals": 257,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          100061184,
+          100061184
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "physical source identity checked separately by summarize_unified_phase3.identity"
+        ]
+      },
+      "identity": {
+        "source_identity_equal": false,
+        "changed_sources": {
+          "source/flapping_bot/flapping_bot/physics/control_aero_3d.py": [
+            "2edd61d28cc8908586146448b7b158072c0850bb343bf90ee2b60c1022775c7c",
+            "4defd4057634c72ee569674bdbee9462acc04cde52acb9d3956d383d2b43e629"
+          ],
+          "source/flapping_bot/flapping_bot/physics/control_aero_kinematics.py": [
+            "43599f60ab344777939ae49a21e06d643af58da23db70e92f74645672fbcd0f2",
+            "0a20725bbca2092c5d4268b971ed90c261eedb5e746b127713926e3219373b0b"
+          ]
+        },
+        "snapshots_verified": true,
+        "remaining_plant_contract_equal": true
+      },
+      "journal": {
+        "passed": true,
+        "episodes": 257,
+        "steps": 12288,
+        "witnesses": 0
+      }
+    },
+    "L3D_fixed": {
+      "baseline": {
+        "rollout_s": 7.724127688910812,
+        "update_s": 0.9497755030170083,
+        "iteration_s": 8.67390319192782,
+        "transitions_per_s": 1416.6632631357427,
+        "process_s": 22.413670899812132,
+        "aero_s": 2.4673356665298343,
+        "horseshoe_s": 0,
+        "kinematics_s": 1.653352901339531,
+        "condition_s": 0,
+        "get_dones_s": 3.078799461014569,
+        "peak_rss_mib": 3785.75390625,
+        "sampled_tree_peak_rss_mib": 3789.1796875,
+        "sampled_tree_mean_cpu_percent": 128.7761904761905,
+        "sampled_tree_peak_cpu_percent": 521.6,
+        "kit_start_s": 3.692295593675226,
+        "build_env_s": 4.434150929097086
+      },
+      "optimized": {
+        "rollout_s": 7.9967610579915345,
+        "update_s": 0.9094178169034421,
+        "iteration_s": 8.906178874894977,
+        "transitions_per_s": 1379.7162815399777,
+        "process_s": 23.437828104943037,
+        "aero_s": 2.5877073113806546,
+        "horseshoe_s": 0,
+        "kinematics_s": 1.7437749104574323,
+        "condition_s": 0,
+        "get_dones_s": 3.083092858083546,
+        "peak_rss_mib": 3786.33984375,
+        "sampled_tree_peak_rss_mib": 3789.63671875,
+        "sampled_tree_mean_cpu_percent": 130.50000000000003,
+        "sampled_tree_peak_cpu_percent": 504.6,
+        "kit_start_s": 4.064812581054866,
+        "build_env_s": 4.986778660211712
+      },
+      "speedup": 0.9739197150394203,
+      "consistency": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase2/docs/results/unified_rl_performance_phase2/L3D_fixed_v2",
+        "right": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase3/docs/results/unified_rl_performance_phase3/final/L3D_fixed",
+        "ppo_summary_equal": {
+          "initial_policy_digest": true,
+          "final_policy_digest": true,
+          "optimizer_step_before": true,
+          "optimizer_step_after": true
+        },
+        "losses_equal": true,
+        "reward_mean_equal": true,
+        "counts": [
+          {
+            "episodes": 291,
+            "steps": 12288,
+            "terminals": 291,
+            "witnesses": 0
+          },
+          {
+            "episodes": 291,
+            "steps": 12288,
+            "terminals": 291,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          106479616,
+          106487808
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "physical source identity checked separately by summarize_unified_phase3.identity"
+        ]
+      },
+      "identity": {
+        "source_identity_equal": false,
+        "changed_sources": {
+          "source/flapping_bot/flapping_bot/physics/control_aero_3d.py": [
+            "2edd61d28cc8908586146448b7b158072c0850bb343bf90ee2b60c1022775c7c",
+            "4defd4057634c72ee569674bdbee9462acc04cde52acb9d3956d383d2b43e629"
+          ],
+          "source/flapping_bot/flapping_bot/physics/control_aero_kinematics.py": [
+            "43599f60ab344777939ae49a21e06d643af58da23db70e92f74645672fbcd0f2",
+            "0a20725bbca2092c5d4268b971ed90c261eedb5e746b127713926e3219373b0b"
+          ]
+        },
+        "snapshots_verified": true,
+        "remaining_plant_contract_equal": true
+      },
+      "journal": {
+        "passed": true,
+        "episodes": 291,
+        "steps": 12288,
+        "witnesses": 0
+      }
+    }
+  },
+  "replay": {
+    "I3D": {
+      "arrays": {
+        "actions": {
+          "shape": [
+            48,
+            256,
+            4
+          ],
+          "equal": true,
+          "bitwise_equal": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "error_quantiles": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "physics": {
+          "shape": [
+            384,
+            256,
+            35
+          ],
+          "equal": true,
+          "bitwise_equal": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "error_quantiles": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "intervals": {
+          "shape": [
+            48,
+            256,
+            46
+          ],
+          "equal": true,
+          "bitwise_equal": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "error_quantiles": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "internal": {
+        "passed": true,
+        "statistics": {
+          "geometry.edge_start_w_m": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "geometry.edge_end_w_m": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "geometry.quarter_chord_w_m": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "geometry.chord_forward_w": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "geometry.chord_m": {
+            "calls": 384,
+            "elements": 1966080,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.flow_three_quarter_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.flow_edge_start_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.flow_edge_end_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.acceleration_w_mps2": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.angular_velocity_w_rad_s": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.angular_acceleration_w_rad_s2": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.flow_three_quarter_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.flow_edge_start_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.flow_edge_end_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.acceleration_w_mps2": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.angular_velocity_w_rad_s": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.angular_acceleration_w_rad_s2": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "influence": {
+            "calls": 384,
+            "elements": 117964800,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "bound": {
+            "calls": 384,
+            "elements": 117964800,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.force": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.moment": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.gamma": {
+            "calls": 384,
+            "elements": 1966080,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.alpha": {
+            "calls": 384,
+            "elements": 1966080,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.separation": {
+            "calls": 384,
+            "elements": 1966080,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.residual": {
+            "calls": 384,
+            "elements": 98304,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.condition": {
+            "calls": 384,
+            "elements": 98304,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.induced": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          }
+        },
+        "error_distribution": "All differences exactly zero; all quantiles zero."
+      },
+      "evidence": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase3/docs/results/unified_rl_performance_phase3/final/I3D_replay_baseline",
+        "right": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase3/docs/results/unified_rl_performance_phase3/final/I3D_replay_optimized",
+        "counts": [
+          {
+            "episodes": 256,
+            "steps": 12288,
+            "terminals": 256,
+            "witnesses": 0
+          },
+          {
+            "episodes": 256,
+            "steps": 12288,
+            "terminals": 256,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          99872768,
+          99856384
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "physical source identity checked separately by summarize_unified_phase3.identity"
+        ]
+      },
+      "identity": {
+        "source_identity_equal": false,
+        "changed_sources": {
+          "source/flapping_bot/flapping_bot/physics/control_aero_3d.py": [
+            "2edd61d28cc8908586146448b7b158072c0850bb343bf90ee2b60c1022775c7c",
+            "4defd4057634c72ee569674bdbee9462acc04cde52acb9d3956d383d2b43e629"
+          ],
+          "source/flapping_bot/flapping_bot/physics/control_aero_kinematics.py": [
+            "43599f60ab344777939ae49a21e06d643af58da23db70e92f74645672fbcd0f2",
+            "0a20725bbca2092c5d4268b971ed90c261eedb5e746b127713926e3219373b0b"
+          ]
+        },
+        "snapshots_verified": true,
+        "remaining_plant_contract_equal": true
+      },
+      "baseline_journal": {
+        "passed": true,
+        "episodes": 256,
+        "steps": 12288,
+        "witnesses": 0
+      },
+      "optimized_journal": {
+        "passed": true,
+        "episodes": 256,
+        "steps": 12288,
+        "witnesses": 0
+      }
+    },
+    "L3D": {
+      "arrays": {
+        "actions": {
+          "shape": [
+            48,
+            256,
+            4
+          ],
+          "equal": true,
+          "bitwise_equal": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "error_quantiles": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "physics": {
+          "shape": [
+            384,
+            256,
+            35
+          ],
+          "equal": true,
+          "bitwise_equal": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "error_quantiles": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "intervals": {
+          "shape": [
+            48,
+            256,
+            46
+          ],
+          "equal": true,
+          "bitwise_equal": true,
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "error_quantiles": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "internal": {
+        "passed": true,
+        "statistics": {
+          "geometry.edge_start_w_m": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "geometry.edge_end_w_m": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "geometry.quarter_chord_w_m": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "geometry.chord_forward_w": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "geometry.chord_m": {
+            "calls": 384,
+            "elements": 1966080,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.flow_three_quarter_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.flow_edge_start_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.flow_edge_end_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.acceleration_w_mps2": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.angular_velocity_w_rad_s": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "motion.angular_acceleration_w_rad_s2": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.flow_three_quarter_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.flow_edge_start_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.flow_edge_end_w_mps": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.acceleration_w_mps2": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.angular_velocity_w_rad_s": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "relative.angular_acceleration_w_rad_s2": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.force": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.moment": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.gamma": {
+            "calls": 384,
+            "elements": 1966080,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.alpha": {
+            "calls": 384,
+            "elements": 1966080,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.separation": {
+            "calls": 384,
+            "elements": 1966080,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.residual": {
+            "calls": 384,
+            "elements": 98304,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.condition": {
+            "calls": 384,
+            "elements": 98304,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          },
+          "loads.induced": {
+            "calls": 384,
+            "elements": 5898240,
+            "max_abs": 0.0,
+            "max_rel": 0.0,
+            "unequal": 0
+          }
+        },
+        "error_distribution": "All differences exactly zero; all quantiles zero."
+      },
+      "evidence": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase3/docs/results/unified_rl_performance_phase3/final/L3D_replay_baseline",
+        "right": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase3/docs/results/unified_rl_performance_phase3/final/L3D_replay_optimized",
+        "counts": [
+          {
+            "episodes": 256,
+            "steps": 12288,
+            "terminals": 256,
+            "witnesses": 0
+          },
+          {
+            "episodes": 256,
+            "steps": 12288,
+            "terminals": 256,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          99852288,
+          99860480
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "physical source identity checked separately by summarize_unified_phase3.identity"
+        ]
+      },
+      "identity": {
+        "source_identity_equal": false,
+        "changed_sources": {
+          "source/flapping_bot/flapping_bot/physics/control_aero_3d.py": [
+            "2edd61d28cc8908586146448b7b158072c0850bb343bf90ee2b60c1022775c7c",
+            "4defd4057634c72ee569674bdbee9462acc04cde52acb9d3956d383d2b43e629"
+          ],
+          "source/flapping_bot/flapping_bot/physics/control_aero_kinematics.py": [
+            "43599f60ab344777939ae49a21e06d643af58da23db70e92f74645672fbcd0f2",
+            "0a20725bbca2092c5d4268b971ed90c261eedb5e746b127713926e3219373b0b"
+          ]
+        },
+        "snapshots_verified": true,
+        "remaining_plant_contract_equal": true
+      },
+      "baseline_journal": {
+        "passed": true,
+        "episodes": 256,
+        "steps": 12288,
+        "witnesses": 0
+      },
+      "optimized_journal": {
+        "passed": true,
+        "episodes": 256,
+        "steps": 12288,
+        "witnesses": 0
+      }
+    }
+  },
+  "passed": true
+}
