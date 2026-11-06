@@ -1,5 +1,5 @@
 """Current-policy empirical capability. No physical feasibility inference."""
-from copy import deepcopy
+from collections import deque, OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
 import json
@@ -39,6 +39,11 @@ class OnlineConfig:
     history_window: int = 32
     exploration_floor: float = .15
     offline_bonus: float = 1.
+    region_count: int = 64
+    capacity: int = 2048
+    frozen_versions: int = 2
+    exploration_kernel_weight: float = .65
+    historical_retention_weight: float = .2
 
     def __post_init__(self):
         weights = (self.base_weight, self.retention_weight, self.exploration_weight)
@@ -49,28 +54,49 @@ class OnlineConfig:
                 or self.exploration_weight <= 0 or not 0 < self.update_rate <= 1
                 or self.neighborhood_radius <= 0 or len(self.scales) != len(FEATURE_KEYS)
                 or min(self.scales) <= 0 or self.update_interval < 1 or self.candidate_count < 2
-                or self.history_window < 4 or self.exploration_floor <= 0 or self.offline_bonus < 0):
+                or self.history_window < 4 or self.exploration_floor <= 0 or self.offline_bonus < 0
+                or self.region_count < 4 or self.capacity < self.history_window or self.frozen_versions < 2
+                or not 0 <= self.exploration_kernel_weight <= 1
+                or not 0 <= self.historical_retention_weight <= 1):
             raise ValueError('Invalid online sampling configuration')
 
 
 class PolicyCapability:
-    """Finite-neighborhood empirical policy statistics; never feasibility odds."""
+    """Bounded training window and separate explicitly frozen checkpoint windows.
+
+    Mixed or unknown execution never enters checkpoint statistics. Version changes
+    at the runner do not select a frozen evaluation and cannot create forgetting.
+    """
     def __init__(self, cfg=OnlineConfig()):
         self.cfg = cfg
-        self.rows = []
+        self.training = deque(maxlen=cfg.capacity)
+        self.frozen = OrderedDict()
+        self.latest_frozen = None
 
     def add(self, record):
-        self.rows.append((vector(TrajectorySpec(**record['trajectory'])), deepcopy(record)))
+        if record['outcome'] not in ('completed', 'failed', 'timeout'): return
+        row = (vector(TrajectorySpec(**record['trajectory'])), record['outcome'],
+               canonical([record['plant'], record['contract']]))
+        checkpoint = record.get('frozen_checkpoint')
+        if checkpoint is not None:
+            if checkpoint not in self.frozen:
+                self.frozen[checkpoint] = deque(maxlen=self.cfg.capacity)
+                if len(self.frozen) > self.cfg.frozen_versions: self.frozen.popitem(last=False)
+            self.frozen[checkpoint].append(row)
+            self.latest_frozen = checkpoint
+        else:
+            self.training.append(row)
 
-    def estimate(self, spec, plant, contract, version):
-        x = vector(spec)
-        neighbors = [r for v, r in self.rows if r['plant'] == plant and r['contract'] == contract
-                     and np.linalg.norm((x-v)/self.cfg.scales) <= self.cfg.neighborhood_radius]
-        current = [r for r in neighbors if r['policy_version'] == version][-self.cfg.history_window:]
-        outcomes = [r['outcome'] == 'completed' for r in current]
-        half = len(outcomes)//2
-        progress = float(np.mean(outcomes[half:])-np.mean(outcomes[:half])) if half else 0.
-        return dict(count=len(outcomes), successes=sum(outcomes), failures=sum(r['outcome']=='failed' for r in current),
-                    timeouts=sum(r['outcome']=='timeout' for r in current),
-                    rate=float(np.mean(outcomes)) if outcomes else None, progress=progress,
-                    mastered=any(r['outcome']=='completed' for r in neighbors))
+    def estimate(self, spec, plant, contract, version=None, *, stream='frozen'):
+        rows = list(self.training if stream=='training' else self.frozen.get(version, ()))
+        if rows:
+            x = vector(spec); context = canonical([plant, contract])
+            distances = np.linalg.norm((np.array([r[0] for r in rows])-x)/self.cfg.scales, axis=1)
+            outcomes = [r[1] for r, d in zip(rows, distances)
+                        if d <= self.cfg.neighborhood_radius and r[2]==context][-self.cfg.history_window:]
+        else: outcomes = []
+        values = [x=='completed' for x in outcomes]; half = len(values)//2
+        progress = float(np.mean(values[half:])-np.mean(values[:half])) if half else 0.
+        return dict(count=len(values), successes=sum(values), failures=outcomes.count('failed'),
+                    timeouts=outcomes.count('timeout'), rate=float(np.mean(values)) if values else None,
+                    progress=progress, stream=stream, checkpoint=version if stream=='frozen' else None)

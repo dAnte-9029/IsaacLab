@@ -1,126 +1,177 @@
-# Unified Trajectory 第三阶段：在线采样机制
+# Unified Trajectory 第三阶段：训练前修复
 
-独立开发位置：`.worktrees/unified-trajectory-online-v1`，分支
-`feat/unified-trajectory-online-v1`，基于 native HEAD `d343f74d`。
-离线来源 worktree HEAD `4303c1ad`。开始时两者均无已跟踪文件修改，
-未跟踪 PID、eval 和论文文件未触碰。未自动提交或推送。
+主工作树 `.worktrees/unified-trajectory-online-v1`，起点 `8ff48866`，开始时干净。
+独立 L/I 接线树 `.worktrees/unified-online-li-smoke` 基于物理分支 `4303c1ad`；来源树的
+未跟踪论文未触碰。没有 commit/push、PPO、气动/网络/奖励或轨迹数学定义修改。
+原始 88 条 v2 离线记录仍只读。旧机制结果 `results/unified_trajectory_phase3/mechanism.json`
+保留为历史，不能代表下述实际抽样结果。
 
-**VERIFIED（机制层面）**：25 项定向检查通过。使用真实 88 条 v2 记录初始化，
-后续反馈全部是确定性人工构造的 rollout 测试数据，不是物理仿真成功。
-没有训练 PPO、启动 PhysX、改动气动模型、奖励或网络。
+## 实现与版本归属
 
-## 模块与信任边界
+`trajectory_feedback.py` 改为 SQLite WAL/FULL 持久化。episode 元数据、逐步控制轨迹、
+终止摘要、唯一条件成功见证分别存于 `episodes/steps/terminals/witnesses` 表；应用仅 INSERT，
+不覆盖或删除旧记录。摘要通过 `trace_ref` 定位完整动作证据，不复制轨迹到反馈或能力窗口。
+每步数据流为**命令 → decimation 个物理步 → 实际执行器、关节和机体状态**。
+原始非有限数据保留为明确的 `nan/inf` 标记，不替换为零；任何必要字段缺失或非有限均
+产生 `invalid_data`，不能认证成功。`completed/failed/timeout/manual_reset/invalid_data`
+语义分开；人工 reset 也有摘要，但不进入成功率统计。
 
-- `path_tracking/trajectory_evidence.py`：只读原始 JSON 快照，返回副本；保留完整原始
-  物理条件、轨迹、评价合同、控制见证。精确匹配才返回 VERIFIED FEASIBLE；
-  同任务同物理条件但合同不同返回 RELATED EVIDENCE / TARGET UNVERIFIED。
-  NOT FOUND 不排除任务。不同 L/I、DeLaurier、扭转配置不能继承认证。
-- `trajectory_feedback.py`：`RolloutEvaluator.begin/observe` 绑定完整任务、初始状态、
-  plant、合同、policy version 和实例 ID。逐控制步记录命令/执行器见证，拒绝缺步、
-  重复终止和直接 status 标签。只有终止评价器可以写 journal；安全失败优先于完成，
-  完成优先于超时。未完成的手动 reset 丢弃未终止 episode，不伪造失败。
-  `FeedbackStore.query` 只按完整任务、plant、初始状态和合同查成功；后续失败仍追加。
-- `trajectory_capability.py`：有限对称邻域内的当前版本完成/失败/超时数、成功率、
-  学习进展及历史掌握标记。当前窗口 32 条；不同版本不混算当前成功率。
-  初始状态完整保留，能力统计是同配置 reset 分布的边际估计，未对初始状态再平滑建模。
-  它不是物理可飞概率，也不能提升邻居的证据标签。
-- `online_trajectory.py`：独立连续混合采样器，不引用任何 C1–C4 ID 或自适应逻辑。
-- `trajectory_evidence_geometry.py`：仅从第二阶段移植峰值/持续距离等几何提取函数；
-  没有移植允许直接追加标签的旧 API，也没有移植逐分量“更小即更容易”的启发式。
+每个 episode 的每个动作区间保存实际 `policy_version` 和 `execution_mode`。
+runner 在提交新版本动作前调用：
 
-真实入口写 `rollout_feedback.jsonl`；测试显式使用 `simulated=True`，只能写
-`simulation_feedback.jsonl`，查询返回 SIMULATED SUCCESS / NOT PHYSICAL EVIDENCE。
-采样器拒绝未经本 journal 评价、篡改或重复的反馈。原始 v2 永远只读；没有迁移脚本
-写入在线目录的路径，重读/重启不会覆盖记录。journal 使用单写者、追加和 fsync；
-不支持多进程同时写同一文件。进程中 API 边界不等于防恶意 Python/文件篡改的安全系统。
+```python
+env.set_policy_version("ppo_update_0042", evaluation_mode="training")
+# 独立冻结 checkpoint 评估时显式使用 evaluation_mode="frozen"。
+# 未知版本传 None；不能用 episode 编号或步数猜版本。
+```
 
-## 采样定义与工程初值
+版本在 `_pre_physics_step` 捕获，reset 标签仅作背景。跨版本 episode 不截断；
+已知多版本标为 `mixed`，含未标注动作标为 `unknown`。成功仍可形成**该完整控制执行**
+的条件见证，但不会归给任何冻结 checkpoint。即使宣称 frozen 的 episode 实际跨版本，
+其 `frozen_checkpoint` 仍为空。完整动作版本顺序在步骤表中可查。
 
-固定混合权重为 base / retention / exploration = **0.40 / 0.25 / 0.35**。
-配置强制 base 下限 0.20、retention 和 exploration 正权重。
+`PolicyCapability` 将训练与冻结评估分开：训练窗口默认最多 2,048 条终止摘要；
+最多保存最近 2 个冻结版本、每版 2,048 条；查询邻域最多取最近 32 条。
+这些窗口只保存几何向量、结果和合同作用域，不保存控制轨迹。
+训练中的混合/未知执行可影响探索统计，不能影响 checkpoint 成功率和遗忘。
+遗忘只比较独立冻结评估；单纯更新 runner 版本、或同一 checkpoint 内采样成功率波动，
+都不会制造遗忘信号。区域历史冻结表现基线单独保留，不依赖训练版本标签。
 
-base 完全调用原始连续采样器。exploration 每次从 q0 生成 16 条新候选，按离线几何
-邻近参考、未知度、正学习进展和遗忘状态加权抽取。几何距离对称，包含曲率、坡度、
-两项变化率、航程、横/纵持续距离、净高度、高度跨度、耦合距离与积分。
-离线参考只使用**相同 backend** 的成功记录；这些仅是参考，不要求与目标合同等价，
-也绝不授予目标可飞标签。默认 native DeLaurier 不会获得 L/I 成功先验加成。
-60 m 与历史 130–200 m 明确保留为不同任务。L/I 物理实现没有合并进此 worktree。
+`OnlineSampler` 使用默认 64 个连续轨迹区域代表和有界能力窗口，在每 8 条有效终止反馈后
+增量更新一次采样状态。新权重以 0.20 凸混合进入旧权重；reset/sample 不读历史摘要，
+不重建能力对象。区域是连续几何邻域，不是 C1–C4 任务 ID。
+首次构造/重启时**仅流式读一次终止摘要**恢复状态，不读取逐步轨迹；启动恢复仍是 O(N)，
+本轮未实现启动快照。常态采样/反馈不再随全部历史数量线性增长。
 
-retention 使用历史成功的完整系数形状，给曲率/坡度各自施加 [0.9,1.1] 连续幅值扰动；
-仍过原几何筛选，扰动不合法则尝试原 anchor，再不合法回退 q0 并记录来源。
-只保持当前共享航程/合同/plant 的 anchor；环境批缓存仍采用固定共享航程。
-独立采样器可通过 SamplingConfig 配置其他航程，但此次没有引入逐 env 可变缓存长度。
+历史成功永久保留在磁盘，窗口淘汰不会删除见证。保持分支的 20% 使用磁盘索引均匀抽取
+历史唯一条件见证，其余使用有界区域 anchor 和遗忘权重；因此未留在内存 bank 的成功
+仍有复习机会。SQLite 索引避免扫描全部成功记录。实例 ID、步骤主键和唯一见证身份
+阻止重启重放制造重复认证；重启恢复的采样权重也通过一致性测试。
 
-每 8 条终止反馈更新一次；新条件分布以 0.20 凸混合并入旧分布。版本改名本身不改变
-采样分布；每次批更新的版本由该批最后一个终止记录确定，旧批版本冻结。
-未来 runner 应在版本边界排空在途 episode，避免同一批混合旧/新版本影响优先级；
-每条记录自己的能力版本仍准确。固定候选集合上每次总变差变化不超过
-`(0.25+0.35)*0.20=0.12`。实际 retention 采用历史分布凸混合抽样。
+模拟与真实证据分别写 `simulation_feedback.sqlite3` 和 `rollout_feedback.sqlite3`。
+模拟查询明确返回 NOT PHYSICAL EVIDENCE。数据库是单写者接口，步骤与摘要逻辑追加，
+不是承诺 SQLite 文件字节只追加。若目录有旧版 JSONL，入口明确拒绝并保留原文件，
+要求显式迁移/重新评价；旧版被净化过的执行器轨迹不能静默升级为新版成功证据。
 
-探索原始分数下限 0.15，重复失败无进展只降低权重；保留未知度项。
-邻域默认半径 1.0；几何尺度顺序见 `OnlineConfig.scales`。
-四情景测试使用半径 **0.08** 以隔离三个探针，不宣称这是训练最优值。
-上述所有数值均为可配置工程假设。
+## 实际采样机制
 
-覆盖保证：q0 始终占 40%；默认两个通道都关闭的先验概率为 6.25%，因此在默认
-可接受起始高度下，精确直线至少有 **2.5% 总体基础采样机会**，不依赖训练成功率。
-retention 分支固定占 25%；首个成功批后，其历史 anchor 分布至少分到该分支的 20%，
-即总体 5%，后续平滑增加（前提是 anchor 在当前几何条件仍合法）。
-没有历史成功时该分支回退 base。未知/困难区域只要在 q0 支持内，永远不会被永久排除。
+三分支仍为 base / retention / exploration = **40% / 25% / 35%**，base 配置下限 20%。
+base 原样调用 q0；retention 对完整成功系数施加连续幅值扰动。
+exploration 使用 65% 区域连续扰动、35% 新 q0 候选加权抽样，使失败降权、学习进展和
+冻结评估的遗忘能够落实到实际抽样，而不只改变探针分数。所有结果仍经过原几何筛选；
+不合法 kernel 或无可用保持 anchor 时明确回退 base，来源记录包含 fallback。
+权重更新平滑约束的是权重向量，不把区域代表变化解释为全连续分布的严格 TV 定理。
 
-## 四个模拟情景结果
+真实 88 条离线记录提供同 backend 几何优先参考，不给 60 m 新任务授予物理标签；
+不同 backend、扭转或合同不能继承认证。距离是对称的，不假设各特征越小越容易。
+本次机制实验半径 0.3，其余使用 OnlineConfig 初值；这些都是工程假设，不是最优值。
 
-[完整数值](results/unified_trajectory_phase3/mechanism.json)。下表是固定三个探针
-（简单/困难/未知）上的**条件采样质量诊断**，不是连续空间某条精确轨迹的抽中概率。
-`distribution()` 将探针当成候选支持；实际 retention 还包含连续扰动核和几何回退，
-因此这些数值也不等于完整空间的区域积分或实际 rollout 频率。
+调用真实 `sample_batch()` → `sample()`，四阶段使用同一组 seed **10000–11023**，
+每阶段 **1,024 条轨迹**，全部反馈为构造数据。类别可重叠，数量不是类别概率之和。
+困难区域预先选为初始 bank 中反向/耦合需求最高的 8 个代表的最近邻区域。
+简单阈值为 K≤0.00125、G≤0.0075；持续为最大有效段≥30 m；复杂反向至少一个通道
+有显著反号；三维耦合有效段≥6 m。未知表示距已反馈轨迹几何距离>0.3，
+不是“没有物理成功证明”的同义词。
 
-| 情景 | 简单 | 困难 | 未知 |
-|---|---:|---:|---:|
-| 初始 | 35.96% | 31.10% | 32.94% |
-| 困难连续失败 32 次 | 37.47% | 28.24% | 34.29% |
-| 随后困难成功 8 次 | 34.99% | 33.03% | 31.99% |
-| A 掌握后 B 失败 32 次 | 28.57% | 45.57% | 25.86% |
-| 未知区域再失败 64 次 | 29.42% | 50.10% | 20.48% |
-| 简单成功后持续注入复杂任务进展 | 38.29% | 41.21% | 20.50% |
+| 实际轨迹数 / 1024 | 初始 | 困难失败后 | 重新成功后 | 冻结 B 退化后 |
+|---|---:|---:|---:|---:|
+| 简单 | 100 | 102 | 118 | 88 |
+| 持续机动 | 738 | 727 | 759 | 788 |
+| 复杂反向 | 216 | 216 | 388 | 427 |
+| 三维耦合 | 485 | 481 | 608 | 640 |
+| 预定义困难区域 | 104 | 100 | 310 | 368 |
+| 能力未知区域 | 1024 | 984 | 642 | 624 |
 
-A 在困难邻域的当前成功率先达 100%，B 的为 0%；32 条历史**模拟**成功见证仍存在。
-新成功立即追加见证，采样优先级在下一批更新修正，不会被旧失败永久封锁。
-探针 base 每项下限为 13.33%；简单任务即使曾成功仍持续复习。
-测试还验证三种采样分支实际返回合法完整 TrajectorySpec 和来源，部分 reset 不改变
-其他 env 的任务、缓存或在途反馈；默认关闭与原种子采样一致。
+困难区域实际频率为 **10.16% → 9.77% → 30.27% → 35.94%**。
+失败降权的实际效应较小，仅减少 4/1024；这里只验证该固定种子机制方向，不作统计优势或
+RL 学习性能结论。复习/遗忘响应则在实际样本中出现明显覆盖增加。
 
-## 环境接入与验证边界
+各阶段 base 固定抽到 419 次、exploration kernel 233 次、候选探索 113 次；
+retention 的 259 次分支抽签从初始全部回退，转为成功后 258 次保持+1 次回退，再到
+退化后 259 次保持。额外定向测试强制不兼容航程，覆盖探索/保持两种几何回退。
+基础 40% q0 始终不变；默认合法起点下精确直线的理论基础机会至少 2.5%。
+未知区域没有永久排除，简单任务在退化后仍有 88 条。
 
-`UnifiedTrajectoryEnvCfg.online_sampling=False` 为默认。启用时必须提供
-`online_rules_path`、`online_feedback_directory`、`online_policy_version`；
-`online_sampler_config` 可传 OnlineConfig。完整 plant 配置和实际初始 root/joint/phase/
-frequency/wind/actuator 状态由环境采集，合同由当前终止配置构造，不能套用 phase2 合同。
-任务仍在 `task_records`，来源另存 `task_sampling_sources`；partial reset 只绑定对应行。
-训练端更新 `env.online_sampler.policy_version`，之后新 episode 使用新版本。
+**三种量严格分开**：`distribution()` 是固定探针诊断；上表是实际生成任务的经验频率；
+`OfflineEvidence/FeedbackStore.query()` 才是按完整条件/合同查询控制成功见证。
+上表全部是模拟机制结果，不是物理可飞概率或飞行成功。
+特征歧义仍存在：零坡度时全部曲率反号，特征向量可相同而左右机动顺序相反；
+邻域只服务采样，完整轨迹身份不合并。
 
-本轮接口测试用张量 plant fixture 执行**实际环境 reset 与 done 方法**，不启动 Isaac Sim。
-数值生成器和缓存原有测试同时通过。没有声称 PhysX 闭环 smoke 或真实新飞行成功。
+## 规模基准
 
-反例：坡度全零时，将一条反向轨迹的所有曲率系数乘 -1，其上述特征向量完全相同，
-但先左后右与先右后左互换。邻域会混合这两类经验；完整轨迹身份仍不同，不能相互认证。
-没有为掩盖这一局限任意增加特征。
+CPU、无 PhysX/PPO；每个规模单次采样 20 个种子，256 条批量重复 3 次取中位数；
+反馈用 32 条单步模拟终止，包含轨迹写入、FULL 提交及必要的统计更新。
+每个规模的反馈计时会追加 32 条，因此最终累计数分别为 32/288/4128。
 
-接口足以接下一轮固定/自适应等预算 PPO 对照：同一任务表示、默认固定分布、可选
-自适应 reset、版本化终止反馈均存在。**这只是机制与接口就绪**；仍需选定共同 plant、
-reset 分布、合同、预算及版本更新边界。未实现 runner，也未验证长训练吞吐。
-当前实现保留并重放历史批计算分布，数据量增长时成本增加；本轮没有宣称可直接承受
-大规模长期训练吞吐。L/I 对照还需在有相应物理实现的工作树接入这些独立模块。
+| 计时前累计反馈 | 单次采样中位 ms | 单次 p95 ms | 256 条批量中位 ms | 反馈中位 ms | 反馈 p95 ms | 训练窗口 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 1.38 | 38.71 | 1198.58 | 6.45 | 16.41 | 32 |
+| 256 | 1.41 | 22.71 | 1155.82 | 6.06 | 24.22 | 288 |
+| 4096 | 1.43 | 23.52 | 1391.43 | 5.75 | 41.70 | 2048 |
 
-复现（在独立 worktree 中，要求已有第二阶段数据；无需 PhysX）：
+反馈 p95 包含每 8 条一次的有界窗口更新，饱和前仍随窗口填满而增加；不是恒定零成本。
+最后永久唯一成功见证 1,378 条，远多于 bank 的 64 个代表，仍可从磁盘抽取。
+256 env 同时 reset 约需 1.2–1.4 s，不能把单次中位数视为全环境吞吐。
+历史重放主瓶颈已消除，但几何构建、同步持久化、启动恢复和长期磁盘容量仍有成本。
+
+## 真实 L/I 接线
+
+独立树只移植统一轨迹任务/原有采样器、缓存、在线模块和 smoke 脚本。
+L/I 原文件仅缺少第一阶段采样/筛选接口；补齐既有实现后无实质冲突，未更改其已有
+Trajectory 数学函数、气动物理或整个 RL 分支。复用来源树已编译 native constraint。
+
+L3D、I3D 各一次：**4 env，在线 32 步 + 同环境关闭在线接口 32 步**，480 Hz physics /
+60 Hz control，扭转 35°、10 sections、无风，固定真实动作。验证实际 `_control_aero_model`
+和 backend 配置、预瞄、有限机体/关节/执行器状态、部分 env reset 隔离、版本 A→B、
+真实 timeout/manual reset 记录、动作轨迹与重启读取。未注入成功状态或完成整条任务。
+每个 backend 9 条终止记录：4 timeout、5 manual_reset；4 mixed、5 single，全部无
+frozen_checkpoint，也无新增 completed 认证。离线条件不匹配时没有继承成功。
+
+| backend | 关闭在线步中位 ms | 在线步中位 ms | 增量 | 部分 reset ms |
+|---|---:|---:|---:|---:|
+| L3D | 35.72 | 42.35 | +6.63 ms / 18.6% | 12.81 |
+| I3D | 40.44 | 46.87 | +6.42 ms / 15.9% | 12.84 |
+
+时间排除前 3 步；在线/关闭顺序运行，任务 reset 序列不同，不是严格配对性能实验。
+这是短程接线开销，不能外推 256 env 或长期 PPO。Kit 有已有文件监视配额警告，但两次
+均生成 `ONLINE_LI_SMOKE_PASSED` 并正常结束，未降级为 DeLaurier/L3D 替代 I3D。
+
+## 验证、复现与停止边界
+
+**30 项定向检查通过**：版本混合/未知、冻结统计隔离、同 checkpoint 波动、六种必要
+控制字段非有限、追加/重启/重复、部分 reset、旧 JSONL 拒绝静默升级、真实 sample 分支/
+回退，以及原数学和缓存测试。实际抽样实验与 L/I smoke 的结果独立于这些单元测试。
+
+紧凑结果位于 [pretraining_fix](results/unified_trajectory_phase3/pretraining_fix/)。
+完整 synthetic SQLite 位于主树 `logs/unified_phase3_fix_validation_v1/`；真实步骤证据位于
+L/I 接线树 `logs/unified_online_smoke_{L3D,I3D}_v1/evidence/`，没有混写。
+
+主树中激活环境后：
 
 ```bash
 source /home/zn/anaconda3/etc/profile.d/conda.sh
 conda activate env_isaaclab
 export TERM=xterm PYTHONPATH="$PWD/source/flapping_bot:$PYTHONPATH"
-./isaaclab.sh -p -m pytest tests/test_online_trajectory.py tests/test_unified_trajectory.py tests/test_unified_trajectory_cache.py -q -s
+./isaaclab.sh -p -m pytest tests/test_online_trajectory.py tests/test_unified_trajectory.py tests/test_unified_trajectory_cache.py -q
+./isaaclab.sh -p scripts/flapping_px4/validate_online_trajectory.py \
+  --rules ../control-oriented-3d-wing-aero/logs/unified_trajectory_phase2_v1/screening_rules_v2.json \
+  --output logs/unified_phase3_fix_repro
 ```
 
-`UNIFIED_RULES` 可覆盖原 v2 路径；`UNIFIED_REPORT` 可指定不存在的新 JSON 输出路径。
-wrapper 可能吞退出码，应确认 pytest 输出 `25 passed`。测试临时 journal 留在 pytest 临时目录，
-不向真实证据目录写入。
+在已接入模块的 `.worktrees/unified-online-li-smoke` 中，同样激活环境并重设 PYTHONPATH，
+分别运行（输出目录必须不存在）：
+
+```bash
+./isaaclab.sh -p scripts/flapping_px4/smoke_online_trajectory_li.py --backend L3D \
+  --plant-assets ../control-oriented-3d-wing-aero \
+  --rules ../control-oriented-3d-wing-aero/logs/unified_trajectory_phase2_v1/screening_rules_v2.json \
+  --output logs/unified_online_L3D_repro
+# 将 backend 与输出目录改为 I3D，复现第二次 smoke。
+```
+
+结论：常态在线路径已消除明显的全历史重放；冻结策略遗忘不受混合版本训练 episode
+污染；实际抽样体现探索与保持。**已具备等预算固定/在线自适应 PPO 对照的机制与真实
+L/I 接口条件**，不等于已经验证 RL 收益或长期训练吞吐。runner 仍须显式提交逐动作版本，
+并安排独立冻结评估；比较时固定 plant/reset/合同/预算，定义清楚评估成本如何计入。
+本轮未实现新的 PPO runner，也未启动训练，验证完成后停止。

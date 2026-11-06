@@ -21,7 +21,8 @@ class UnifiedTrajectoryEnvCfg(FlappingBotStraightFlightDeLaurierMeasuredPureRLEn
     online_sampling: bool = False
     online_rules_path: str = ""
     online_feedback_directory: str = ""
-    online_policy_version: str = ""
+    online_policy_version: str | None = None
+    online_evaluation_mode: str = "training"
     online_sampler_config: object = None
     sampling: SamplingConfig = SamplingConfig()
     geometry_limits: GeometryLimits = GeometryLimits()
@@ -70,13 +71,17 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         self.previous_position = torch.zeros(self.num_envs, 3, device=self.device)
         self.reference = {}
         self._reference_valid = False
+        self._current_policy_version = cfg.online_policy_version
+        self._evaluation_mode = cfg.online_evaluation_mode
+        self._action_versions = [None]*self.num_envs
+        self._action_modes = ["training"]*self.num_envs
         self.online_sampler = None
         self.rollout_evaluator = None
         if cfg.online_sampling:
             from flapping_bot.path_tracking.online_trajectory import (
                 OfflineEvidence, FeedbackStore, RolloutEvaluator, OnlineSampler, OnlineConfig)
-            if not cfg.online_rules_path or not cfg.online_feedback_directory or not cfg.online_policy_version:
-                raise ValueError("Online mode requires evidence path, journal directory and policy version")
+            if not cfg.online_rules_path or not cfg.online_feedback_directory:
+                raise ValueError("Online mode requires evidence path and journal directory")
             # Conservative full configuration scope: no inferred equivalence to L/I or other revisions.
             snapshot = cfg.to_dict()
             for key in list(snapshot):
@@ -102,7 +107,20 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                 contract, cfg.online_policy_version, cfg.online_sampler_config or OnlineConfig(),
                 cfg.sampling, cfg.geometry_limits)
 
+    def set_policy_version(self, version: str | None, *, evaluation_mode: str = 'training'):
+        """Runner calls before actions from a new PPO checkpoint; no forced reset."""
+        if evaluation_mode not in ('training', 'frozen'):
+            raise ValueError('Expected training or explicitly frozen evaluation')
+        self._current_policy_version = version
+        self._evaluation_mode = evaluation_mode
+        if self.online_sampler is not None:
+            self.online_sampler.set_policy_version(version)
+
     def _reset_idx(self, env_ids):
+        if self.rollout_evaluator is not None:
+            for i in torch.as_tensor(env_ids).tolist():
+                record = self.rollout_evaluator.abort(i)
+                if record is not None: self.online_sampler.feedback(record)
         # Parent owns only robot/actuator/PhysX reset. All legacy task stages are None.
         super()._reset_idx(env_ids)
         ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
@@ -132,7 +150,8 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                     env_origin=self.scene.env_origins[i].detach().cpu().tolist())
                 self.task_sampling_sources[i] = source
                 self.rollout_evaluator.begin(i, path.spec, self.online_sampler.plant, initial,
-                    self.online_sampler.contract, self.online_sampler.policy_version, source)
+                    self.online_sampler.contract, self._current_policy_version, source,
+                    evaluation_mode=self._evaluation_mode)
             self.reset_counts[i] += 1
         self.path_cache.update_rows(ids, [self.paths[i] for i in ids.tolist()])
         self.progress[ids] = 0
@@ -147,6 +166,10 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         self.previous_action.copy_(self._actions)
         self.previous_position.copy_(self._robot.data.root_pos_w)
         self._reference_valid = False
+        # Capture provenance at the action boundary, not at reset or termination.
+        self._action_versions = [self._current_policy_version]*self.num_envs
+        self._action_modes = [self._evaluation_mode]*self.num_envs
+        self._raw_actions_finite = torch.isfinite(actions).all(-1)
         super()._pre_physics_step(actions)
 
     def _update_reference(self):
@@ -201,14 +224,17 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                 record = self.rollout_evaluator.observe(i, progress_m=float(self.progress[i]),
                     path_error_m=float(distance[i]), height_m=float(height[i]), tilt_cos=float(tilt_cos[i]),
                     body_rate_rad_s=float(torch.linalg.vector_norm(self._robot.data.root_ang_vel_b[i])),
-                    finite=bool(finite[i]), step=int(self.episode_length_buf[i]),
-                    control=dict(command=torch.nan_to_num(self._actions[i]).detach().cpu().tolist(),
-                        applied=torch.nan_to_num(self._act_cmd[i]).detach().cpu().tolist(),
-                        joint_pos=torch.nan_to_num(self._robot.data.joint_pos[i]).detach().cpu().tolist(),
-                        joint_vel=torch.nan_to_num(self._robot.data.joint_vel[i]).detach().cpu().tolist(),
-                        phase=float(torch.nan_to_num(self._phase[i]))))
+                    finite=bool(finite[i] & self._raw_actions_finite[i]), step=int(self.episode_length_buf[i]),
+                    policy_version=self._action_versions[i], execution_mode=self._action_modes[i],
+                    control=dict(command=self._actions[i].detach().cpu().tolist(),
+                        applied=self._act_cmd[i].detach().cpu().tolist(),
+                        joint_pos=self._robot.data.joint_pos[i].detach().cpu().tolist(),
+                        joint_vel=self._robot.data.joint_vel[i].detach().cpu().tolist(),
+                        root_state=self._robot.data.root_state_w[i].detach().cpu().tolist(),
+                        phase=float(self._phase[i])))
                 if record is not None:
                     self.online_sampler.feedback(record)
+            self.rollout_evaluator.store.flush()
         return self.failed | self.completed, timeout & ~self.completed & ~self.failed
 
     def _get_rewards(self):
