@@ -20,6 +20,7 @@ PPO_CONFIG = dict(num_learning_epochs=5,num_mini_batches=4,clip_param=.2,gamma=.
     schedule='fixed',desired_kl=None,normalize_advantage_per_mini_batch=False)
 
 EVALUATION_PROTOCOL = 'frozen_full_batch_v3'
+SMOKE_SCHEMA = 'unified_evaluation_smoke_only_v1'
 EVALUATION_LAYOUT = dict(kind='isaac_grid_z_up', spacing_m=10.)
 
 
@@ -51,7 +52,17 @@ def require_initial(actual, expected):
             raise ValueError('Evaluation initial state mismatch: '+key)
 
 
-def require_evaluation_checkpoint(loaded, *, backend, sampling, suite, budget):
+def require_checkpoint_use(loaded, *, smoke_evaluation=False):
+    fixture = loaded.get('smoke_fixture') is True or loaded.get('schema') == SMOKE_SCHEMA
+    if fixture and not smoke_evaluation:
+        raise ValueError('Smoke fixture is evaluation-only; training/resume and ordinary evaluation refused')
+    if smoke_evaluation and (loaded.get('schema') != SMOKE_SCHEMA or loaded.get('smoke_fixture') is not True
+                             or loaded.get('training_updates') != 0 or 'optimizer' in loaded):
+        raise ValueError('Explicit smoke evaluation requires an untrained smoke-only snapshot')
+
+
+def require_evaluation_checkpoint(loaded, *, backend, sampling, suite, budget, smoke_evaluation=False):
+    require_checkpoint_use(loaded, smoke_evaluation=smoke_evaluation)
     c = loaded.get('contract', {})
     if (c.get('evaluation_protocol') != EVALUATION_PROTOCOL or c.get('evaluation_layout') != EVALUATION_LAYOUT
             or not all(k in c for k in ('eval_tasks','final_tasks','eval_step_budget','sampling','backend'))
@@ -73,7 +84,7 @@ def require_evaluation_checkpoint(loaded, *, backend, sampling, suite, budget):
     return evaluation_tasks(suite)
 
 
-def validate_evaluation_batch(store, tasks, plant, contract, initial, version):
+def validate_evaluation_batch(store, tasks, plant, contract, initial, version, *, smoke_evaluation=False):
     """Read and replay the entire immutable journal before any sampler mutation."""
     from flapping_bot.path_tracking.trajectory_feedback import RolloutEvaluator
     from flapping_bot.path_tracking.trajectory_evidence import canonical
@@ -88,6 +99,8 @@ def validate_evaluation_batch(store, tasks, plant, contract, initial, version):
         def _step(self, ident, sample): pass
         def _append_evaluated(self, r, evaluator): return deepcopy(r)
     for r in records:
+        if bool(r.get('smoke_fixture')) != smoke_evaluation:
+            raise ValueError('Smoke evidence requires explicit isolated smoke validation')
         if (r.get('simulated') is not False or r.get('frozen_checkpoint') != version
                 or r.get('policy_execution') != 'single' or r.get('policy_versions') != [version]
                 or r.get('reset_policy_version') != version or r.get('evaluation_mode') != 'frozen'
@@ -112,7 +125,8 @@ def validate_evaluation_batch(store, tasks, plant, contract, initial, version):
         replay = RolloutEvaluator(ReplayStore())
         from flapping_bot.path_tracking.unified_trajectory import TrajectorySpec
         replay.begin(0, TrajectorySpec(**r['trajectory']), plant, r['initial'], contract, version,
-                     'fixed_evaluation', evaluation_mode='frozen', instance_id=r['instance_id'])
+                     'fixed_evaluation', evaluation_mode='frozen', instance_id=r['instance_id'],
+                     smoke_fixture=smoke_evaluation)
         result = None
         def decode(v):
             if isinstance(v, dict): return {k: decode(x) for k,x in v.items()}

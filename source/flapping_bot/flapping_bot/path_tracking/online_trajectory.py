@@ -45,7 +45,7 @@ class OnlineSampler:
             setattr(self,key,value)
 
     def feedback_evaluation(self, record, source_store):
-        if (source_store.simulated or record.get('simulated') or not record.get('frozen_checkpoint')
+        if (record.get('smoke_fixture') or source_store.simulated or record.get('simulated') or not record.get('frozen_checkpoint')
                 or source_store.get(record['instance_id']) != record):
             raise ValueError('Requires actual independently frozen evaluator evidence')
         if record['plant'] != self.plant or record['contract'] != self.contract:

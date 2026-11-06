@@ -208,7 +208,7 @@ class RolloutEvaluator:
         self.active = {}
 
     def begin(self, env_id, spec, plant, initial, contract, policy_version, source,
-              *, evaluation_mode='training', instance_id=None):
+              *, evaluation_mode='training', instance_id=None, smoke_fixture=False):
         if env_id in self.active:
             raise ValueError('Finish or explicitly abort previous episode before reset')
         if contract.get('kind') != 'unified_terminal_v1' or not plant or not initial:
@@ -225,6 +225,7 @@ class RolloutEvaluator:
             reset_policy_version=policy_version, evaluation_mode=evaluation_mode, source=source,
             identity=identity(spec, plant, initial, contract), simulated=self.store.simulated,
             evaluator='unified_terminal_v3', timing='command -> decimated physics -> applied/joint/body sample')
+        if smoke_fixture: r['smoke_fixture'] = True
         self.store._begin(r)
         self.active[env_id] = dict(record=r, step=0, versions=set(), modes=set(), valid=True,
                                    distance=0., error=None, error_squares=[0.,0.], error_max=[0.,0.])

@@ -20,7 +20,8 @@ from rsl_rl.algorithms import PPO
 from .unified_ppo_contract import (
     CANDIDATES, POLICY, PPO_CONFIG, evaluation_tasks, categories, source_identity,
     physical_source_identity, require_compatible_plant, EVALUATION_PROTOCOL, EVALUATION_LAYOUT,
-    require_evaluation_checkpoint, validate_evaluation_batch, require_initial)
+    require_evaluation_checkpoint, validate_evaluation_batch, require_initial,
+    SMOKE_SCHEMA, require_checkpoint_use, evaluation_origin)
 from flapping_bot.path_tracking.unified_trajectory import TrajectorySpec
 from flapping_bot.path_tracking.trajectory_feedback import FeedbackStore
 
@@ -47,6 +48,7 @@ def build_env(args, root, *, evaluation=False):
     cfg.online_sampling=not evaluation and args.sampling=='adaptive'; cfg.feedback_enabled=True
     cfg.online_rules_path=str(args.rules.resolve()); cfg.online_feedback_directory=str(args.output/'evidence')
     cfg.online_evaluation_mode='frozen' if evaluation else 'training'
+    cfg.online_smoke_fixture=evaluation and getattr(args, 'smoke_evaluation', False)
     cfg.evaluation_tasks=evaluation_tasks(args.eval_suite) if evaluation else None
     if evaluation: cfg.sampling=replace(cfg.sampling,length_m=cfg.evaluation_tasks[0]["trajectory"]["length_m"])
     cfg.delaurier_wing_geom_csv=args.plant_assets.resolve()/'outputs_DeLaurier/right_wing_te_fit_poly5_gap50.csv'
@@ -137,6 +139,7 @@ def run_evaluation_subprocess(args,root,checkpoint,iteration):
 def train(args,root):
     torch.set_num_threads(args.threads); torch.manual_seed(args.seed); np.random.seed(args.seed); random.seed(args.seed)
     loaded=torch.load(args.checkpoint,map_location='cpu',weights_only=False) if args.checkpoint else None
+    if loaded is not None: require_checkpoint_use(loaded)
     contract=dict(schema=SCHEMA,evaluation_protocol=EVALUATION_PROTOCOL,evaluation_layout=EVALUATION_LAYOUT,
         backend=args.backend,sampling=args.sampling,seed=args.seed,num_envs=args.num_envs,
         rollout_steps=args.rollout_steps,ppo=PPO_CONFIG,policy=POLICY,eval_interval=args.eval_interval,
@@ -258,30 +261,100 @@ def train(args,root):
         env.rollout_evaluator.store.close(); env.close()
 
 
+def create_smoke_snapshot(env, args, root, obs):
+    """Untrained initialization only: no PPO object, optimizer or training rollout."""
+    torch.manual_seed(args.seed)
+    policy = make_policy(tensor_obs(obs, env.num_envs))
+    policy.requires_grad_(False); policy.eval()
+    version = env._current_policy_version
+    contract = dict(schema=SMOKE_SCHEMA, evaluation_protocol=EVALUATION_PROTOCOL,
+        evaluation_layout=EVALUATION_LAYOUT, backend=args.backend, sampling=args.sampling,
+        seed=args.seed, eval_step_budget=args.eval_step_budget, eval_tasks=evaluation_tasks(),
+        final_tasks=evaluation_tasks('final'), policy=POLICY,
+        purpose='evaluation-smoke-only; not trained; never resume or capability feedback')
+    payload = dict(schema=SMOKE_SCHEMA, smoke_fixture=True, training_updates=0,
+        policy=policy.state_dict(), policy_config=POLICY, contract=contract, version=version,
+        plant=env.plant_identity, evaluation_contract=env.evaluation_contract,
+        evaluation_initial=env.evaluation_initial, evaluation_tasks=evaluation_tasks(),
+        source_provenance=source_identity(root), initialization='ActorCritic default initialization, fixed seed',
+        initial_policy_digest=policy_digest(policy))
+    args.checkpoint = args.output/'evaluation_smoke_only.pt'
+    with args.checkpoint.open('xb') as stream: torch.save(payload, stream)
+    (args.output/'snapshot_contract.json').write_text(json.dumps(
+        {k:v for k,v in payload.items() if k!='policy'}, indent=2))
+    return payload
+
+
+def inspect_evaluation_geometry(env, tasks, output):
+    """Compare real scene data and populated cache with independent analytic paths."""
+    actual=env.scene.env_origins.detach().cpu().numpy()
+    expected=np.array([evaluation_origin(len(tasks), i) for i in range(len(tasks))])
+    layout=dict(actual=actual.tolist(), expected=expected.tolist(),
+                cache_length_m=env.path_cache.length, cache_count=env.path_cache.count,
+                episode_length_s=env.cfg.episode_length_s, max_steps=env.evaluation_contract['max_steps'])
+    (output/'scene_layout.json').write_text(json.dumps(layout, indent=2))
+    np.testing.assert_array_equal(actual, expected)
+    length=tasks[0]['trajectory']['length_m']
+    assert env.path_cache.length==length and env.online_sampler is None
+    s=torch.linspace(0,length,17,dtype=torch.float64).expand(env.num_envs,-1)
+    cached=env.path_cache.positions(s).cpu().numpy()
+    analytic=np.stack([p.query(s[0].numpy())['position'] for p in env.paths])
+    error=float(np.max(np.abs(cached-analytic)))
+    assert error<2e-5, error
+    probe=torch.full((env.num_envs,),length*.5,dtype=torch.float64)
+    projected=env.path_cache.project(env.path_cache.query(probe)['position'],probe-.1,torch.full_like(probe,.5))
+    projection_error=float((projected-probe).abs().max())
+    assert projection_error<1e-3, projection_error
+    layout.update(cache_analytic_max_error_m=error, projection_error_m=projection_error)
+    (output/'scene_layout.json').write_text(json.dumps(layout, indent=2))
+    return layout
+
+
 def evaluate(args,root):
-    loaded=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
-    if loaded.get('schema')!=SCHEMA: raise ValueError('Requires a Unified PPO checkpoint')
-    tasks = require_evaluation_checkpoint(loaded, backend=args.backend, sampling=args.sampling,
-        suite=args.eval_suite, budget=args.eval_step_budget)
+    smoke=getattr(args,'smoke_evaluation',False)
+    create=getattr(args,'create_smoke_snapshot',False)
+    if create and not smoke: raise ValueError('Snapshot creation requires explicit smoke evaluation')
+    loaded=None if create else torch.load(args.checkpoint,map_location='cpu',weights_only=False)
+    tasks=evaluation_tasks(args.eval_suite)
+    if loaded is not None:
+        require_checkpoint_use(loaded, smoke_evaluation=smoke)
+        if loaded.get('schema')!=(SMOKE_SCHEMA if smoke else SCHEMA): raise ValueError('Requires a Unified PPO checkpoint')
+        tasks = require_evaluation_checkpoint(loaded, backend=args.backend, sampling=args.sampling,
+            suite=args.eval_suite, budget=args.eval_step_budget, smoke_evaluation=smoke)
     torch.set_num_threads(args.threads); torch.manual_seed(args.seed)
     env=build_env(args,root,evaluation=True)
     try:
+        if create:
+            # No action or physics step: capture the actual reset plant and initial state.
+            env.set_policy_version(f'smoke-only:{args.backend}:seed{args.seed}:{uuid.uuid4().hex[:12]}',
+                                   evaluation_mode='frozen')
+            obs,_=env.reset(); initial=check_initial(env,args.backend)
+            layout=inspect_evaluation_geometry(env,tasks,args.output)
+            loaded=create_smoke_snapshot(env,args,root,obs)
         require_compatible_plant(env.plant_identity,loaded['plant'])
         if env.evaluation_contract!=loaded['evaluation_contract']:
             (args.output/'identity_actual.json').write_text(json.dumps(env.plant_identity,indent=2))
             raise ValueError('Evaluation plant/contract differs from checkpoint')
         env.set_policy_version(loaded['version'],evaluation_mode='frozen')
-        obs,_=env.reset(); initial=check_initial(env,args.backend)
+        if not create:
+            obs,_=env.reset(); initial=check_initial(env,args.backend)
+            layout=inspect_evaluation_geometry(env,tasks,args.output)
         require_initial(env.evaluation_initial, loaded['evaluation_initial'])
-        obs=tensor_obs(obs,env.num_envs); policy=make_policy(obs); policy.load_state_dict(loaded['policy']); policy.eval()
+        obs=tensor_obs(obs,env.num_envs); policy=make_policy(obs); policy.load_state_dict(loaded['policy']); policy.requires_grad_(False); policy.eval()
         before=policy_digest(policy); records=[]; steps=0; started=perf_counter()
         collect_logs(env,args.output)
         with torch.inference_mode():
             while steps < args.eval_step_budget:
                 env.set_policy_version(loaded['version'],evaluation_mode='frozen')
                 actions=policy.act_inference(obs)
-                new,_,_,_,_=env.step(actions); obs=tensor_obs(new,env.num_envs); steps+=1
+                new,_,done,timeout,_=env.step(actions); obs=tensor_obs(new,env.num_envs); steps+=1
                 _,terminal=collect_logs(env,args.output); records.extend(terminal)
+                for record in terminal:
+                    slot=record['initial']['scene']['env_index']; outcome=record['outcome']
+                    assert bool(env.extras['unified'][outcome][slot])
+                    assert bool(timeout[slot])==(outcome=='timeout')
+                    assert bool(done[slot])==(outcome!='timeout')
+                assert env.online_sampler is None
                 if steps>env.max_episode_length and not env._evaluation_finished.all():
                     raise RuntimeError('Evaluation failed to terminate under original contract')
         if not env._evaluation_finished.all():
@@ -289,9 +362,12 @@ def evaluate(args,root):
         assert policy_digest(policy)==before and len(records)==env.num_envs
         assert all(r['policy_execution']=='single' and r['frozen_checkpoint']==loaded['version'] for r in records)
         records = validate_evaluation_batch(env.rollout_evaluator.store, tasks, env.plant_identity,
-            env.evaluation_contract, loaded['evaluation_initial'], loaded['version'])
+            env.evaluation_contract, loaded['evaluation_initial'], loaded['version'], smoke_evaluation=smoke)
         outcomes=Counter(r['outcome'] for r in records)
-        return dict(passed=True,sampling=args.sampling,eval_suite=args.eval_suite,trajectories=evaluation_tasks(args.eval_suite),checkpoint=str(args.checkpoint),version=loaded['version'],backend=args.backend,initial=initial,
+        return dict(passed=True,smoke_fixture=smoke,training_updates=0 if smoke else None,
+            scene_layout=layout,batch_validated=True,terminal_masks_match=True,sampler_created=False,
+            policy_digest_before=before,policy_digest_after=policy_digest(policy),
+            sampling=args.sampling,eval_suite=args.eval_suite,trajectories=evaluation_tasks(args.eval_suite),checkpoint=str(args.checkpoint),version=loaded['version'],backend=args.backend,initial=initial,
             policy_unchanged=True,optimizer_updates=0,environment_steps=steps*env.num_envs,
             active_episode_steps=sum(r['steps'] for r in records),
             padding_steps=steps*env.num_envs-sum(r['steps'] for r in records),eval_step_budget=args.eval_step_budget,wall_s=perf_counter()-started,
@@ -305,6 +381,7 @@ def evaluate(args,root):
 
 
 def receive_evaluation(env,state,destination,summary,version,budget):
+    if summary.get('smoke_fixture'): raise ValueError('Smoke evaluation cannot enter training feedback')
     if (not summary.get('passed') or summary.get('eval_suite')!='development'
             or summary.get('version')!=version or summary.get('environment_steps')!=5*budget):
         raise ValueError('Invalid development evaluation receipt/budget')

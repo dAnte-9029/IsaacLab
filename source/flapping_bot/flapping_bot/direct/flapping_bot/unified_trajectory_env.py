@@ -28,6 +28,7 @@ class UnifiedTrajectoryEnvCfg(FlappingBotStraightFlightDeLaurierMeasuredPureRLEn
     online_feedback_directory: str = ""
     online_policy_version: str | None = None
     online_evaluation_mode: str = "training"
+    online_smoke_fixture: bool = False
     online_sampler_config: object = None
     sampling: SamplingConfig = SamplingConfig()
     geometry_limits: GeometryLimits = GeometryLimits()
@@ -188,7 +189,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                 self.task_sampling_sources[i] = source
                 self.rollout_evaluator.begin(i, path.spec, self.plant_identity, initial,
                     self.evaluation_contract, self._current_policy_version, source,
-                    evaluation_mode=self._evaluation_mode)
+                    evaluation_mode=self._evaluation_mode, smoke_fixture=self.cfg.online_smoke_fixture)
             self.reset_counts[i] += 1
         self.path_cache.update_rows(ids, [self.paths[i] for i in ids.tolist()])
         self.progress[ids] = 0

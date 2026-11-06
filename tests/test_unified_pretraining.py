@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import torch
 from flapping_bot.analysis.unified_ppo_contract import evaluation_tasks,physical_source_identity,require_compatible_plant
+from flapping_bot.analysis.unified_ppo_contract import require_checkpoint_use, SMOKE_SCHEMA
 from flapping_bot.path_tracking.unified_trajectory import Trajectory,TrajectorySpec,screen,GeometryLimits
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ def function(name, **globals_):
     tree=ast.parse((ROOT/'source/flapping_bot/flapping_bot/analysis/unified_ppo_training.py').read_text())
     node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name==name)
     ns=dict(deepcopy=deepcopy,torch=torch,np=np,random=random,os=os,Path=Path,
-            SCHEMA='test',POLICY={},PPO_CONFIG={},evaluation_tasks=evaluation_tasks,
+            SCHEMA='test',SMOKE_SCHEMA=SMOKE_SCHEMA,require_checkpoint_use=require_checkpoint_use,POLICY={},PPO_CONFIG={},evaluation_tasks=evaluation_tasks,
             source_identity=lambda _: {},__file__=str(ROOT/'source/flapping_bot/flapping_bot/analysis/unified_ppo_training.py'))
     ns.update(globals_)
     exec(compile(ast.Module(body=[node],type_ignores=[]),'<isolated orchestration>','exec'),ns)
@@ -108,6 +109,17 @@ def test_actual_journal_prefix_is_read_only(tmp_path):
     old=torch.load(p,map_location='cpu',weights_only=False)
     source=Path(old['evidence'])
     if not source.exists(): pytest.skip('Historical source journal unavailable')
+    # SQLite mode=ro still writes reader locks/read marks to an existing SHM.
+    # Historical evidence is a static fixture: read its bytes into a private copy,
+    # including committed WAL data, before opening any SQLite connection.
+    import shutil
+    historical=source
+    protected=[p for p in (historical,Path(str(historical)+'-wal'),Path(str(historical)+'-shm')) if p.exists()]
+    before={p:(p.stat().st_size,p.stat().st_mtime_ns) for p in protected}
+    source=tmp_path/historical.name
+    shutil.copyfile(historical,source)
+    wal=Path(str(historical)+'-wal')
+    if wal.exists(): shutil.copyfile(wal,Path(str(source)+'-wal'))
     import sqlite3
     with sqlite3.connect(source.as_uri()+'?mode=ro',uri=True) as db:
         count=db.execute('SELECT COUNT(*) FROM terminals').fetchone()[0]
@@ -117,6 +129,7 @@ def test_actual_journal_prefix_is_read_only(tmp_path):
         assert db.execute('SELECT MAX(seq) FROM terminals').fetchone()[0]==cutoff
     with sqlite3.connect(source.as_uri()+'?mode=ro',uri=True) as db:
         assert db.execute('SELECT COUNT(*) FROM terminals').fetchone()[0]==count
+    assert before=={p:(p.stat().st_size,p.stat().st_mtime_ns) for p in protected}
 
 
 def test_same_frozen_task_new_instance_is_not_new_evidence(tmp_path):
