@@ -1,6 +1,7 @@
 """Append-only SQLite summaries and separate step evidence, bounded process memory."""
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 import sqlite3
 import uuid
@@ -37,14 +38,16 @@ def finite_tree(value):
         return bool(value) and all(finite_tree(v) for v in value.values())
     if isinstance(value, (list, tuple)):
         return bool(value) and all(finite_tree(v) for v in value)
-    return isinstance(value, (float, int, np.number)) and bool(np.isfinite(value))
+    if isinstance(value, float): return math.isfinite(value)
+    return isinstance(value, (int, np.number)) and bool(np.isfinite(value))
 
 
 def lossless_json(value):
     """Nonfinite data stays explicitly invalid, never replaced with a finite zero."""
     if isinstance(value, dict): return {k: lossless_json(v) for k, v in value.items()}
     if isinstance(value, (tuple, list)): return [lossless_json(v) for v in value]
-    if isinstance(value, (float, np.floating)) and not np.isfinite(value): return str(value)
+    if isinstance(value, float) and not math.isfinite(value): return str(value)
+    if isinstance(value, np.floating) and not np.isfinite(value): return str(value)
     return value
 
 
@@ -252,13 +255,38 @@ class RolloutEvaluator:
 
     def observe(self, env_id, *, progress_m, path_error_m, height_m, tilt_cos, body_rate_rad_s,
                 finite, step, control, policy_version=None, execution_mode='training'):
+        if env_id not in self.active: return None
+        values = [progress_m, path_error_m, height_m, tilt_cos, body_rate_rad_s]
+        valid = valid_interval(finite, values, control)
+        return self._observe_interval(env_id, values, valid, step, control, policy_version, execution_mode)
+
+    def observe_intervals(self, values, controls, steps, versions, modes, contract, length):
+        """Validate original interval data once, then share decisions with the environment.
+
+        This entry accepts raw data, never caller-certified success flags. Strict
+        SQLite replay continues to use observe() and independently revalidates it.
+        """
+        if not all(len(x) == len(values) for x in (controls, steps, versions, modes)):
+            raise ValueError("Mismatched interval batch lengths")
+        outcomes, records = [], []
+        for i, (value, control, step) in enumerate(zip(values, controls, steps)):
+            valid = valid_interval(True, value, control)
+            outcome = terminal_outcome(contract, length, step, value, valid)
+            record = self._observe_interval(i, value, valid, step, control, versions[i], modes[i])
+            if record is not None:
+                assert record['outcome'] == outcome
+                records.append((i, record))
+            outcomes.append(outcome)
+        return outcomes, records
+
+    def _observe_interval(self, env_id, values, valid, step, control, policy_version, execution_mode):
+        progress_m, path_error_m, height_m, tilt_cos, body_rate_rad_s = values
         state = self.active.get(env_id)
         if state is None: return None
         if step != state['step']+1: raise ValueError('Non-contiguous control interval')
         if execution_mode not in ('training', 'frozen'): raise ValueError('Invalid execution mode')
         c = state['record']['contract']
         values = [progress_m, path_error_m, height_m, tilt_cos, body_rate_rad_s]
-        valid = valid_interval(finite, values, control)
         state['valid'] &= valid
         outcome = terminal_outcome(c, state['record']['trajectory']['length_m'], step, values, valid)
         sample = dict(zip(('progress_m', 'path_error_m', 'height_m', 'tilt_cos', 'body_rate_rad_s'), values))

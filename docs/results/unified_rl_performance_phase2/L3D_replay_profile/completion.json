@@ -1,0 +1,1 @@
+{"passed": true, "steps": 48, "physics_steps": 384, "num_envs": 256, "ppo_updates": 0, "env_step_s": 6.8206832692958415, "profile": true}

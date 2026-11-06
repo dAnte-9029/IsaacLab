@@ -1,0 +1,30 @@
+{
+  "left": "docs/results/unified_rl_performance_phase2/L3D_eval_baseline7200",
+  "right": "docs/results/unified_rl_performance_phase2/L3D_eval_optimized7200",
+  "counts": [
+    {
+      "episodes": 5,
+      "steps": 626,
+      "terminals": 5,
+      "witnesses": 0
+    },
+    {
+      "episodes": 5,
+      "steps": 626,
+      "terminals": 5,
+      "witnesses": 0
+    }
+  ],
+  "numeric_max_abs": {},
+  "nonnumeric_differences": [],
+  "evidence_equal": true,
+  "database_bytes": [
+    3596288,
+    3596288
+  ],
+  "excluded_provenance": [
+    "run-specific UUID/policy version",
+    "absolute checkout and output paths",
+    "identity derived from those paths"
+  ]
+}

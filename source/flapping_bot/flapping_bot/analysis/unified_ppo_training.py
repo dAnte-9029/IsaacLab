@@ -155,7 +155,7 @@ def train(args,root):
             FeedbackStore.restore_prefix(loaded['evidence'],args.output/'evidence',loaded.get('evidence_sequence'))
     env=build_env(args,root)
     run_id=uuid.uuid4().hex[:12]
-    state=deepcopy(loaded['state']) if args.resume else dict(updates=0,train_transitions=0,eval_env_steps=0,eval_active_steps=0,evaluations=[])
+    state=deepcopy(loaded['state']) if args.resume else dict(updates=0,train_transitions=0,eval_env_steps=0,eval_active_steps=0,eval_reserved_env_steps=0,eval_padding_steps=0,evaluations=[])
     version=loaded['version'] if loaded else f'{run_id}:update000000'
     try:
         if loaded is not None:
@@ -355,6 +355,8 @@ def evaluate(args,root):
                     assert bool(timeout[slot])==(outcome=='timeout')
                     assert bool(done[slot])==(outcome!='timeout')
                 assert env.online_sampler is None
+                if env._evaluation_finished.all():
+                    break
                 if steps>env.max_episode_length and not env._evaluation_finished.all():
                     raise RuntimeError('Evaluation failed to terminate under original contract')
         if not env._evaluation_finished.all():
@@ -369,6 +371,8 @@ def evaluate(args,root):
             policy_digest_before=before,policy_digest_after=policy_digest(policy),
             sampling=args.sampling,eval_suite=args.eval_suite,trajectories=evaluation_tasks(args.eval_suite),checkpoint=str(args.checkpoint),version=loaded['version'],backend=args.backend,initial=initial,
             policy_unchanged=True,optimizer_updates=0,environment_steps=steps*env.num_envs,
+            executed_environment_steps=steps*env.num_envs,reserved_step_budget=args.eval_step_budget,
+            early_stopped=steps < args.eval_step_budget,
             active_episode_steps=sum(r['steps'] for r in records),
             padding_steps=steps*env.num_envs-sum(r['steps'] for r in records),eval_step_budget=args.eval_step_budget,wall_s=perf_counter()-started,
             completion_rate=outcomes['completed']/len(records),outcomes=dict(outcomes),
@@ -380,10 +384,26 @@ def evaluate(args,root):
         env.rollout_evaluator.store.close(); env.close()
 
 
+def validate_evaluation_accounting(summary, records, budget):
+    """Check actual compute against independently replayed episode lengths."""
+    n = len(records)
+    executed = summary.get('executed_environment_steps')
+    active = sum(r['steps'] for r in records)
+    last = max(r['steps'] for r in records)
+    if (type(executed) is not int or executed != n*last or not 0 < last <= budget
+            or summary.get('environment_steps') != executed
+            or summary.get('reserved_step_budget') != budget
+            or summary.get('eval_step_budget') != budget
+            or summary.get('active_episode_steps') != active
+            or summary.get('padding_steps') != executed-active
+            or summary.get('early_stopped') is not (last < budget)):
+        raise ValueError('Invalid frozen evaluation actual/reserved accounting')
+
+
 def receive_evaluation(env,state,destination,summary,version,budget):
     if summary.get('smoke_fixture'): raise ValueError('Smoke evaluation cannot enter training feedback')
     if (not summary.get('passed') or summary.get('eval_suite')!='development'
-            or summary.get('version')!=version or summary.get('environment_steps')!=5*budget):
+            or summary.get('version')!=version):
         raise ValueError('Invalid development evaluation receipt/budget')
     if not state.get('pending_evaluation'): raise ValueError('No pending evaluation; duplicate batch rejected')
     if summary.get('trajectories')!=evaluation_tasks(): raise ValueError('Development task contract mismatch')
@@ -395,6 +415,7 @@ def receive_evaluation(env,state,destination,summary,version,budget):
                 or summary.get('eval_step_budget') != budget
                 or summary.get('policy_unchanged') is not True or summary.get('optimizer_updates') != 0):
             raise ValueError('Invalid frozen evaluation accounting')
+        validate_evaluation_accounting(summary, records, budget)
         if env.online_sampler is not None:
             previous = env.online_sampler.state_dict()
             try:
@@ -404,7 +425,9 @@ def receive_evaluation(env,state,destination,summary,version,budget):
                 env.online_sampler.load_state_dict(previous)
                 raise
     finally: store.close()
-    state['eval_env_steps']+=summary['environment_steps']
+    state['eval_env_steps']+=summary['executed_environment_steps']
+    state['eval_reserved_env_steps']=state.get('eval_reserved_env_steps',0)+len(records)*budget
+    state['eval_padding_steps']=state.get('eval_padding_steps',0)+summary['padding_steps']
     state['eval_active_steps']+=summary['active_episode_steps']
     state['evaluations'].append(str(destination))
     state['pending_evaluation']=False

@@ -1,0 +1,503 @@
+{
+  "training": {
+    "L3D_fixed": {
+      "baseline": {
+        "rollout_s": 10.523856154177338,
+        "update_s": 0.9172720569185913,
+        "iteration_s": 11.44112821109593,
+        "transitions_per_s": 1074.0199544379504,
+        "get_dones_s": 5.841476689558476,
+        "conversion_s": 0.8211843897588551,
+        "validity_s": 0,
+        "process_s": 25.82299933861941
+      },
+      "optimized": {
+        "rollout_s": 7.724127688910812,
+        "update_s": 0.9497755030170083,
+        "iteration_s": 8.67390319192782,
+        "transitions_per_s": 1416.6632631357427,
+        "get_dones_s": 3.078799461014569,
+        "conversion_s": 0,
+        "validity_s": 0.7028977465815842,
+        "process_s": 22.413670899812132
+      },
+      "speedup": 1.3190288106677703,
+      "get_dones_reduction": 0.47294158230266303,
+      "consistency": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase1/docs/results/unified_rl_performance_phase1/L3D_fixed_n256_t1_v2",
+        "right": "docs/results/unified_rl_performance_phase2/L3D_fixed_v2",
+        "ppo_summary_equal": {
+          "initial_policy_digest": true,
+          "final_policy_digest": true,
+          "optimizer_step_before": true,
+          "optimizer_step_after": true
+        },
+        "losses_equal": true,
+        "reward_mean_equal": true,
+        "counts": [
+          {
+            "episodes": 291,
+            "steps": 12288,
+            "terminals": 291,
+            "witnesses": 0
+          },
+          {
+            "episodes": 291,
+            "steps": 12288,
+            "terminals": 291,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          106475520,
+          106479616
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "identity derived from those paths"
+        ]
+      }
+    },
+    "L3D_adaptive": {
+      "baseline": {
+        "rollout_s": 10.575457752216607,
+        "update_s": 0.856065739877522,
+        "iteration_s": 11.43152349209413,
+        "transitions_per_s": 1074.9223415844963,
+        "get_dones_s": 5.847296889405698,
+        "conversion_s": 0.8037348836660385,
+        "validity_s": 0,
+        "process_s": 27.839003024157137
+      },
+      "optimized": {
+        "rollout_s": 7.709080329164863,
+        "update_s": 0.823079131077975,
+        "iteration_s": 8.532159460242838,
+        "transitions_per_s": 1440.198118337824,
+        "get_dones_s": 3.1009129197336733,
+        "conversion_s": 0.2807981171645224,
+        "validity_s": 0.5210918411612511,
+        "process_s": 23.6724199289456
+      },
+      "speedup": 1.3398159686725746,
+      "get_dones_reduction": 0.46968437238889005,
+      "consistency": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase1/docs/results/unified_rl_performance_phase1/L3D_adaptive_n256_t1",
+        "right": "docs/results/unified_rl_performance_phase2/L3D_adaptive",
+        "ppo_summary_equal": {
+          "initial_policy_digest": true,
+          "final_policy_digest": true,
+          "optimizer_step_before": true,
+          "optimizer_step_after": true
+        },
+        "losses_equal": true,
+        "reward_mean_equal": true,
+        "counts": [
+          {
+            "episodes": 291,
+            "steps": 12288,
+            "terminals": 291,
+            "witnesses": 0
+          },
+          {
+            "episodes": 291,
+            "steps": 12288,
+            "terminals": 291,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          106487808,
+          106479616
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "identity derived from those paths"
+        ]
+      }
+    },
+    "I3D_fixed": {
+      "baseline": {
+        "rollout_s": 15.418677763082087,
+        "update_s": 0.9372685509733856,
+        "iteration_s": 16.355946314055473,
+        "transitions_per_s": 751.2863984788404,
+        "get_dones_s": 5.515294248238206,
+        "conversion_s": 0.8064596150070429,
+        "validity_s": 0,
+        "process_s": 30.12783700833097
+      },
+      "optimized": {
+        "rollout_s": 13.18272677110508,
+        "update_s": 0.9760713493451476,
+        "iteration_s": 14.158798120450228,
+        "transitions_per_s": 867.8702736958905,
+        "get_dones_s": 2.823353625833988,
+        "conversion_s": 0.2771511999890208,
+        "validity_s": 0.5701412609778345,
+        "process_s": 27.693700092844665
+      },
+      "speedup": 1.155179004242726,
+      "get_dones_reduction": 0.48808649207866395,
+      "consistency": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase1/docs/results/unified_rl_performance_phase1/I3D_fixed_n256_t1",
+        "right": "docs/results/unified_rl_performance_phase2/I3D_fixed",
+        "ppo_summary_equal": {
+          "initial_policy_digest": true,
+          "final_policy_digest": true,
+          "optimizer_step_before": true,
+          "optimizer_step_after": true
+        },
+        "losses_equal": true,
+        "reward_mean_equal": true,
+        "counts": [
+          {
+            "episodes": 257,
+            "steps": 12288,
+            "terminals": 257,
+            "witnesses": 0
+          },
+          {
+            "episodes": 257,
+            "steps": 12288,
+            "terminals": 257,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          100044800,
+          100052992
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "identity derived from those paths"
+        ]
+      }
+    },
+    "I3D_adaptive": {
+      "baseline": {
+        "rollout_s": 15.779523016884923,
+        "update_s": 0.9085431871935725,
+        "iteration_s": 16.688066204078496,
+        "transitions_per_s": 736.33456685334,
+        "get_dones_s": 5.592351609375328,
+        "conversion_s": 0.8168456479907036,
+        "validity_s": 0,
+        "process_s": 32.40851007262245
+      },
+      "optimized": {
+        "rollout_s": 12.501647077035159,
+        "update_s": 0.9078911682590842,
+        "iteration_s": 13.409538245294243,
+        "transitions_per_s": 916.3626498706755,
+        "get_dones_s": 2.7562822718173265,
+        "conversion_s": 0.2852892610244453,
+        "validity_s": 0.5315171577967703,
+        "process_s": 28.838818640913814
+      },
+      "speedup": 1.2444922337228705,
+      "get_dones_reduction": 0.507133588096188,
+      "consistency": {
+        "left": "/home/zn/IsaacLab/.worktrees/unified-rl-performance-phase1/docs/results/unified_rl_performance_phase1/I3D_adaptive_n256_t1",
+        "right": "docs/results/unified_rl_performance_phase2/I3D_adaptive",
+        "ppo_summary_equal": {
+          "initial_policy_digest": true,
+          "final_policy_digest": true,
+          "optimizer_step_before": true,
+          "optimizer_step_after": true
+        },
+        "losses_equal": true,
+        "reward_mean_equal": true,
+        "counts": [
+          {
+            "episodes": 257,
+            "steps": 12288,
+            "terminals": 257,
+            "witnesses": 0
+          },
+          {
+            "episodes": 257,
+            "steps": 12288,
+            "terminals": 257,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          100057088,
+          100061184
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "identity derived from those paths"
+        ]
+      }
+    }
+  },
+  "evaluation": {
+    "L3D": {
+      "baseline": {
+        "loop_and_validation_s": 516.23074269481,
+        "process_s": 526.3463834570721,
+        "executed_environment_steps": 36000,
+        "active_episode_steps": 626,
+        "padding_steps": 35374,
+        "reserved_step_budget": 7200,
+        "early_stopped": false
+      },
+      "optimized": {
+        "loop_and_validation_s": 5.191704482771456,
+        "process_s": 13.013836354017258,
+        "executed_environment_steps": 630,
+        "active_episode_steps": 626,
+        "padding_steps": 4,
+        "reserved_step_budget": 7200,
+        "early_stopped": true
+      },
+      "wall_saved_s": 513.3325471030548,
+      "speedup": 40.44513617190165,
+      "consistency": {
+        "left": "docs/results/unified_rl_performance_phase2/L3D_eval_baseline7200",
+        "right": "docs/results/unified_rl_performance_phase2/L3D_eval_optimized7200",
+        "counts": [
+          {
+            "episodes": 5,
+            "steps": 626,
+            "terminals": 5,
+            "witnesses": 0
+          },
+          {
+            "episodes": 5,
+            "steps": 626,
+            "terminals": 5,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          3596288,
+          3596288
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "identity derived from those paths"
+        ]
+      }
+    },
+    "I3D": {
+      "baseline": {
+        "loop_and_validation_s": 287.62364238500595,
+        "process_s": 296.0101941227913,
+        "executed_environment_steps": 36000,
+        "active_episode_steps": 471,
+        "padding_steps": 35529,
+        "reserved_step_budget": 7200,
+        "early_stopped": false
+      },
+      "optimized": {
+        "loop_and_validation_s": 4.429651129990816,
+        "process_s": 11.755874561145902,
+        "executed_environment_steps": 475,
+        "active_episode_steps": 471,
+        "padding_steps": 4,
+        "reserved_step_budget": 7200,
+        "early_stopped": true
+      },
+      "wall_saved_s": 284.2543195616454,
+      "speedup": 25.179768003065334,
+      "consistency": {
+        "left": "docs/results/unified_rl_performance_phase2/I3D_eval_baseline7200",
+        "right": "docs/results/unified_rl_performance_phase2/I3D_eval_optimized7200",
+        "counts": [
+          {
+            "episodes": 5,
+            "steps": 471,
+            "terminals": 5,
+            "witnesses": 0
+          },
+          {
+            "episodes": 5,
+            "steps": 471,
+            "terminals": 5,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          2949120,
+          2949120
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "identity derived from those paths"
+        ]
+      }
+    }
+  },
+  "replay": {
+    "L3D": {
+      "arrays": {
+        "actions": {
+          "shape": [
+            48,
+            256,
+            4
+          ],
+          "baseline_equal": true,
+          "profile_equal": true,
+          "max_abs": 0.0
+        },
+        "physics": {
+          "shape": [
+            384,
+            256,
+            35
+          ],
+          "baseline_equal": true,
+          "profile_equal": true,
+          "max_abs": 0.0
+        },
+        "intervals": {
+          "shape": [
+            48,
+            256,
+            46
+          ],
+          "baseline_equal": true,
+          "profile_equal": true,
+          "max_abs": 0.0
+        }
+      },
+      "evidence": {
+        "left": "docs/results/unified_rl_performance_phase2/L3D_replay_baseline",
+        "right": "docs/results/unified_rl_performance_phase2/L3D_replay_optimized",
+        "counts": [
+          {
+            "episodes": 256,
+            "steps": 12288,
+            "terminals": 256,
+            "witnesses": 0
+          },
+          {
+            "episodes": 256,
+            "steps": 12288,
+            "terminals": 256,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          99852288,
+          99844096
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "identity derived from those paths"
+        ]
+      },
+      "plant_identity_equal": true,
+      "env_step_s": {
+        "baseline": 9.20582943316549,
+        "optimized": 6.656606066972017,
+        "profile": 6.8206832692958415
+      },
+      "instrumentation_difference_percent": 2.464877757118966
+    },
+    "I3D": {
+      "arrays": {
+        "actions": {
+          "shape": [
+            48,
+            256,
+            4
+          ],
+          "baseline_equal": true,
+          "profile_equal": true,
+          "max_abs": 0.0
+        },
+        "physics": {
+          "shape": [
+            384,
+            256,
+            35
+          ],
+          "baseline_equal": true,
+          "profile_equal": true,
+          "max_abs": 0.0
+        },
+        "intervals": {
+          "shape": [
+            48,
+            256,
+            46
+          ],
+          "baseline_equal": true,
+          "profile_equal": true,
+          "max_abs": 0.0
+        }
+      },
+      "evidence": {
+        "left": "docs/results/unified_rl_performance_phase2/I3D_replay_baseline",
+        "right": "docs/results/unified_rl_performance_phase2/I3D_replay_optimized",
+        "counts": [
+          {
+            "episodes": 256,
+            "steps": 12288,
+            "terminals": 256,
+            "witnesses": 0
+          },
+          {
+            "episodes": 256,
+            "steps": 12288,
+            "terminals": 256,
+            "witnesses": 0
+          }
+        ],
+        "numeric_max_abs": {},
+        "nonnumeric_differences": [],
+        "evidence_equal": true,
+        "database_bytes": [
+          99868672,
+          99860480
+        ],
+        "excluded_provenance": [
+          "run-specific UUID/policy version",
+          "absolute checkout and output paths",
+          "identity derived from those paths"
+        ]
+      },
+      "plant_identity_equal": true,
+      "env_step_s": {
+        "baseline": 14.589778090827167,
+        "optimized": 12.229176960419863,
+        "profile": 12.087633741088212
+      },
+      "instrumentation_difference_percent": -1.1574222843431015
+    }
+  },
+  "passed": true
+}

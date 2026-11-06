@@ -20,6 +20,8 @@ def function(name, **globals_):
     ns=dict(deepcopy=deepcopy,torch=torch,np=np,random=random,os=os,Path=Path,
             SCHEMA='test',SMOKE_SCHEMA=SMOKE_SCHEMA,require_checkpoint_use=require_checkpoint_use,POLICY={},PPO_CONFIG={},evaluation_tasks=evaluation_tasks,
             source_identity=lambda _: {},__file__=str(ROOT/'source/flapping_bot/flapping_bot/analysis/unified_ppo_training.py'))
+    if name != 'validate_evaluation_accounting':
+        ns['validate_evaluation_accounting'] = function('validate_evaluation_accounting')
     ns.update(globals_)
     exec(compile(ast.Module(body=[node],type_ignores=[]),'<isolated orchestration>','exec'),ns)
     return ns[name]
@@ -73,13 +75,13 @@ def test_feedback_batch_validation_and_final_isolation(tmp_path):
     sampler=SimpleNamespace(feedback_evaluation=lambda r,s:calls.append(r),_update=lambda:calls.append('update'),state_dict=lambda:{})
     env=SimpleNamespace(online_sampler=sampler,plant_identity={},evaluation_contract={},evaluation_initial={})
     state=dict(eval_env_steps=0,eval_active_steps=0,evaluations=[],pending_evaluation=True)
-    summary=dict(trajectories=evaluation_tasks(),passed=True,eval_suite='final',version='v3',environment_steps=50,active_episode_steps=5,eval_step_budget=10,policy_unchanged=True,optimizer_updates=0)
+    summary=dict(trajectories=evaluation_tasks(),passed=True,eval_suite='final',version='v3',environment_steps=5,executed_environment_steps=5,reserved_step_budget=10,padding_steps=0,early_stopped=True,active_episode_steps=5,eval_step_budget=10,policy_unchanged=True,optimizer_updates=0)
     receive=function('receive_evaluation',FeedbackStore=Store,validate_evaluation_batch=lambda *a:records)
     with pytest.raises(ValueError): receive(env,state,tmp_path,summary,'v3',10)
     assert not calls and state['pending_evaluation']
     summary['eval_suite']='development'
     receive(env,state,tmp_path,summary,'v3',10)
-    assert len(calls)==6 and not state['pending_evaluation'] and state['eval_env_steps']==50
+    assert len(calls)==6 and not state['pending_evaluation'] and state['eval_env_steps']==5
 
 @pytest.mark.parametrize('failure', ['before','during','after',None])
 def test_evaluation_transaction_interruptions(failure,tmp_path):
@@ -106,6 +108,7 @@ def test_evaluation_transaction_interruptions(failure,tmp_path):
 def test_actual_journal_prefix_is_read_only(tmp_path):
     from flapping_bot.path_tracking.trajectory_feedback import FeedbackStore
     p=ROOT/'logs/unified_ppo_smoke/L3D_adaptive_v2/model_000002_final.pt'
+    if not p.exists(): pytest.skip('Historical checkpoint unavailable in this worktree')
     old=torch.load(p,map_location='cpu',weights_only=False)
     source=Path(old['evidence'])
     if not source.exists(): pytest.skip('Historical source journal unavailable')

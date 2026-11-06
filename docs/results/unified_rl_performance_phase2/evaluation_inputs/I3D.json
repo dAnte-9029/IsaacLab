@@ -1,0 +1,7 @@
+{
+  "source": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_physx_acceptance_20261106_v1/I3D_development/evaluation_smoke_only.pt",
+  "change": "contract.eval_step_budget only",
+  "before": 256,
+  "after": 7200,
+  "policy_unchanged": true
+}

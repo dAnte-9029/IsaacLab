@@ -1,0 +1,38 @@
+{
+  "left": "../unified-rl-performance-phase1/docs/results/unified_rl_performance_phase1/L3D_fixed_n256_t1_v2",
+  "right": "docs/results/unified_rl_performance_phase2/L3D_fixed_v2",
+  "ppo_summary_equal": {
+    "initial_policy_digest": true,
+    "final_policy_digest": true,
+    "optimizer_step_before": true,
+    "optimizer_step_after": true
+  },
+  "losses_equal": true,
+  "reward_mean_equal": true,
+  "counts": [
+    {
+      "episodes": 291,
+      "steps": 12288,
+      "terminals": 291,
+      "witnesses": 0
+    },
+    {
+      "episodes": 291,
+      "steps": 12288,
+      "terminals": 291,
+      "witnesses": 0
+    }
+  ],
+  "numeric_max_abs": {},
+  "nonnumeric_differences": [],
+  "evidence_equal": true,
+  "database_bytes": [
+    106475520,
+    106479616
+  ],
+  "excluded_provenance": [
+    "run-specific UUID/policy version",
+    "absolute checkout and output paths",
+    "identity derived from those paths"
+  ]
+}

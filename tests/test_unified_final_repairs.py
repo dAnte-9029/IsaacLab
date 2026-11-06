@@ -92,7 +92,7 @@ def test_complete_batch_atomic_receipt(tmp_path,change):
         evaluation_initial=template)
     state=dict(eval_env_steps=0,eval_active_steps=0,evaluations=[],pending_evaluation=True)
     before=deepcopy(state)
-    summary=dict(passed=True,eval_suite='development',version='v3',environment_steps=50,
+    summary=dict(passed=True,eval_suite='development',version='v3',environment_steps=5,executed_environment_steps=5,reserved_step_budget=10,padding_steps=0,early_stopped=True,
         trajectories=evaluation_tasks(),active_episode_steps=5,eval_step_budget=10,
         policy_unchanged=True,optimizer_updates=0)
     # Route the receiver's read-only request to the temporary fixture directory.
@@ -113,7 +113,7 @@ def test_complete_batch_atomic_receipt(tmp_path,change):
 def env_methods():
     tree=ast.parse((ROOT/'source/flapping_bot/flapping_bot/direct/flapping_bot/unified_trajectory_env.py').read_text())
     cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='UnifiedTrajectoryEnv')
-    methods=[n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name in ('_get_dones','_interval_control','_update_reference')]
+    methods=[n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name in ('_get_dones','_interval_control','_interval_controls','_update_reference')]
     ns=dict(torch=torch,np=np,valid_interval=valid_interval,terminal_outcome=terminal_outcome)
     exec(compile(ast.Module(body=methods,type_ignores=[]),'<tensor environment>','exec'),ns)
     return ns
@@ -138,6 +138,7 @@ def tensor_env(tmp_path):
         rollout_evaluator=evaluator,_action_versions=['v3'],_action_modes=['training'])
     methods=env_methods(); env._update_reference=lambda:None
     env._interval_control=lambda i: methods['_interval_control'](env,i)
+    env._interval_controls=lambda: methods['_interval_controls'](env)
     env.records=[]; env.accept_terminal=env.records.append
     return env,methods
 
@@ -196,7 +197,7 @@ def test_receiver_rolls_back_unexpected_ingestion_error(tmp_path):
         evaluation_initial=template)
     state=dict(eval_env_steps=0,eval_active_steps=0,evaluations=[],pending_evaluation=True)
     before=deepcopy(state)
-    summary=dict(passed=True,eval_suite='development',version='v3',environment_steps=50,
+    summary=dict(passed=True,eval_suite='development',version='v3',environment_steps=5,executed_environment_steps=5,reserved_step_budget=10,padding_steps=0,early_stopped=True,
         trajectories=evaluation_tasks(),active_episode_steps=5,eval_step_budget=10,
         policy_unchanged=True,optimizer_updates=0)
     receive=function('receive_evaluation',FeedbackStore=lambda p,**kw:FeedbackStore(tmp_path/'fixture',**kw),

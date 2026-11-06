@@ -102,6 +102,8 @@ def install(t, output, detail=False):
     settings = carb.settings.get_settings()
     original_build = r.build_env
     def build(*a, **kw):
+        if getattr(BENCH_ARGS, 'evaluation_root', None):
+            a = (a[0], BENCH_ARGS.evaluation_root, *a[2:])
         env = t.call('build_env', original_build, *a, **kw)
         versions = {}
         for name in ('torch', 'isaacsim', 'isaaclab', 'rsl-rl-lib', 'tensordict', 'numpy'):
@@ -125,8 +127,8 @@ def install(t, output, detail=False):
     for name in ('train', 'evaluate', 'collect_logs', 'append_json', 'save_checkpoint', 'tensor_obs', 'make_policy', 'validate_evaluation_batch'):
         t.patch(r, name)
     for name in ('_pre_physics_step', '_apply_action', '_compute_control_3d_wrench', '_update_native_holonomic_load_diagnostics',
-                 '_get_dones', '_interval_control', '_get_rewards', '_get_observations', '_update_reference', '_reset_idx', 'reset', 'close'):
-        t.patch(Env, name)
+                 '_get_dones', '_interval_control', '_interval_controls', '_get_rewards', '_get_observations', '_update_reference', '_reset_idx', 'reset', 'close'):
+        if hasattr(Env, name): t.patch(Env, name)
     old_step = Env.step
     def step(self, *a, **kw):
         padding = self.cfg.evaluation_tasks is not None and bool(self._evaluation_finished.all())
@@ -139,12 +141,13 @@ def install(t, output, detail=False):
         (ControlAero3D, ('evaluate',), 'aero'),
         (TrajectoryCache, ('project', 'query', 'positions', 'update_rows'), 'cache'),
         (FeedbackStore, ('_begin', '_step', '_append_evaluated', 'flush', 'close'), 'store'),
-        (RolloutEvaluator, ('observe', '_finish', 'begin', 'abort'), 'evidence'),
+        (RolloutEvaluator, ('observe', 'observe_intervals', '_finish', 'begin', 'abort'), 'evidence'),
         (PPO, ('act', 'process_env_step', 'compute_returns', 'update'), 'ppo'),
         (ActorCritic, ('act', 'evaluate', 'act_inference'), 'policy'),
         (torch.optim.Adam, ('step', 'zero_grad'), 'optimizer'),
         (torch.Tensor, ('backward',), 'autograd')):
-        for name in methods: t.patch(cls, name, prefix+'.'+name)
+        for name in methods:
+            if hasattr(cls, name): t.patch(cls, name, prefix+'.'+name)
     t.patch(feedback, 'canonical', 'evidence.json_encode')
     if detail:
         import flapping_bot.physics.control_aero_3d as aero
@@ -169,6 +172,8 @@ def install(t, output, detail=False):
 
 
 def child(args):
+    global BENCH_ARGS
+    BENCH_ARGS = args
     output = args.output
     t = Timers(not args.no_profile)
     started = time.perf_counter()
@@ -202,8 +207,8 @@ def child(args):
             '--iterations', '1', '--threads', str(args.threads), '--output', str(output/'run'),
             '--plant-assets', str(args.plant_assets), '--rules', str(args.rules)]
     if args.evaluate_checkpoint:
-        argv += ['--evaluate', '--smoke-evaluation', '--checkpoint', str(args.evaluate_checkpoint), '--eval-step-budget', '256']
-    entry_root = args.evaluation_root if args.evaluate_checkpoint and args.evaluation_root else ROOT
+        argv += ['--evaluate', '--smoke-evaluation', '--checkpoint', str(args.evaluate_checkpoint), '--eval-step-budget', str(args.eval_step_budget)]
+    entry_root = ROOT
     sys.argv = [str(entry_root/'scripts/flapping_px4/train_unified_trajectory.py')]+argv
     try:
         runpy.run_path(sys.argv[0], run_name='__main__')
@@ -229,8 +234,8 @@ def parent(args):
     hardware(args.output)
     shutil.copyfile(Path(__file__), args.output/'benchmark_source.py')
     env = os.environ.copy()
-    entry_root = args.evaluation_root if args.evaluate_checkpoint and args.evaluation_root else ROOT
-    env['PYTHONPATH'] = str(entry_root/'source/flapping_bot')+os.pathsep+env.get('PYTHONPATH', '')
+    entry_root = ROOT
+    env['PYTHONPATH'] = str((args.implementation_root or entry_root)/'source/flapping_bot')+os.pathsep+env.get('PYTHONPATH', '')
     argv = ['bash', str(ROOT/'isaaclab.sh'), '-p', str(Path(__file__).resolve()), *sys.argv[1:], '--child']
     if args.affinity: argv = ['taskset', '-c', args.affinity]+argv
     started = time.perf_counter()
@@ -285,12 +290,15 @@ def main():
     p.add_argument('--timeout', type=float, default=600, help='Hard process-group budget in seconds')
     p.add_argument('--plant-assets', type=Path, default=ROOT.parent/'control-oriented-3d-wing-aero')
     p.add_argument('--rules', type=Path, default=ROOT.parent/'control-oriented-3d-wing-aero/logs/unified_trajectory_phase2_v1/screening_rules_v2.json')
+    p.add_argument('--eval-step-budget', type=int, default=256)
     p.add_argument('--evaluate-checkpoint', type=Path, help='Existing smoke snapshot; frozen development evaluation only, 256 steps')
+    p.add_argument('--implementation-root', type=Path, help='Read-only baseline implementation for matched evaluation')
     p.add_argument('--evaluation-root', type=Path, help='Read-only source checkout matching absolute URDF paths of existing frozen snapshot')
     p.add_argument('--child', action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
     args.output = args.output.resolve()
     if args.evaluation_root: args.evaluation_root = args.evaluation_root.resolve()
+    if args.implementation_root: args.implementation_root = args.implementation_root.resolve()
     if args.evaluation_root and not args.evaluate_checkpoint: p.error('evaluation-root requires a frozen evaluation checkpoint')
     if min(args.num_envs, args.rollout_steps, args.threads, args.timeout) <= 0: p.error('positive budgets required')
     (child if args.child else parent)(args)

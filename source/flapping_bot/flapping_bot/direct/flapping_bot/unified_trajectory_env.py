@@ -251,12 +251,18 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             max_path_error_m=self.cfg.max_path_error_m,
             min_tilt_cos=float(np.cos(np.deg2rad(self.cfg.terminate_tilt_deg))),
             max_body_rate_rad_s=self.cfg.max_body_rate_rad_s, max_steps=int(self.max_episode_length-1))
-        controls = [self._interval_control(i) for i in range(self.num_envs)]
-        values = [[float(x[i]) for x in (self.progress, distance, height, tilt_cos, rate)]
-                  for i in range(self.num_envs)]
-        valid = [valid_interval(True, v, c) for v, c in zip(values, controls)]
-        outcomes = [terminal_outcome(contract, self.cfg.sampling.length_m,
-                    int(self.episode_length_buf[i]), values[i], valid[i]) for i in range(self.num_envs)]
+        controls = self._interval_controls()
+        values = torch.stack((self.progress, distance, height, tilt_cos, rate), -1).detach().cpu().tolist()
+        steps = self.episode_length_buf.detach().cpu().tolist()
+        records = []
+        if self.rollout_evaluator is not None:
+            outcomes, records = self.rollout_evaluator.observe_intervals(
+                values, controls, steps, self._action_versions, self._action_modes,
+                contract, self.cfg.sampling.length_m)
+        else:
+            outcomes = [terminal_outcome(contract, self.cfg.sampling.length_m, step, value,
+                        valid_interval(True, value, control))
+                        for step, value, control in zip(steps, values, controls)]
         mask = lambda name: torch.tensor([o == name for o in outcomes], device=self.device)
         self.invalid_data = mask('invalid_data')
         self.failed = mask('failed')
@@ -266,22 +272,14 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                                   "progress_m": self.progress.clone(), "path_error_m": distance.clone(),
                                   "timeout": timeout.clone(), "invalid_data": self.invalid_data.clone()}
         if self.rollout_evaluator is not None:
-            for i in range(self.num_envs):
-                record = self.rollout_evaluator.observe(i, progress_m=float(self.progress[i]),
-                    path_error_m=float(distance[i]), height_m=float(height[i]), tilt_cos=float(tilt_cos[i]),
-                    body_rate_rad_s=float(torch.linalg.vector_norm(self._robot.data.root_ang_vel_b[i])),
-                    finite=valid[i], step=int(self.episode_length_buf[i]),
-                    policy_version=self._action_versions[i], execution_mode=self._action_modes[i],
-                    control=controls[i])
-                if record is not None:
-                    assert record['outcome'] == outcomes[i]
-                    self.accept_terminal(record)
-                    if self.cfg.evaluation_tasks is not None: self._evaluation_finished[i] = True
+            for i, record in records:
+                self.accept_terminal(record)
+                if self.cfg.evaluation_tasks is not None: self._evaluation_finished[i] = True
             self.rollout_evaluator.store.flush()
         return self.failed | self.completed | self.invalid_data, timeout
 
-    def _interval_control(self, i):
-        row = lambda x: x[i].detach().cpu().tolist()
+    def _interval_controls(self):
+        row = lambda x: x.detach().cpu().tolist()
         # Actual filter/governor/phase-drive state, not reconstructed commands.
         actuator = {name: row(getattr(self, name)) for name in (
             '_act_lpf', '_freq', '_requested_frequency_hz', '_applied_frequency_hz',
@@ -291,7 +289,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             state = getattr(self, name, None)
             if state is not None:
                 actuator[name] = {k: row(v) for k, v in vars(state).items() if torch.is_tensor(v)}
-        return dict(raw_command=row(self._raw_actions), command=row(self._actions),
+        columns = dict(raw_command=row(self._raw_actions), command=row(self._actions),
             applied=row(self._act_cmd), actuator_state=actuator,
             joint_pos=row(self._robot.data.joint_pos), joint_vel=row(self._robot.data.joint_vel),
             root_state=row(self._robot.data.root_state_w), phase=row(self._phase),
@@ -299,6 +297,15 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             reference={k: row(v) for k, v in self.reference.items()},
             projection=dict(progress=row(self.progress), previous_position=row(self.previous_position),
                             high_water=row(self.high_water)))
+
+        def select(tree, i):
+            if isinstance(tree, dict): return {k: select(v, i) for k, v in tree.items()}
+            return tree[i]
+        return [select(columns, i) for i in range(self.num_envs)]
+
+    def _interval_control(self, i):
+        """Inspection compatibility; rollout uses one batched extraction."""
+        return self._interval_controls()[i]
 
     def _get_rewards(self):
         self._update_reference()

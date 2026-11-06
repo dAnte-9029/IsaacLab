@@ -20,7 +20,7 @@ def main():
     p.add_argument('--rollout-steps',type=int,default=48)
     p.add_argument('--iterations',type=int,default=1000,help='Additional PPO iterations; no implicit training launch')
     p.add_argument('--eval-interval',type=int,default=25,help='Same frozen development evaluation budget for both modes; 0 disables')
-    p.add_argument('--eval-step-budget',type=int,default=7200,help='Fixed steps per evaluation env, including padding; unfinished tasks fail the evaluation run')
+    p.add_argument('--eval-step-budget',type=int,default=7200,help='Maximum steps per evaluation env; stop once all tasks terminate; unfinished tasks fail')
     p.add_argument('--save-interval',type=int,default=25)
     p.add_argument('--checkpoint',type=Path)
     p.add_argument('--resume',action='store_true',help='Restore optimizer/RNG/sampler/evidence snapshot; fresh physical episodes')
