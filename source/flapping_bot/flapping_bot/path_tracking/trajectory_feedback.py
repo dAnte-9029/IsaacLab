@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sqlite3
 import uuid
+from time import perf_counter
 import numpy as np
 from .trajectory_evidence import canonical, identity
 
@@ -32,6 +33,8 @@ class FeedbackStore:
     """
     def __init__(self, directory, *, simulated=False):
         self.simulated = simulated
+        self.flush_seconds = 0.
+        self.flush_calls = 0
         directory = Path(directory); directory.mkdir(parents=True, exist_ok=True)
         legacy = directory / ('simulation_feedback.jsonl' if simulated else 'rollout_feedback.jsonl')
         if legacy.exists():
@@ -53,7 +56,53 @@ class FeedbackStore:
         ''')
 
     def flush(self):
+        started=perf_counter()
         self.db.commit()
+        self.flush_seconds+=perf_counter()-started
+        self.flush_calls+=1
+
+    @staticmethod
+    def restore_prefix(source, directory, sequence=None):
+        """Fork only immutable completed records at a checkpoint boundary.
+
+        Source remains read-only. In-flight physical episodes restart and never
+        acquire fabricated terminal outcomes. Later source episodes cannot leak
+        into the restored sampler/checkpoint's evidence prefix.
+        """
+        source = Path(source).resolve()
+        target_path = Path(directory)/'rollout_feedback.sqlite3'
+        if target_path.exists(): raise FileExistsError(target_path)
+        src = sqlite3.connect(source.as_uri()+'?mode=ro',uri=True)
+        provenance = src.execute('SELECT metadata FROM episodes LIMIT 1').fetchone()
+        if (source.name.startswith('simulation_') or
+                (provenance is not None and json.loads(provenance[0]).get('simulated'))):
+            src.close()
+            raise ValueError('Cannot restore synthetic evidence into a real journal')
+        target = FeedbackStore(directory)
+        try:
+            latest = src.execute('SELECT COALESCE(MAX(seq),0) FROM terminals').fetchone()[0]
+            cutoff = latest if sequence is None else int(sequence)
+            if not 0 <= cutoff <= latest: raise ValueError('Unavailable evidence prefix')
+            target.db.executemany('INSERT INTO episodes VALUES (?,?)', src.execute(
+                'SELECT e.id,e.metadata FROM episodes e JOIN terminals t ON e.id=t.id WHERE t.seq<=?',(cutoff,)))
+            target.db.executemany('INSERT INTO steps VALUES (?,?,?)', src.execute(
+                'SELECT s.episode,s.step,s.payload FROM steps s JOIN terminals t ON s.episode=t.id WHERE t.seq<=?',(cutoff,)))
+            target.db.executemany('INSERT INTO terminals VALUES (?,?,?,?,?)', src.execute(
+                'SELECT seq,id,identity,outcome,payload FROM terminals WHERE seq<=?',(cutoff,)))
+            target.db.executemany('INSERT INTO witnesses VALUES (?,?,?,?)', src.execute(
+                'SELECT w.context,w.rank,w.identity,w.episode FROM witnesses w JOIN terminals t ON w.episode=t.id WHERE t.seq<=?',(cutoff,)))
+            target.flush()
+        finally:
+            src.close(); target.close()
+        return target_path
+
+    def backup(self, destination):
+        self.flush()
+        destination = Path(destination)
+        if destination.exists(): raise FileExistsError(destination)
+        target = sqlite3.connect(destination)
+        try: self.db.backup(target)
+        finally: target.close()
 
     def close(self):
         self.flush(); self.db.close()
@@ -148,7 +197,7 @@ class RolloutEvaluator:
             evaluator='unified_terminal_v2', timing='command -> decimated physics -> applied/joint/body sample')
         self.store._begin(r)
         self.active[env_id] = dict(record=r, step=0, versions=set(), modes=set(), valid=True,
-                                   distance=0., error=None)
+                                   distance=0., error=None, error_squares=[0.,0.], error_max=[0.,0.])
 
     def _finish(self, env_id, outcome):
         state = self.active[env_id]; r = state['record']
@@ -159,7 +208,10 @@ class RolloutEvaluator:
                  unknown_policy_steps=None in versions, policy_execution=provenance,
                  frozen_checkpoint=next(iter(known)) if frozen else None,
                  effective_distance_m=state['distance'], tracking_error_m=state['error'],
-                 control_data_finite=state['valid'])
+                 control_data_finite=state['valid'],
+                 horizontal_rmse_m=float(np.sqrt(state['error_squares'][0]/max(1,state['step']))),
+                 vertical_rmse_m=float(np.sqrt(state['error_squares'][1]/max(1,state['step']))),
+                 horizontal_max_m=state['error_max'][0], vertical_max_m=state['error_max'][1])
         result = self.store._append_evaluated(r, self)
         del self.active[env_id]
         return result
@@ -187,6 +239,11 @@ class RolloutEvaluator:
         sample.update(finite=valid, step=int(step), control=control, policy_version=policy_version,
                       execution_mode=execution_mode)
         self.store._step(state['record']['instance_id'], lossless_json(sample))
+        error = control.get('path_error_xyz')
+        if error is not None and np.isfinite(error).all():
+            for j, value in enumerate([float(np.linalg.norm(error[:2])), abs(float(error[2]))]):
+                state['error_squares'][j] += value*value
+                state['error_max'][j] = max(state['error_max'][j], value)
         state['step'] = step; state['versions'].add(policy_version); state['modes'].add(execution_mode)
         state['distance'] = max(state['distance'], progress_m if np.isfinite(progress_m) else 0.)
         state['error'] = float(path_error_m) if np.isfinite(path_error_m) else None

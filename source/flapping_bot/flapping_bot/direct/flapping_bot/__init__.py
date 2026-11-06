@@ -221,3 +221,14 @@ def __getattr__(name: str):
         }[name]
 
     raise AttributeError(name)
+
+import gymnasium as gym
+
+# Independent unified task registrations; no legacy curriculum selected.
+for _backend in ('L3D', 'I3D'):
+    gym.register(
+        id=f'Isaac-FlappingBot-UnifiedTrajectory-{_backend}-Direct-v0',
+        entry_point=f'{__name__}.unified_trajectory_env:UnifiedTrajectoryEnv',
+        disable_env_checker=True,
+        kwargs={'env_cfg_entry_point': f'{__name__}.unified_li_cfg:UnifiedTrajectory{_backend}EnvCfg'},
+    )

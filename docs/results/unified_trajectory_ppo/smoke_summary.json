@@ -1,0 +1,189 @@
+{
+  "schema": "unified_ppo_integration_validation_v1",
+  "source_heads": {
+    "online": "13c352e298375a9c1ff6767a85057e0997d3e0d9",
+    "LI": "4303c1ad69ced0952263fb9809b7864b093a3292",
+    "integration_base": "9b4ee3e8323b2fe5b1b268d4de3dedbb509358d3"
+  },
+  "four_combinations": [
+    {
+      "backend": "L3D",
+      "sampling": "fixed",
+      "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_ppo_smoke/L3D_fixed_v2/model_000002_final.pt",
+      "initial": {
+        "speed_mps": 9.656337493598675,
+        "nose_up_pitch_deg": 13.971707797921283,
+        "frequency_hz": 3.043205868980297,
+        "symmetric_deg": 0.873482079293165,
+        "rudder_deg": 1.6310188600911404,
+        "differential_deg": -2.2054931298788647,
+        "phase_rad": 0.0
+      },
+      "updates": 2,
+      "transitions": 64,
+      "train_s": 0.715164883993566,
+      "throughput": 89.48985252549924,
+      "peak_rss_mib": 3619.28515625,
+      "mixed_training_episodes": 4,
+      "optimizer_steps": 40.0,
+      "eval_env_steps": 1280,
+      "eval_active_steps": 235,
+      "eval_wall_s": 9.136386260390282,
+      "eval_outcomes": {
+        "failed": 5
+      },
+      "frozen_weights_unchanged": true,
+      "initial_policy_digest": "5cda7f70879f8c070406a6ed94db08b7551d875a43182433f6ad7adfea0a797c"
+    },
+    {
+      "backend": "L3D",
+      "sampling": "adaptive",
+      "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_ppo_smoke/L3D_adaptive_v2/model_000002_final.pt",
+      "initial": {
+        "speed_mps": 9.656337493598675,
+        "nose_up_pitch_deg": 13.971707797921283,
+        "frequency_hz": 3.043205868980297,
+        "symmetric_deg": 0.873482079293165,
+        "rudder_deg": 1.6310188600911404,
+        "differential_deg": -2.2054931298788647,
+        "phase_rad": 0.0
+      },
+      "updates": 2,
+      "transitions": 64,
+      "train_s": 0.705071619246155,
+      "throughput": 90.77092064551854,
+      "peak_rss_mib": 3622.1796875,
+      "mixed_training_episodes": 4,
+      "optimizer_steps": 40.0,
+      "eval_env_steps": 1280,
+      "eval_active_steps": 235,
+      "eval_wall_s": 8.96686046430841,
+      "eval_outcomes": {
+        "failed": 5
+      },
+      "frozen_weights_unchanged": true,
+      "initial_policy_digest": "5cda7f70879f8c070406a6ed94db08b7551d875a43182433f6ad7adfea0a797c"
+    },
+    {
+      "backend": "I3D",
+      "sampling": "fixed",
+      "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_ppo_smoke/I3D_fixed_v2/model_000002_final.pt",
+      "initial": {
+        "speed_mps": 9.250000002999998,
+        "nose_up_pitch_deg": 8.555604979240297,
+        "frequency_hz": 3.743224887001552,
+        "symmetric_deg": -3.5762117485716587,
+        "rudder_deg": 0.24606506496647979,
+        "differential_deg": -1.9969305732982099,
+        "phase_rad": 0.0
+      },
+      "updates": 2,
+      "transitions": 64,
+      "train_s": 0.7783684306778014,
+      "throughput": 82.22327303828207,
+      "peak_rss_mib": 3620.0390625,
+      "mixed_training_episodes": 4,
+      "optimizer_steps": 40.0,
+      "eval_env_steps": 1280,
+      "eval_active_steps": 895,
+      "eval_wall_s": 10.78145112330094,
+      "eval_outcomes": {
+        "failed": 5
+      },
+      "frozen_weights_unchanged": true,
+      "initial_policy_digest": "5cda7f70879f8c070406a6ed94db08b7551d875a43182433f6ad7adfea0a797c"
+    },
+    {
+      "backend": "I3D",
+      "sampling": "adaptive",
+      "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_ppo_smoke/I3D_adaptive_v2/model_000002_final.pt",
+      "initial": {
+        "speed_mps": 9.250000002999998,
+        "nose_up_pitch_deg": 8.555604979240297,
+        "frequency_hz": 3.743224887001552,
+        "symmetric_deg": -3.5762117485716587,
+        "rudder_deg": 0.24606506496647979,
+        "differential_deg": -1.9969305732982099,
+        "phase_rad": 0.0
+      },
+      "updates": 2,
+      "transitions": 64,
+      "train_s": 0.787807076703757,
+      "throughput": 81.23816336834739,
+      "peak_rss_mib": 3623.546875,
+      "mixed_training_episodes": 4,
+      "optimizer_steps": 40.0,
+      "eval_env_steps": 1280,
+      "eval_active_steps": 895,
+      "eval_wall_s": 10.796901901718229,
+      "eval_outcomes": {
+        "failed": 5
+      },
+      "frozen_weights_unchanged": true,
+      "initial_policy_digest": "5cda7f70879f8c070406a6ed94db08b7551d875a43182433f6ad7adfea0a797c"
+    }
+  ],
+  "capacity": [
+    {
+      "backend": "L3D",
+      "local_train_transitions": 12288,
+      "train_seconds": 8.237462460063398,
+      "rollout_seconds": 7.2775522959418595,
+      "update_seconds": 0.9599101641215384,
+      "environment_step_s": 7.12081563193351,
+      "sqlite_flush_s": 2.1073481710627675,
+      "sqlite_flush_calls": 341,
+      "sqlite_bytes": 64413696,
+      "peak_rss_mib": 3800.73046875,
+      "measured_training_transitions_per_s": 1491.7215173452125,
+      "loop_wall_s": 11.058320512995124,
+      "episode_outcomes": {
+        "failed": 35
+      },
+      "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_ppo_smoke/L3D_256_v1/model_000001_final.pt",
+      "estimate_1000_iterations_train_hours": 2.2881840166842773,
+      "estimate_40_evaluations_hours_excluding_startup": 2.8286323007341707
+    },
+    {
+      "backend": "I3D",
+      "local_train_transitions": 12288,
+      "train_seconds": 12.727094895672053,
+      "rollout_seconds": 11.82533456524834,
+      "update_seconds": 0.9017603304237127,
+      "environment_step_s": 11.742537514772266,
+      "sqlite_flush_s": 1.8776017217896879,
+      "sqlite_flush_calls": 307,
+      "sqlite_bytes": 58347520,
+      "peak_rss_mib": 3799.6875,
+      "measured_training_transitions_per_s": 965.4992047068517,
+      "loop_wall_s": 15.511795294936746,
+      "episode_outcomes": {
+        "failed": 1
+      },
+      "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_ppo_smoke/I3D_256_v1/model_000001_final.pt",
+      "estimate_1000_iterations_train_hours": 3.5353041376866816,
+      "estimate_40_evaluations_hours_excluding_startup": 3.371617660159245
+    }
+  ],
+  "resume": {
+    "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-trajectory-ppo-v1/logs/unified_ppo_smoke/L3D_resume_v1/model_000003_final.pt",
+    "optimizer_before": 40.0,
+    "optimizer_after": 60.0,
+    "old_terminals": 5,
+    "new_terminals": 9,
+    "duplicate_instance_ids": false,
+    "evaluation_receipts_preserved": 5,
+    "weights_equal_before_update": true,
+    "transitions_after": 96
+  },
+  "fixed_adaptive_contracts_equal_except_sampling": true,
+  "indexed_evidence_recovery": {
+    "passed": true,
+    "source_terminals": 9,
+    "restored_terminals": 5,
+    "restored_steps": 64,
+    "later_records_excluded": 4,
+    "source_unchanged": true,
+    "synthetic_evidence_import_rejected": true
+  }
+}

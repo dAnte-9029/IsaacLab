@@ -26,11 +26,36 @@ class OnlineSampler:
         self.exploration = self.prior/self.prior.sum()
         # Last entry is q0 fallback; update distributions by convex mixing.
         self.retention = np.r_[np.zeros(cfg.region_count), 1.]
+        self._evaluation_receipts = set()
         self._evaluated_version = None
         self._pending = 0; self._cursor = 0; self.witness_count = 0
         # One streaming recovery at construction only. Steps never loaded here.
         for record in store.iter_records(): self._ingest(record)
         self.witness_count = store.witness_count(plant, contract)
+
+    def state_dict(self):
+        excluded = {'offline','store','plant','contract','cfg','sampling','limits'}
+        return deepcopy({k:v for k,v in vars(self).items() if k not in excluded})
+
+    def load_state_dict(self, state):
+        for key, value in deepcopy(state).items():
+            if key in ('offline','store','plant','contract','cfg','sampling','limits'):
+                raise ValueError('Cannot overwrite sampler contract or evidence store')
+            setattr(self,key,value)
+
+    def feedback_evaluation(self, record, source_store):
+        if (source_store.simulated or record.get('simulated') or not record.get('frozen_checkpoint')
+                or source_store.get(record['instance_id']) != record):
+            raise ValueError('Requires actual independently frozen evaluator evidence')
+        if record['plant'] != self.plant or record['contract'] != self.contract:
+            raise ValueError('Frozen evaluator plant/contract differs from training')
+        receipt = record['instance_id']
+        if receipt in self._evaluation_receipts: return False
+        cursor = self._cursor
+        self._ingest(record)
+        self._cursor = cursor
+        self._evaluation_receipts.add(receipt)
+        return True
 
     def set_policy_version(self, version):
         """Metadata only. Frozen capability is selected by actual frozen evaluations."""
@@ -114,6 +139,11 @@ class OnlineSampler:
         path = Trajectory(replace(spec, origin=tuple(origin), heading_rad=heading, seed=int(rng.integers(2**32)),
             kappa_coeff=tuple(np.array(spec.kappa_coeff)*rng.uniform(.9,1.1)),
             gamma_coeff=tuple(np.array(spec.gamma_coeff)*rng.uniform(.9,1.1))))
+        # Both experiment modes share the configured coefficient domain, not only
+        # the looser geometric safety limits. Jitter outside q0's amplitude box falls back.
+        if (max(abs(x) for x in path.spec.kappa_coeff)>self.sampling.kappa_amplitude+1e-12
+                or max(abs(x) for x in path.spec.gamma_coeff)>self.sampling.gamma_amplitude+1e-12):
+            return None
         if not screen(path,self.limits) and all(reversal_locations(path,self.sampling)[k] for k in self.sampling.required_reversals):
             return path.spec
         return None

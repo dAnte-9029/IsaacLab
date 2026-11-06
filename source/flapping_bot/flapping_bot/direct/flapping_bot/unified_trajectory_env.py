@@ -19,6 +19,9 @@ class UnifiedTrajectoryEnvCfg(FlappingBotStraightFlightDeLaurierMeasuredPureRLEn
     pure_rl_reward_telemetry_enabled: bool = False
     observation_space: int = 39
     online_sampling: bool = False
+    feedback_enabled: bool = False
+    online_identity_metadata: object = None
+    evaluation_tasks: object = None
     online_rules_path: str = ""
     online_feedback_directory: str = ""
     online_policy_version: str | None = None
@@ -75,23 +78,29 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         self._evaluation_mode = cfg.online_evaluation_mode
         self._action_versions = [None]*self.num_envs
         self._action_modes = ["training"]*self.num_envs
+        self._terminal_records = []
+        self._task_events = []
+        self._evaluation_finished = np.zeros(self.num_envs, dtype=bool)
         self.online_sampler = None
         self.rollout_evaluator = None
-        if cfg.online_sampling:
+        if cfg.online_sampling or cfg.feedback_enabled:
             from flapping_bot.path_tracking.online_trajectory import (
                 OfflineEvidence, FeedbackStore, RolloutEvaluator, OnlineSampler, OnlineConfig)
             if not cfg.online_rules_path or not cfg.online_feedback_directory:
                 raise ValueError("Online mode requires evidence path and journal directory")
-            # Conservative full configuration scope: no inferred equivalence to L/I or other revisions.
+            # Runtime paths, task source and env count cannot change physical identity.
             snapshot = cfg.to_dict()
             for key in list(snapshot):
-                if key.startswith('online_'):
+                if key.startswith('online_') or key in ('feedback_enabled','evaluation_tasks','seed','log_dir'):
                     del snapshot[key]
-            snapshot = json.loads(json.dumps(snapshot, default=str))
+            snapshot['scene'].pop('num_envs', None)
+            snapshot['robot']['spawn'].pop('usd_dir', None)
+            snapshot = json.loads(json.dumps(snapshot, default=lambda obj:
+                f'{obj.__module__}.{obj.__qualname__}' if callable(obj) else str(obj)))
             backend_cfg = getattr(cfg, 'control_aero_3d', None)
-            plant = dict(backend=getattr(backend_cfg, 'backend', 'DeLaurier'),
-                         configuration=snapshot, physics_dt=float(self.physics_dt), control_dt=float(self.step_dt),
-                         scope='native unified environment d343f74d; full config; no cross-revision equivalence')
+            plant = dict(backend=getattr(backend_cfg, 'backend', 'DeLaurier'), configuration=snapshot,
+                         physics_dt=float(self.physics_dt), control_dt=float(self.step_dt),
+                         identity=cfg.online_identity_metadata or {'status':'explicit identity unavailable'})
             contract = dict(kind='unified_terminal_v1', reference='base_link world z-up',
                 projection='cache local movement + margin', projection_margin_m=cfg.projection_margin_m,
                 cache_spacing_m=cfg.reference_cache_spacing_m,
@@ -103,9 +112,22 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                 completion_precedes_timeout=True)
             store = FeedbackStore(cfg.online_feedback_directory)
             self.rollout_evaluator = RolloutEvaluator(store)
+            self.plant_identity, self.evaluation_contract = plant, contract
             self.online_sampler = OnlineSampler(OfflineEvidence(cfg.online_rules_path), store, plant,
                 contract, cfg.online_policy_version, cfg.online_sampler_config or OnlineConfig(),
-                cfg.sampling, cfg.geometry_limits)
+                cfg.sampling, cfg.geometry_limits) if cfg.online_sampling else None
+
+    def accept_terminal(self, record):
+        self._terminal_records.append(record)
+        if self.online_sampler is not None: self.online_sampler.feedback(record)
+
+    def drain_terminals(self):
+        records, self._terminal_records = self._terminal_records, []
+        return records
+
+    def drain_tasks(self):
+        records, self._task_events = self._task_events, []
+        return records
 
     def set_policy_version(self, version: str | None, *, evaluation_mode: str = 'training'):
         """Runner calls before actions from a new PPO checkpoint; no forced reset."""
@@ -120,7 +142,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         if self.rollout_evaluator is not None:
             for i in torch.as_tensor(env_ids).tolist():
                 record = self.rollout_evaluator.abort(i)
-                if record is not None: self.online_sampler.feedback(record)
+                if record is not None: self.accept_terminal(record)
         # Parent owns only robot/actuator/PhysX reset. All legacy task stages are None.
         super()._reset_idx(env_ids)
         ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
@@ -131,7 +153,12 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             local_origin = origin-self.scene.env_origins[i].cpu().numpy()
             heading = float(self._straight_line_heading_rad[i])
             source = 'base'
-            if self.online_sampler is None:
+            if self.cfg.evaluation_tasks is not None:
+                from flapping_bot.path_tracking.unified_trajectory import TrajectorySpec
+                spec = TrajectorySpec(**self.cfg.evaluation_tasks[i]['trajectory'])
+                path = Trajectory(replace(spec, origin=tuple(local_origin), heading_rad=heading))
+                source = 'fixed_evaluation'
+            elif self.online_sampler is None:
                 path = sample_trajectory(seed, self.cfg.sampling, self.cfg.geometry_limits, local_origin, heading)
             else:
                 spec, source = self.online_sampler.sample(seed, local_origin, heading)
@@ -139,7 +166,10 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             path = Trajectory(replace(path.spec, origin=tuple(origin)))
             self.paths[i] = path
             self.task_records[i] = path.spec.to_dict()
-            if self.online_sampler is not None:
+            self.task_sampling_sources[i] = source
+            if not self._evaluation_finished[i]:
+                self._task_events.append(dict(env_id=i, trajectory=path.spec.to_dict(), source=source))
+            if self.rollout_evaluator is not None and not self._evaluation_finished[i]:
                 d = self._robot.data
                 initial = dict(root_state=d.root_state_w[i].detach().cpu().tolist(),
                     joint_pos=d.joint_pos[i].detach().cpu().tolist(), joint_vel=d.joint_vel[i].detach().cpu().tolist(),
@@ -147,10 +177,11 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                     action=self._actions[i].detach().cpu().tolist(),
                     applied_action=self._act_cmd[i].detach().cpu().tolist(),
                     wind=self._wind_w[i].detach().cpu().tolist(),
-                    env_origin=self.scene.env_origins[i].detach().cpu().tolist())
+                    env_origin=self.scene.env_origins[i].detach().cpu().tolist(),
+                    scene=dict(num_envs=self.num_envs, env_index=i, env_spacing_m=self.cfg.scene.env_spacing))
                 self.task_sampling_sources[i] = source
-                self.rollout_evaluator.begin(i, path.spec, self.online_sampler.plant, initial,
-                    self.online_sampler.contract, self._current_policy_version, source,
+                self.rollout_evaluator.begin(i, path.spec, self.plant_identity, initial,
+                    self.evaluation_contract, self._current_policy_version, source,
                     evaluation_mode=self._evaluation_mode)
             self.reset_counts[i] += 1
         self.path_cache.update_rows(ids, [self.paths[i] for i in ids.tolist()])
@@ -231,9 +262,11 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                         joint_pos=self._robot.data.joint_pos[i].detach().cpu().tolist(),
                         joint_vel=self._robot.data.joint_vel[i].detach().cpu().tolist(),
                         root_state=self._robot.data.root_state_w[i].detach().cpu().tolist(),
+                        path_error_xyz=self.reference['error'][i].detach().cpu().tolist(),
                         phase=float(self._phase[i])))
                 if record is not None:
-                    self.online_sampler.feedback(record)
+                    self.accept_terminal(record)
+                    if self.cfg.evaluation_tasks is not None: self._evaluation_finished[i] = True
             self.rollout_evaluator.store.flush()
         return self.failed | self.completed, timeout & ~self.completed & ~self.failed
 
