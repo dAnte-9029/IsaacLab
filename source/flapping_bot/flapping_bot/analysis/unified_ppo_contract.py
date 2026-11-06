@@ -18,7 +18,11 @@ PPO_CONFIG = dict(num_learning_epochs=5,num_mini_batches=4,clip_param=.2,gamma=.
     schedule='fixed',desired_kl=None,normalize_advantage_per_mini_batch=False)
 
 
-def evaluation_tasks():
+def evaluation_tasks(suite="development"):
+    if suite == "final":
+        return final_evaluation_tasks()
+    if suite != "development":
+        raise ValueError("Unknown evaluation suite")
     """Fixed development evaluation suite, not a sealed generalization holdout."""
     simple=sample_trajectory(401,SamplingConfig(axis_active_probability=0)).spec
     sustained=sample_trajectory(402,SamplingConfig(axis_active_probability=1,nonzero_density=1,
@@ -48,3 +52,37 @@ def source_identity(root):
     return dict(code_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
         physical_sources={f:hashlib.sha256((root/f).read_bytes()).hexdigest() for f in files},
         workspace_dirty=bool(subprocess.check_output(['git','status','--porcelain'],cwd=root)))
+
+
+def final_evaluation_tasks():
+    """Predeclared six complete routes; never curriculum feedback."""
+    configs = [SamplingConfig(axis_active_probability=0),
+        SamplingConfig(axis_active_probability=1, nonzero_density=1, coefficient_change_probability=0, gamma_amplitude=0),
+        SamplingConfig(axis_active_probability=1, nonzero_density=1, coefficient_change_probability=0, kappa_amplitude=0),
+        SamplingConfig(required_reversals=('kappa',), gamma_amplitude=0),
+        SamplingConfig(required_reversals=('gamma',), kappa_amplitude=0),
+        SamplingConfig(required_reversals=('kappa','gamma'))]
+    names = ['straight','sustained_turn','sustained_climb','lateral_reversal','vertical_reversal','coupled_3d']
+    result=[]
+    for seed,name,cfg in zip(range(1401,1407),names,configs):
+        spec=sample_trajectory(seed,replace(cfg,length_m=80.)).spec
+        if name=='sustained_climb': spec=replace(spec,gamma_coeff=tuple(abs(x) for x in spec.gamma_coeff))
+        result.append(dict(name=name,trajectory=spec.to_dict()))
+    return result
+
+
+def physical_source_identity(root, assets=None):
+    root=Path(root)
+    files=[root/'source/flapping_bot/flapping_bot/direct/flapping_bot/straight_flight_env.py']
+    files += sorted((root/'source/flapping_bot/flapping_bot/physics').glob('*.py'))
+    native=Path(assets or root)/'source/flapping_bot/native_extensions'
+    files += sorted(p for p in native.rglob('*') if p.is_file() and p.suffix in ('.cpp','.h','.py','.toml','.so'))
+    return dict(identity_schema='physical_v2', physical_sources={str(p.relative_to(root)) if p.is_relative_to(root) else 'external_native/'+str(p.relative_to(native)):
+        hashlib.sha256(p.read_bytes()).hexdigest() for p in files})
+
+
+def require_compatible_plant(actual, saved):
+    if saved.get('identity',{}).get('identity_schema') != 'physical_v2':
+        raise ValueError('Legacy physical identity lacks complete actuator/native dependency fingerprints; equivalence cannot be verified. Migration refused.')
+    if actual != saved:
+        raise ValueError('Physical compatibility identity mismatch')

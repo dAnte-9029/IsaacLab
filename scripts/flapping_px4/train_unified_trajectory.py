@@ -23,6 +23,7 @@ def main():
     p.add_argument('--save-interval',type=int,default=25)
     p.add_argument('--checkpoint',type=Path)
     p.add_argument('--resume',action='store_true',help='Restore optimizer/RNG/sampler/evidence snapshot; fresh physical episodes')
+    p.add_argument('--eval-suite',choices=['development','final'],default='development')
     p.add_argument('--evaluate',action='store_true',help='Frozen 5-task complete-episode evaluation only')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--threads',type=int,default=1)
@@ -30,6 +31,7 @@ def main():
     p.add_argument('--rules',type=Path,default=root.parent/'control-oriented-3d-wing-aero/logs/unified_trajectory_phase2_v1/screening_rules_v2.json')
     p.add_argument('--plant-assets',type=Path,default=root.parent/'control-oriented-3d-wing-aero')
     args=p.parse_args()
+    if args.eval_suite=='final' and not args.evaluate: p.error('final suite is evaluation-only')
     if (min(args.num_envs,args.rollout_steps,args.iterations,args.save_interval,args.threads)<1
             or args.eval_interval<0 or args.eval_step_budget<1 or args.num_envs*args.rollout_steps<4): p.error('Invalid training sizes')
     if (args.resume or args.evaluate) and not args.checkpoint: p.error('checkpoint required')

@@ -1,5 +1,6 @@
 """Incremental continuous mixture; bounded regional state, permanent disk witnesses."""
 from copy import deepcopy
+from .trajectory_evidence import canonical
 from dataclasses import replace
 import numpy as np
 from .unified_trajectory import Trajectory, TrajectorySpec, SamplingConfig, GeometryLimits, sample_trajectory, screen, reversal_locations
@@ -49,7 +50,7 @@ class OnlineSampler:
             raise ValueError('Requires actual independently frozen evaluator evidence')
         if record['plant'] != self.plant or record['contract'] != self.contract:
             raise ValueError('Frozen evaluator plant/contract differs from training')
-        receipt = record['instance_id']
+        receipt = canonical([record['frozen_checkpoint'], record['trajectory'], record['initial'], record['plant'], record['contract']])
         if receipt in self._evaluation_receipts: return False
         cursor = self._cursor
         self._ingest(record)

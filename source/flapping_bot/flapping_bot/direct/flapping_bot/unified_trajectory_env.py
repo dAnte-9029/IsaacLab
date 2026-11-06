@@ -91,7 +91,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             # Runtime paths, task source and env count cannot change physical identity.
             snapshot = cfg.to_dict()
             for key in list(snapshot):
-                if key.startswith('online_') or key in ('feedback_enabled','evaluation_tasks','seed','log_dir'):
+                if key.startswith('online_') or key in ('feedback_enabled','evaluation_tasks','seed','log_dir','sampling'):
                     del snapshot[key]
             snapshot['scene'].pop('num_envs', None)
             snapshot['robot']['spawn'].pop('usd_dir', None)
@@ -239,7 +239,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         finite = torch.isfinite(self._robot.data.root_state_w).all(-1)
         height = self._robot.data.root_pos_w[:, 2]-self.scene.env_origins[:, 2]
         tilt_cos = -self._robot.data.projected_gravity_b[:, 2]
-        self.failed = (~finite | (height < self.cfg.terminate_ground_height)
+        self.failed = (~finite | ~self._raw_actions_finite | (height < self.cfg.terminate_ground_height)
                        | (height > self.cfg.geometry_limits.max_height)
                        | (distance > self.cfg.max_path_error_m)
                        | (tilt_cos < np.cos(np.deg2rad(self.cfg.terminate_tilt_deg)))

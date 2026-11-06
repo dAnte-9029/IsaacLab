@@ -1,3 +1,5 @@
+> 2026-11-06 更新：训练前修复、physical_v2 兼容性与独立 final 集合见 [中文审查](unified_trajectory_pretraining_review_zh.md)。下文 smoke/旧 checkpoint 是历史记录；新版明确拒绝未经验证的旧物理身份迁移。
+
 # Unified Trajectory L/I PPO 集成
 
 开发树 `.worktrees/unified-trajectory-ppo-v1`，分支 `feat/unified-trajectory-ppo-v1`，

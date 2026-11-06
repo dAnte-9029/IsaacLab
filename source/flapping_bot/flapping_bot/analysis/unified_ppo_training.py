@@ -1,7 +1,7 @@
 """Project-local orchestration of the existing RSL-RL PPO, independent of old curricula."""
 from collections import Counter
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import hashlib
 import json
 import os
@@ -17,7 +17,7 @@ import torch
 from tensordict import TensorDict
 from rsl_rl.modules import ActorCritic
 from rsl_rl.algorithms import PPO
-from .unified_ppo_contract import CANDIDATES,POLICY,PPO_CONFIG,evaluation_tasks,categories,source_identity
+from .unified_ppo_contract import CANDIDATES,POLICY,PPO_CONFIG,evaluation_tasks,categories,source_identity,physical_source_identity,require_compatible_plant
 from flapping_bot.path_tracking.unified_trajectory import TrajectorySpec
 from flapping_bot.path_tracking.trajectory_feedback import FeedbackStore
 
@@ -39,18 +39,24 @@ def build_env(args, root, *, evaluation=False):
     from flapping_bot.direct.flapping_bot.unified_trajectory_env import UnifiedTrajectoryEnv
     from flapping_bot.analysis.pure_rl_fixed_action_reward_validation import _configure_robot_asset
     cfg=(UnifiedTrajectoryL3DEnvCfg if args.backend=='L3D' else UnifiedTrajectoryI3DEnvCfg)()
-    cfg.seed=args.seed; cfg.scene.num_envs=5 if evaluation else args.num_envs
+    cfg.seed=args.seed; cfg.scene.num_envs=len(evaluation_tasks(args.eval_suite)) if evaluation else args.num_envs
     cfg.scene.env_spacing=10.; cfg.sim.device='cpu'
     cfg.online_sampling=not evaluation and args.sampling=='adaptive'; cfg.feedback_enabled=True
     cfg.online_rules_path=str(args.rules.resolve()); cfg.online_feedback_directory=str(args.output/'evidence')
     cfg.online_evaluation_mode='frozen' if evaluation else 'training'
-    cfg.evaluation_tasks=evaluation_tasks() if evaluation else None
+    cfg.evaluation_tasks=evaluation_tasks(args.eval_suite) if evaluation else None
+    if evaluation: cfg.sampling=replace(cfg.sampling,length_m=cfg.evaluation_tasks[0]["trajectory"]["length_m"])
     cfg.delaurier_wing_geom_csv=args.plant_assets.resolve()/'outputs_DeLaurier/right_wing_te_fit_poly5_gap50.csv'
     urdf=root/'source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf'
     _configure_robot_asset(cfg,asset_path=urdf,usd_dir=args.output/'assets')
-    cfg.online_identity_metadata=source_identity(root)
+    cfg.online_identity_metadata=physical_source_identity(root,args.plant_assets)
+    for name in cfg.online_identity_metadata['physical_sources']:
+        path=(args.plant_assets/'source/flapping_bot/native_extensions'/name.removeprefix('external_native/')) if name.startswith('external_native/') else root/name
+        target=args.output/'source_snapshot'/'physical'/name
+        target.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(path,target)
     cfg.online_identity_metadata.update(urdf=str(urdf),urdf_sha256=hashlib.sha256(urdf.read_bytes()).hexdigest(),
         candidate_initial=list(CANDIDATES[args.backend]),initial_phase_rad=0.,initial_vertical_speed=0.,
+        wing_geometry_sha256=hashlib.sha256(cfg.delaurier_wing_geom_csv.read_bytes()).hexdigest(),
         candidate_source='periodic_trim_lateral_v1/'+('L3D_late' if args.backend=='L3D' else 'I3D_refined')+'/search.json')
     import gymnasium as gym
     return gym.make(f'Isaac-FlappingBot-UnifiedTrajectory-{args.backend}-Direct-v0',cfg=cfg).unwrapped
@@ -99,8 +105,13 @@ def save_checkpoint(env,alg,args,state,contract,version,output,*,tag):
         state=deepcopy(state),contract=contract,plant=env.plant_identity,evaluation_contract=env.evaluation_contract,
         evaluation_tasks=evaluation_tasks(),version=version,evidence=str(evidence.resolve()),evidence_sequence=evidence_sequence,
         policy_config=POLICY,ppo_config=PPO_CONFIG)
-    torch.save(payload,target)
-    (output/'latest_checkpoint.txt').write_text(str(target.resolve())+'\n')
+    temporary=target.with_suffix('.pt.tmp')
+    payload['source_provenance']=source_identity(Path(__file__).resolve().parents[4])
+    torch.save(payload,temporary)
+    os.replace(temporary,target)
+    latest=output/'latest_checkpoint.txt.tmp'
+    latest.write_text(str(target.resolve())+'\n')
+    os.replace(latest,output/'latest_checkpoint.txt')
     return target
 
 
@@ -125,7 +136,7 @@ def train(args,root):
     loaded=torch.load(args.checkpoint,map_location='cpu',weights_only=False) if args.checkpoint else None
     contract=dict(schema=SCHEMA,backend=args.backend,sampling=args.sampling,seed=args.seed,num_envs=args.num_envs,
         rollout_steps=args.rollout_steps,ppo=PPO_CONFIG,policy=POLICY,eval_interval=args.eval_interval,
-        eval_tasks=evaluation_tasks(),threads=args.threads,eval_step_budget=args.eval_step_budget)
+        sampling_sources={name:hashlib.sha256((root/'source/flapping_bot/flapping_bot/path_tracking'/name).read_bytes()).hexdigest() for name in ('unified_trajectory.py','online_trajectory.py','trajectory_capability.py')},eval_tasks=evaluation_tasks(),final_tasks=evaluation_tasks('final'),task_source=hashlib.sha256((root/'source/flapping_bot/flapping_bot/direct/flapping_bot/unified_trajectory_env.py').read_bytes()).hexdigest(),threads=args.threads,eval_step_budget=args.eval_step_budget)
     if loaded is not None:
         if loaded.get('schema')!=SCHEMA or loaded['policy_config']!=POLICY: raise ValueError('Requires compatible 39D Unified checkpoint')
         def semantic(c):
@@ -140,11 +151,17 @@ def train(args,root):
     state=deepcopy(loaded['state']) if args.resume else dict(updates=0,train_transitions=0,eval_env_steps=0,eval_active_steps=0,evaluations=[])
     version=loaded['version'] if loaded else f'{run_id}:update000000'
     try:
+        if loaded is not None:
+            require_compatible_plant(env.plant_identity,loaded['plant'])
         if args.resume:
-            if env.plant_identity!=loaded['plant'] or env.evaluation_contract!=loaded['evaluation_contract']:
+            require_compatible_plant(env.plant_identity,loaded['plant'])
+            if env.evaluation_contract!=loaded['evaluation_contract']:
                 raise ValueError('Resume physical/evaluation identity mismatch')
             env.reset_counts[:]=loaded['reset_counts']
             if env.online_sampler is not None: env.online_sampler.load_state_dict(loaded['sampler'])
+        if args.resume and state.get('pending_evaluation'):
+            destination,ev=run_evaluation_subprocess(args,root,args.checkpoint,state['updates'])
+            receive_evaluation(env,state,destination,ev,version,args.eval_step_budget)
         env.set_policy_version(version)
         obs,_=env.reset(); initial=check_initial(env,args.backend)
         # Explicit partial reset wiring check only in short smoke; both modes get it.
@@ -162,6 +179,8 @@ def train(args,root):
             if args.resume:
                 alg.optimizer.load_state_dict(loaded['optimizer'])
                 torch.set_rng_state(loaded['rng']['torch']); np.random.set_state(loaded['rng']['numpy']); random.setstate(loaded['rng']['python'])
+        if args.resume and loaded['state'].get('pending_evaluation'):
+            save_checkpoint(env,alg,args,state,contract,version,args.output,tag=f'{state["updates"]:06d}_evaluated')
         initial_digest=policy_digest(policy)
         optimizer_step_before=max([float(x['step']) for x in alg.optimizer.state.values()],default=0.)
         (args.output/'contract.json').write_text(json.dumps(dict(training=contract,plant=env.plant_identity,
@@ -205,16 +224,10 @@ def train(args,root):
             print('PPO_UPDATE',json.dumps(report),flush=True)
             should_eval=args.eval_interval>0 and state['updates']%args.eval_interval==0
             if should_eval or state['updates']%args.save_interval==0:
+                state['pending_evaluation']=bool(should_eval)
                 ckpt=save_checkpoint(env,alg,args,state,contract,version,args.output,tag=f'{state["updates"]:06d}')
                 if should_eval:
-                    destination,ev=run_evaluation_subprocess(args,root,ckpt,state['updates'])
-                    state['eval_env_steps']+=ev['environment_steps']; state['eval_active_steps']+=ev['active_episode_steps']
-                    state['evaluations'].append(str(destination))
-                    if env.online_sampler is not None:
-                        store=FeedbackStore(destination/'evidence')
-                        for record in store.iter_records(): env.online_sampler.feedback_evaluation(record,store)
-                        store.close()
-                    append_json(args.output/'evaluations.jsonl',dict(update=state['updates'],directory=str(destination),**ev))
+                    complete_pending_evaluation(env,alg,args,root,state,contract,version,ckpt)
         # A clean stop is an explicit manual reset boundary, not a trajectory outcome.
         for i in list(env.rollout_evaluator.active): env.accept_terminal(env.rollout_evaluator.abort(i))
         collect_logs(env,args.output)
@@ -247,7 +260,8 @@ def evaluate(args,root):
     torch.set_num_threads(args.threads); torch.manual_seed(args.seed)
     env=build_env(args,root,evaluation=True)
     try:
-        if env.plant_identity!=loaded['plant'] or env.evaluation_contract!=loaded['evaluation_contract']:
+        require_compatible_plant(env.plant_identity,loaded['plant'])
+        if env.evaluation_contract!=loaded['evaluation_contract']:
             (args.output/'identity_actual.json').write_text(json.dumps(env.plant_identity,indent=2))
             raise ValueError('Evaluation plant/contract differs from checkpoint')
         env.set_policy_version(loaded['version'],evaluation_mode='frozen')
@@ -265,17 +279,46 @@ def evaluate(args,root):
                     raise RuntimeError('Evaluation failed to terminate under original contract')
         if not env._evaluation_finished.all():
             raise RuntimeError('Evaluation budget exhausted with incomplete episodes; no frozen capability claim')
-        assert policy_digest(policy)==before and len(records)==5
+        assert policy_digest(policy)==before and len(records)==env.num_envs
         assert all(r['policy_execution']=='single' and r['frozen_checkpoint']==loaded['version'] for r in records)
         outcomes=Counter(r['outcome'] for r in records)
-        return dict(passed=True,checkpoint=str(args.checkpoint),version=loaded['version'],backend=args.backend,initial=initial,
+        return dict(passed=True,eval_suite=args.eval_suite,trajectories=evaluation_tasks(args.eval_suite),checkpoint=str(args.checkpoint),version=loaded['version'],backend=args.backend,initial=initial,
             policy_unchanged=True,optimizer_updates=0,environment_steps=steps*env.num_envs,
             active_episode_steps=sum(r['steps'] for r in records),
             padding_steps=steps*env.num_envs-sum(r['steps'] for r in records),eval_step_budget=args.eval_step_budget,wall_s=perf_counter()-started,
             completion_rate=outcomes['completed']/len(records),outcomes=dict(outcomes),
-            tasks=[dict(name=next(t['name'] for t in evaluation_tasks() if t['trajectory']['seed']==r['trajectory']['seed']),
+            tasks=[dict(name=next(t['name'] for t in evaluation_tasks(args.eval_suite) if t['trajectory']['seed']==r['trajectory']['seed']),
                         categories=categories(TrajectorySpec(**r['trajectory'])),
                         **{k:r[k] for k in ('outcome','steps','effective_distance_m','horizontal_rmse_m','vertical_rmse_m',
                                            'horizontal_max_m','vertical_max_m','policy_execution','frozen_checkpoint')}) for r in records])
     finally:
         env.rollout_evaluator.store.close(); env.close()
+
+
+def receive_evaluation(env,state,destination,summary,version,budget):
+    if (not summary.get('passed') or summary.get('eval_suite')!='development'
+            or summary.get('version')!=version or summary.get('environment_steps')!=5*budget):
+        raise ValueError('Invalid development evaluation receipt/budget')
+    if not state.get('pending_evaluation'): raise ValueError('No pending evaluation; duplicate batch rejected')
+    if summary.get('trajectories')!=evaluation_tasks(): raise ValueError('Development task contract mismatch')
+    store=FeedbackStore(destination/'evidence')
+    try:
+        records=list(store.iter_records())
+        if len(records)!=5 or any(r.get('frozen_checkpoint')!=version or r.get('policy_execution')!='single'
+                or r['plant']!=env.plant_identity or r['contract']!=env.evaluation_contract for r in records):
+            raise ValueError('Invalid frozen evidence batch')
+        if env.online_sampler is not None:
+            for record in records: env.online_sampler.feedback_evaluation(record,store)
+            env.online_sampler._update()
+    finally: store.close()
+    state['eval_env_steps']+=summary['environment_steps']
+    state['eval_active_steps']+=summary['active_episode_steps']
+    state['evaluations'].append(str(destination))
+    state['pending_evaluation']=False
+
+
+def complete_pending_evaluation(env,alg,args,root,state,contract,version,checkpoint):
+    destination,summary=run_evaluation_subprocess(args,root,checkpoint,state['updates'])
+    receive_evaluation(env,state,destination,summary,version,args.eval_step_budget)
+    save_checkpoint(env,alg,args,state,contract,version,args.output,tag=f'{state["updates"]:06d}_evaluated')
+    append_json(args.output/'evaluations.jsonl',dict(update=state['updates'],directory=str(destination),**summary))
