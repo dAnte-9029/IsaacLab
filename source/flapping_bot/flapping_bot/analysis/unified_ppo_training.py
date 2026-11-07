@@ -100,6 +100,58 @@ def make_policy(obs):
     return ActorCritic(obs,{'policy':['policy'],'critic':['policy']},4,**POLICY)
 
 
+def initialize_policy(policy, obs, env, args, root):
+    """Fresh policy only; preserve all weights and center only the output bias."""
+    import xml.etree.ElementTree as ET
+    mode=getattr(args,'initialization','original')
+    cfg=env.plant_identity['configuration']; initial=check_initial(env,args.backend)
+    urdf=ET.parse(root/'source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf')
+    limits={}
+    for joint in urdf.findall('joint'):
+        limit=joint.find('limit')
+        if limit is not None:
+            lo,hi=float(limit.attrib['lower']),float(limit.attrib['upper'])
+            margin=(1-cfg['joint_limit_softness'])*(hi-lo)/2
+            limits[joint.attrib['name']]=(lo+margin,hi-margin)
+    trim=[2*(initial['frequency_hz']-cfg['min_flap_hz'])/(cfg['max_flap_hz']-cfg['min_flap_hz'])-1]
+    angles=np.deg2rad([initial['rudder_deg'],initial['symmetric_deg']+initial['differential_deg'],initial['symmetric_deg']-initial['differential_deg']])
+    for name,angle in zip(('rudder','left_tail','right_tail'),angles):
+        lo,hi=limits[name]; trim.append(2*(angle-lo)/(hi-lo)-1)
+    np.testing.assert_allclose(env._actions.numpy(),np.broadcast_to(trim,(env.num_envs,4)),atol=2e-7)
+    before={k:v.clone() for k,v in policy.state_dict().items()}
+    before_digest=policy_digest(policy)
+    layer=[m for m in policy.actor.modules() if isinstance(m,torch.nn.Linear)][-1]
+    bias_name=next(n for n,p in policy.named_parameters() if p is layer.bias)
+    with torch.no_grad():
+        old=policy.act_inference(obs).clone()
+        offset=torch.tensor(trim,dtype=old.dtype)-old.mean(0)
+        if mode!='original': layer.bias.add_(offset)
+        else: offset.zero_()
+        if mode=='trim_local': policy.std.fill_(0.15)
+        new=policy.act_inference(obs).clone()
+    changed=[k for k,v in policy.state_dict().items() if not torch.equal(v,before[k])]
+    assert set(changed)<=({bias_name,'std'} if mode=='trim_local' else {bias_name} if mode=='trim_mean' else set())
+    if mode!='original': torch.testing.assert_close(new.mean(0),torch.tensor(trim,dtype=new.dtype),atol=1e-7,rtol=0)
+    result=dict(schema='trim_initialization_v1',mode=mode,trim=trim,initial_std=policy.std.detach().tolist(),
+        bias_offset=offset.tolist(),seed=args.seed,source=source_identity(root),bias_parameter=bias_name,
+        changed_parameters=changed,before_digest=before_digest,initial_policy_digest=policy_digest(policy),
+        before_mean=old.mean(0).tolist(),after_mean=new.mean(0).tolist(),before_output_std=old.std(0).tolist(),after_output_std=new.std(0).tolist())
+    torch.save(dict(observations=obs['policy'],before=before,after=policy.state_dict(),contract=result),args.output/'initialization.pt')
+    (args.output/'initialization_contract.json').write_text(json.dumps(result,indent=2))
+    return result
+
+
+def validate_saved_policy(loaded, policy):
+    if loaded.get('policy_digest') is not None and policy_digest(policy)!=loaded['policy_digest']:
+        raise ValueError('Checkpoint policy digest mismatch')
+    init=loaded.get('initialization_contract')
+    if init is not None:
+        if init['schema']!='trim_initialization_v1' or init['seed']!=loaded['contract']['seed']:
+            raise ValueError('Initialization contract mismatch')
+        if loaded['state']['updates']==0 and policy_digest(policy)!=init['initial_policy_digest']:
+            raise ValueError('Update zero initialization mismatch')
+
+
 def save_checkpoint(env,alg,args,state,contract,version,output,*,tag):
     target=output/f'model_{tag}.pt'; evidence=env.rollout_evaluator.store.path
     env.rollout_evaluator.store.flush()
@@ -109,7 +161,7 @@ def save_checkpoint(env,alg,args,state,contract,version,output,*,tag):
         reset_counts=env.reset_counts.copy(),rng=dict(torch=torch.get_rng_state(),numpy=np.random.get_state(),python=random.getstate()),
         state=deepcopy(state),contract=contract,plant=env.plant_identity,evaluation_contract=env.evaluation_contract,
         evaluation_tasks=evaluation_tasks(),evaluation_initial=env.evaluation_initial,version=version,evidence=str(evidence.resolve()),evidence_sequence=evidence_sequence,
-        policy_config=POLICY,ppo_config=PPO_CONFIG)
+        policy_config=POLICY,ppo_config=PPO_CONFIG,initialization_contract=getattr(args,'initialization_contract',None),policy_digest=policy_digest(alg.policy))
     temporary=target.with_suffix('.pt.tmp')
     payload['source_provenance']=source_identity(Path(__file__).resolve().parents[4])
     torch.save(payload,temporary)
@@ -182,14 +234,17 @@ def train(args,root):
         torch.manual_seed(args.seed)  # same network initialization independently of environment setup/sampler
         policy=make_policy(obs); alg=PPO(policy,device='cpu',**PPO_CONFIG)
         alg.init_storage('rl',env.num_envs,args.rollout_steps,obs,[4])
+        args.initialization_contract=loaded.get('initialization_contract') if loaded else initialize_policy(policy,obs,env,args,root)
         if loaded:
             policy.load_state_dict(loaded['policy'])
+            validate_saved_policy(loaded,policy)
             if args.resume:
                 alg.optimizer.load_state_dict(loaded['optimizer'])
                 torch.set_rng_state(loaded['rng']['torch']); np.random.set_state(loaded['rng']['numpy']); random.setstate(loaded['rng']['python'])
         if args.resume and loaded['state'].get('pending_evaluation'):
             save_checkpoint(env,alg,args,state,contract,version,args.output,tag=f'{state["updates"]:06d}_evaluated')
         initial_digest=policy_digest(policy)
+        if not loaded: save_checkpoint(env,alg,args,state,contract,version,args.output,tag='000000')
         optimizer_step_before=max([float(x['step']) for x in alg.optimizer.state.values()],default=0.)
         (args.output/'contract.json').write_text(json.dumps(dict(training=contract,plant=env.plant_identity,
             termination=env.evaluation_contract,initial=initial,initial_policy_digest=initial_digest),indent=2))
@@ -341,6 +396,7 @@ def evaluate(args,root):
             layout=inspect_evaluation_geometry(env,tasks,args.output)
         require_initial(env.evaluation_initial, loaded['evaluation_initial'])
         obs=tensor_obs(obs,env.num_envs); policy=make_policy(obs); policy.load_state_dict(loaded['policy']); policy.requires_grad_(False); policy.eval()
+        validate_saved_policy(loaded,policy)
         before=policy_digest(policy); records=[]; steps=0; started=perf_counter()
         collect_logs(env,args.output)
         with torch.inference_mode():
