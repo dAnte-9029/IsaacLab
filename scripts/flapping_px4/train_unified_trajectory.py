@@ -13,6 +13,7 @@ from time import perf_counter
 def main():
     root=Path(__file__).resolve().parents[2]
     p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--reward-variant',choices=['strict_goal','recovery_goal'],default='strict_goal')
     p.add_argument('--initialization',choices=['original','trim_mean','trim_local'],default='original')
     p.add_argument('--backend',choices=['L3D','I3D'],required=True)
     p.add_argument('--sampling',choices=['fixed','adaptive'],required=True)

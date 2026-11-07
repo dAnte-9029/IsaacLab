@@ -19,7 +19,7 @@ PPO_CONFIG = dict(num_learning_epochs=5,num_mini_batches=4,clip_param=.2,gamma=.
     value_loss_coef=1.,entropy_coef=.01,learning_rate=3e-4,max_grad_norm=1.,use_clipped_value_loss=True,
     schedule='fixed',desired_kl=None,normalize_advantage_per_mini_batch=False)
 
-EVALUATION_PROTOCOL = 'frozen_full_batch_v3'
+EVALUATION_PROTOCOL = 'frozen_full_batch_v4'
 SMOKE_SCHEMA = 'unified_evaluation_smoke_only_v1'
 EVALUATION_LAYOUT = dict(kind='isaac_grid_z_up', spacing_m=10.)
 
@@ -67,6 +67,7 @@ def require_evaluation_checkpoint(loaded, *, backend, sampling, suite, budget, s
     if (c.get('evaluation_protocol') != EVALUATION_PROTOCOL or c.get('evaluation_layout') != EVALUATION_LAYOUT
             or not all(k in c for k in ('eval_tasks','final_tasks','eval_step_budget','sampling','backend'))
             or not all(k in loaded for k in ('evaluation_initial','evaluation_contract','plant','evaluation_tasks'))
+            or loaded['evaluation_contract'].get('kind') != 'unified_terminal_v2'
             or loaded['evaluation_contract'].get('validity') != 'unified_interval_v3'):
         raise ValueError('Legacy/incomplete evaluation contract; migration refused')
     if c['backend'] != backend or c['sampling'] != sampling:
@@ -104,7 +105,7 @@ def validate_evaluation_batch(store, tasks, plant, contract, initial, version, *
         if (r.get('simulated') is not False or r.get('frozen_checkpoint') != version
                 or r.get('policy_execution') != 'single' or r.get('policy_versions') != [version]
                 or r.get('reset_policy_version') != version or r.get('evaluation_mode') != 'frozen'
-                or r.get('source') != 'fixed_evaluation' or r.get('evaluator') != 'unified_terminal_v3'
+                or r.get('source') != 'fixed_evaluation' or r.get('evaluator') != ('unified_terminal_v4' if contract['kind']=='unified_terminal_v2' else 'unified_terminal_v3')
                 or r['plant'] != plant or r['contract'] != contract):
             raise ValueError('Invalid frozen evidence identity')
         require_initial(normalized_initial(r['initial']), initial)

@@ -25,7 +25,8 @@ from .unified_ppo_contract import (
 from flapping_bot.path_tracking.unified_trajectory import TrajectorySpec
 from flapping_bot.path_tracking.trajectory_feedback import FeedbackStore
 
-SCHEMA='unified_li_ppo_v1'
+SCHEMA='unified_li_ppo_v2'
+from .unified_goal_reward import REWARD_CONTRACT
 
 
 def append_json(path, value):
@@ -43,6 +44,7 @@ def build_env(args, root, *, evaluation=False):
     from flapping_bot.direct.flapping_bot.unified_trajectory_env import UnifiedTrajectoryEnv
     from flapping_bot.analysis.pure_rl_fixed_action_reward_validation import _configure_robot_asset
     cfg=(UnifiedTrajectoryL3DEnvCfg if args.backend=='L3D' else UnifiedTrajectoryI3DEnvCfg)()
+    cfg.reward_variant=getattr(args,'reward_variant','strict_goal'); cfg.goal_gamma=PPO_CONFIG['gamma']
     cfg.seed=args.seed; cfg.scene.num_envs=len(evaluation_tasks(args.eval_suite)) if evaluation else args.num_envs
     cfg.scene.env_spacing=10.; cfg.sim.device='cpu'
     cfg.online_sampling=not evaluation and args.sampling=='adaptive'; cfg.feedback_enabled=True
@@ -176,7 +178,7 @@ def run_evaluation_subprocess(args,root,checkpoint,iteration):
     destination=args.output/f'evaluation_{iteration:06d}'
     cmd=['bash',str(root/'isaaclab.sh'),'-p',str(root/'scripts/flapping_px4/train_unified_trajectory.py'),
          '--evaluate','--backend',args.backend,'--sampling',args.sampling,'--seed',str(args.seed),
-         '--checkpoint',str(checkpoint),'--output',str(destination),'--rules',str(args.rules.resolve()),
+         '--reward-variant',args.reward_variant,'--checkpoint',str(checkpoint),'--output',str(destination),'--rules',str(args.rules.resolve()),
          '--plant-assets',str(args.plant_assets.resolve()),'--threads',str(args.threads),
          '--eval-step-budget',str(args.eval_step_budget)]
     with (args.output/f'evaluation_{iteration:06d}.log').open('w') as log:
@@ -192,7 +194,7 @@ def train(args,root):
     torch.set_num_threads(args.threads); torch.manual_seed(args.seed); np.random.seed(args.seed); random.seed(args.seed)
     loaded=torch.load(args.checkpoint,map_location='cpu',weights_only=False) if args.checkpoint else None
     if loaded is not None: require_checkpoint_use(loaded)
-    contract=dict(schema=SCHEMA,evaluation_protocol=EVALUATION_PROTOCOL,evaluation_layout=EVALUATION_LAYOUT,
+    contract=dict(schema=SCHEMA,reward_variant=args.reward_variant,reward=REWARD_CONTRACT,terminal_contract='unified_terminal_v2',evaluation_protocol=EVALUATION_PROTOCOL,evaluation_layout=EVALUATION_LAYOUT,
         backend=args.backend,sampling=args.sampling,seed=args.seed,num_envs=args.num_envs,
         rollout_steps=args.rollout_steps,ppo=PPO_CONFIG,policy=POLICY,eval_interval=args.eval_interval,
         sampling_sources={name:hashlib.sha256((root/'source/flapping_bot/flapping_bot/path_tracking'/name).read_bytes()).hexdigest() for name in ('unified_trajectory.py','online_trajectory.py','trajectory_capability.py')},eval_tasks=evaluation_tasks(),final_tasks=evaluation_tasks('final'),task_source=hashlib.sha256((root/'source/flapping_bot/flapping_bot/direct/flapping_bot/unified_trajectory_env.py').read_bytes()).hexdigest(),threads=args.threads,eval_step_budget=args.eval_step_budget)
@@ -253,6 +255,7 @@ def train(args,root):
         transitions_at_start=state['train_transitions']; iteration_reports=[]; environment_step_s=0.
         for _ in range(args.iterations):
             env.set_policy_version(version,evaluation_mode='training')
+            reward_components=[]
             t=perf_counter(); policy.train(); sources=Counter(); geometry=Counter(); endings=Counter(); rewards=[]
             with torch.inference_mode():
                 for step in range(args.rollout_steps):
@@ -264,6 +267,7 @@ def train(args,root):
                     assert torch.isfinite(obs['policy']).all() and torch.isfinite(reward).all()
                     alg.process_env_step(obs,reward,done|timeout,{'time_outs':timeout})
                     rewards.append(float(reward.mean()))
+                    reward_components.append({k:float(v.mean()) for k,v in env.reward_terms.items()})
                     tasks,records=collect_logs(env,args.output)
                     for task in tasks:
                         sources[task['source']]+=1; geometry.update(k for k,v in task['geometry_categories'].items() if v)
@@ -279,7 +283,8 @@ def train(args,root):
             train_seconds+=rollout_time+update_time; rollout_seconds+=rollout_time; update_seconds+=update_time
             report=dict(update=state['updates'],version=version,train_transitions=state['train_transitions'],
                 rollout_s=rollout_time,update_s=update_time,transitions_per_s=env.num_envs*args.rollout_steps/(rollout_time+update_time),
-                parameter_delta_l2=delta,losses=losses,reward_mean=float(np.mean(rewards)),episode_outcomes=dict(endings),
+                reward_components={k:float(np.mean([r[k] for r in reward_components])) for k in reward_components[0]},
+                policy_std=policy.std.detach().tolist(),parameter_delta_l2=delta,losses=losses,reward_mean=float(np.mean(rewards)),episode_outcomes=dict(endings),
                 reset_sources=dict(sources),reset_geometry_counts=dict(geometry),
                 effective_completion_rate=endings['completed']/sum(endings[k] for k in ('completed','failed','timeout'))
                     if sum(endings[k] for k in ('completed','failed','timeout')) else None)
@@ -374,6 +379,8 @@ def evaluate(args,root):
     if loaded is not None:
         require_checkpoint_use(loaded, smoke_evaluation=smoke)
         if loaded.get('schema')!=(SMOKE_SCHEMA if smoke else SCHEMA): raise ValueError('Requires a Unified PPO checkpoint')
+        if loaded['contract'].get('reward_variant') != args.reward_variant:
+            raise ValueError('Evaluation reward variant mismatch')
         tasks = require_evaluation_checkpoint(loaded, backend=args.backend, sampling=args.sampling,
             suite=args.eval_suite, budget=args.eval_step_budget, smoke_evaluation=smoke)
     torch.set_num_threads(args.threads); torch.manual_seed(args.seed)

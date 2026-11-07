@@ -11,6 +11,7 @@ from flapping_bot.path_tracking.unified_trajectory import GeometryLimits, Sampli
 from flapping_bot.path_tracking.unified_trajectory_cache import TrajectoryCache
 from flapping_bot.path_tracking.trajectory_feedback import valid_interval, terminal_outcome
 from flapping_bot.analysis.unified_ppo_contract import normalized_initial, require_initial
+from flapping_bot.analysis.unified_goal_reward import goal_potential, shaping_terms
 from .straight_flight_env import FlappingBotStraightFlightEnv, FlappingBotStraightFlightDeLaurierMeasuredPureRLEnvCfg
 
 
@@ -36,6 +37,8 @@ class UnifiedTrajectoryEnvCfg(FlappingBotStraightFlightDeLaurierMeasuredPureRLEn
     height_cmd: float = 20.
     reset_forward_speed_mps: float = 8.  # initial condition only, never a tracking target
     episode_length_s: float = 120.  # resource timeout, independently configurable from route length
+    reward_variant: str = 'strict_goal'
+    goal_gamma: float = .99
     tracking_scale_m: float = 2.
     progress_weight: float = 1.
     tracking_weight: float = 1.
@@ -54,6 +57,8 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
 
     def __init__(self, cfg: UnifiedTrajectoryEnvCfg, **kwargs):
         cfg.sampling.validate()
+        if cfg.reward_variant not in ('strict_goal', 'recovery_goal') or cfg.goal_gamma != .99:
+            raise ValueError('Unsupported learning objective')
         if (cfg.sim.device != "cpu" or cfg.pure_rl_spatial_stage_id is not None
                 or cfg.pure_rl_longitudinal_stage_id is not None or cfg.pure_rl_c4_joint_training_enabled
                 or cfg.use_pure_rl_actor_observation or cfg.use_pure_rl_curriculum1_reward):
@@ -75,6 +80,8 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         self.previous_high_water = self.progress.clone()
         self.previous_action = torch.zeros_like(self._actions)
         self.previous_position = torch.zeros(self.num_envs, 3, device=self.device)
+        self.goal_position = torch.zeros(self.num_envs, 3, dtype=torch.float64, device=self.device)
+        self.previous_goal_potential = torch.zeros(self.num_envs, dtype=torch.float64, device=self.device)
         self.reference = {}
         self._reference_valid = False
         self._current_policy_version = cfg.online_policy_version
@@ -94,7 +101,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             # Runtime paths, task source and env count cannot change physical identity.
             snapshot = cfg.to_dict()
             for key in list(snapshot):
-                if key.startswith('online_') or key in ('feedback_enabled','evaluation_tasks','seed','log_dir','sampling'):
+                if key.startswith('online_') or key in ('feedback_enabled','evaluation_tasks','seed','log_dir','sampling','reward_variant','goal_gamma'):
                     del snapshot[key]
             snapshot['scene'].pop('num_envs', None)
             snapshot['robot']['spawn'].pop('usd_dir', None)
@@ -104,7 +111,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
             plant = dict(backend=getattr(backend_cfg, 'backend', 'DeLaurier'), configuration=snapshot,
                          physics_dt=float(self.physics_dt), control_dt=float(self.step_dt),
                          identity=cfg.online_identity_metadata or {'status':'explicit identity unavailable'})
-            contract = dict(kind='unified_terminal_v1', reference='base_link world z-up',
+            contract = dict(kind='unified_terminal_v2', reference='base_link world z-up',
                 projection='cache local movement + margin', projection_margin_m=cfg.projection_margin_m,
                 cache_spacing_m=cfg.reference_cache_spacing_m,
                 completion_tolerance_m=cfg.completion_tolerance_m, max_path_error_m=cfg.max_path_error_m,
@@ -168,6 +175,7 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                 path = Trajectory(spec)
             path = Trajectory(replace(path.spec, origin=tuple(origin)))
             self.paths[i] = path
+            self.goal_position[i] = torch.as_tensor(path.query(path.spec.length_m)["position"], dtype=torch.float64, device=self.device)
             self.task_records[i] = path.spec.to_dict()
             self.task_sampling_sources[i] = source
             if not self._evaluation_finished[i]:
@@ -197,12 +205,16 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         self.previous_high_water[ids] = 0
         self.previous_action[ids] = self._actions[ids]
         self.previous_position[ids] = self._robot.data.root_pos_w[ids]
+        self.previous_goal_potential[ids] = goal_potential(torch.linalg.vector_norm(
+            self._robot.data.root_pos_w[ids].double()-self.goal_position[ids], dim=-1))
         self._reference_valid = False
 
     def _pre_physics_step(self, actions):
         self.previous_high_water.copy_(self.high_water)
         self.previous_action.copy_(self._actions)
         self.previous_position.copy_(self._robot.data.root_pos_w)
+        self.previous_goal_potential.copy_(goal_potential(torch.linalg.vector_norm(
+            self.previous_position.double()-self.goal_position, dim=-1)))
         self._reference_valid = False
         # Capture provenance at the action boundary, not at reset or termination.
         self._action_versions = [self._current_policy_version]*self.num_envs
@@ -246,7 +258,8 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         height = self._robot.data.root_pos_w[:, 2]-self.scene.env_origins[:, 2]
         tilt_cos = -self._robot.data.projected_gravity_b[:, 2]
         rate = torch.linalg.vector_norm(self._robot.data.root_ang_vel_b, dim=-1)
-        contract = dict(completion_tolerance_m=self.cfg.completion_tolerance_m,
+        goal_distance = torch.linalg.vector_norm(self._robot.data.root_pos_w.double()-self.goal_position, dim=-1).tolist()
+        contract = dict(kind='unified_terminal_v2', completion_tolerance_m=self.cfg.completion_tolerance_m,
             min_height_m=self.cfg.terminate_ground_height, max_height_m=self.cfg.geometry_limits.max_height,
             max_path_error_m=self.cfg.max_path_error_m,
             min_tilt_cos=float(np.cos(np.deg2rad(self.cfg.terminate_tilt_deg))),
@@ -258,11 +271,11 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
         if self.rollout_evaluator is not None:
             outcomes, records = self.rollout_evaluator.observe_intervals(
                 values, controls, steps, self._action_versions, self._action_modes,
-                contract, self.cfg.sampling.length_m)
+                contract, self.cfg.sampling.length_m, goal_distance)
         else:
             outcomes = [terminal_outcome(contract, self.cfg.sampling.length_m, step, value,
-                        valid_interval(True, value, control))
-                        for step, value, control in zip(steps, values, controls)]
+                        valid_interval(True, value, control), dg)
+                        for step, value, control, dg in zip(steps, values, controls, goal_distance)]
         mask = lambda name: torch.tensor([o == name for o in outcomes], device=self.device)
         self.invalid_data = mask('invalid_data')
         self.failed = mask('failed')
@@ -318,6 +331,12 @@ class UnifiedTrajectoryEnv(FlappingBotStraightFlightEnv):
                   - self.cfg.action_change_weight*action_change
                   + self.cfg.completion_bonus*self.completed
                   - self.cfg.failure_penalty*(self.failed | self.invalid_data))
+        recovery, goal = shaping_terms(torch.sqrt(error2), self.previous_goal_potential,
+            torch.linalg.vector_norm(self._robot.data.root_pos_w.double()-self.goal_position, dim=-1),
+            self.failed | self.completed | self.invalid_data, self.step_dt, self.cfg.goal_gamma)
+        self.reward_terms = dict(base=reward.clone(), recovery=recovery, goal=goal)
+        if self.cfg.reward_variant == 'recovery_goal':
+            reward = reward + recovery.to(reward.dtype) + goal.to(reward.dtype)
         self.extras["log"] = {"Unified/path_error_m": torch.sqrt(error2).mean(),
                               "Unified/new_progress_m": forward.mean(), "Unified/reward": reward.mean()}
         return torch.nan_to_num(reward, nan=-self.cfg.failure_penalty)

@@ -21,13 +21,19 @@ def valid_interval(finite, values, control):
                 all(k in control and finite_tree(control[k]) for k in CONTROL_FIELDS))
 
 
-def terminal_outcome(contract, length, step, values, valid):
+def terminal_outcome(contract, length, step, values, valid, goal_distance=None):
     progress, error, height, tilt, rate = values
+    kind = contract.get('kind', 'unified_terminal_v1')
+    if kind not in ('unified_terminal_v1', 'unified_terminal_v2'):
+        raise ValueError('Unsupported terminal contract')
+    if kind == 'unified_terminal_v2' and (goal_distance is None or not np.isfinite(goal_distance)):
+        return 'invalid_data'
     if not valid: return 'invalid_data'
     if (height < contract['min_height_m'] or height > contract['max_height_m']
             or error > contract['max_path_error_m'] or tilt < contract['min_tilt_cos']
             or rate > contract['max_body_rate_rad_s']): return 'failed'
-    if progress >= length-contract['completion_tolerance_m'] and error <= contract['completion_tolerance_m']:
+    if (progress >= length-contract['completion_tolerance_m'] and error <= contract['completion_tolerance_m']
+            and (kind == 'unified_terminal_v1' or goal_distance <= contract['completion_tolerance_m'])):
         return 'completed'
     if step >= contract['max_steps']: return 'timeout'
     return None
@@ -214,7 +220,7 @@ class RolloutEvaluator:
               *, evaluation_mode='training', instance_id=None, smoke_fixture=False):
         if env_id in self.active:
             raise ValueError('Finish or explicitly abort previous episode before reset')
-        if contract.get('kind') != 'unified_terminal_v1' or not plant or not initial:
+        if contract.get('kind') not in ('unified_terminal_v1', 'unified_terminal_v2') or not plant or not initial:
             raise ValueError('Explicit plant, initial state and supported contract required')
         required = ('completion_tolerance_m', 'max_path_error_m', 'min_height_m', 'max_height_m',
                     'min_tilt_cos', 'max_body_rate_rad_s', 'max_steps')
@@ -227,10 +233,12 @@ class RolloutEvaluator:
             plant=deepcopy(plant), initial=deepcopy(initial), contract=deepcopy(contract),
             reset_policy_version=policy_version, evaluation_mode=evaluation_mode, source=source,
             identity=identity(spec, plant, initial, contract), simulated=self.store.simulated,
-            evaluator='unified_terminal_v3', timing='command -> decimated physics -> applied/joint/body sample')
+            evaluator=('unified_terminal_v4' if contract['kind']=='unified_terminal_v2' else 'unified_terminal_v3'), timing='command -> decimated physics -> applied/joint/body sample')
         if smoke_fixture: r['smoke_fixture'] = True
+        from .unified_trajectory import Trajectory
+        endpoint = Trajectory(spec).query(spec.length_m)['position'] if contract['kind']=='unified_terminal_v2' else None
         self.store._begin(r)
-        self.active[env_id] = dict(record=r, step=0, versions=set(), modes=set(), valid=True,
+        self.active[env_id] = dict(record=r, endpoint=endpoint, step=0, versions=set(), modes=set(), valid=True,
                                    distance=0., error=None, error_squares=[0.,0.], error_max=[0.,0.])
 
     def _finish(self, env_id, outcome):
@@ -260,7 +268,7 @@ class RolloutEvaluator:
         valid = valid_interval(finite, values, control)
         return self._observe_interval(env_id, values, valid, step, control, policy_version, execution_mode)
 
-    def observe_intervals(self, values, controls, steps, versions, modes, contract, length):
+    def observe_intervals(self, values, controls, steps, versions, modes, contract, length, goal_distances=None):
         """Validate original interval data once, then share decisions with the environment.
 
         This entry accepts raw data, never caller-certified success flags. Strict
@@ -271,7 +279,8 @@ class RolloutEvaluator:
         outcomes, records = [], []
         for i, (value, control, step) in enumerate(zip(values, controls, steps)):
             valid = valid_interval(True, value, control)
-            outcome = terminal_outcome(contract, length, step, value, valid)
+            outcome = terminal_outcome(contract, length, step, value, valid,
+                None if goal_distances is None else goal_distances[i])
             record = self._observe_interval(i, value, valid, step, control, versions[i], modes[i])
             if record is not None:
                 assert record['outcome'] == outcome
@@ -288,7 +297,11 @@ class RolloutEvaluator:
         c = state['record']['contract']
         values = [progress_m, path_error_m, height_m, tilt_cos, body_rate_rad_s]
         state['valid'] &= valid
-        outcome = terminal_outcome(c, state['record']['trajectory']['length_m'], step, values, valid)
+        # Independently derive the fixed goal from the saved trajectory and raw body state.
+        # Never trust a logged distance, moving reference, or completed flag.
+        goal_distance = (float(np.linalg.norm(np.asarray(control['root_state'][:3])-state['endpoint']))
+                         if c['kind']=='unified_terminal_v2' else None)
+        outcome = terminal_outcome(c, state['record']['trajectory']['length_m'], step, values, valid, goal_distance)
         sample = dict(zip(('progress_m', 'path_error_m', 'height_m', 'tilt_cos', 'body_rate_rad_s'), values))
         sample.update(finite=valid, step=int(step), control=control, policy_version=policy_version,
                       execution_mode=execution_mode)
