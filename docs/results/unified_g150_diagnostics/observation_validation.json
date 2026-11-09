@@ -1,0 +1,44 @@
+[
+  {
+    "update": 25,
+    "rows_verified": 1986,
+    "max_abs_raw_action_error": 1.1920928955078125e-07,
+    "strict_replay": true,
+    "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000025.pt"
+  },
+  {
+    "update": 50,
+    "rows_verified": 1447,
+    "max_abs_raw_action_error": 9.685754776000977e-08,
+    "strict_replay": true,
+    "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000050.pt"
+  },
+  {
+    "update": 75,
+    "rows_verified": 1682,
+    "max_abs_raw_action_error": 1.1920928955078125e-07,
+    "strict_replay": true,
+    "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000075.pt"
+  },
+  {
+    "update": 100,
+    "rows_verified": 1900,
+    "max_abs_raw_action_error": 8.940696716308594e-08,
+    "strict_replay": true,
+    "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000100.pt"
+  },
+  {
+    "update": 125,
+    "rows_verified": 2097,
+    "max_abs_raw_action_error": 1.7881393432617188e-07,
+    "strict_replay": true,
+    "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000125.pt"
+  },
+  {
+    "update": 150,
+    "rows_verified": 1983,
+    "max_abs_raw_action_error": 2.384185791015625e-07,
+    "strict_replay": true,
+    "checkpoint": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000150.pt"
+  }
+]

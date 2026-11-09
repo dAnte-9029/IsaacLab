@@ -1,0 +1,25 @@
+{
+  "synthetic_batch_size": 12288,
+  "diagnostics_wall_s": [
+    0.12414056435227394,
+    0.13021163642406464,
+    0.14073312608525157,
+    0.12214848957955837,
+    0.12302784202620387,
+    0.12275818223133683
+  ],
+  "median_warm_s": 0.12302784202620387,
+  "max_saved_actor_reproduction_error": {
+    "25": 0.0,
+    "50": 0.0,
+    "75": 0.0,
+    "100": 0.0,
+    "125": 0.0,
+    "150": 0.0
+  },
+  "installed_ppo_path": "/home/zn/anaconda3/envs/env_isaaclab/lib/python3.11/site-packages/rsl_rl/algorithms/ppo.py",
+  "gradient_norm": "unavailable",
+  "physx_rollouts": 0,
+  "formal_training_updates": 0,
+  "optimizer_updates_in_benchmark": 0
+}

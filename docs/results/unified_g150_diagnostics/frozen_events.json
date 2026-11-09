@@ -1,0 +1,2492 @@
+[
+  {
+    "update": 25,
+    "task": "coupled_3d",
+    "steps": 380,
+    "survival_s": 6.333333333333333,
+    "min_goal_m": 9.467690219359687,
+    "effective_distance_m": 54.58306121826172,
+    "rmse_path_t_y_z": [
+      0.0010346027054947652,
+      2.5721865073433277,
+      0.6489443205184541
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 4.3,
+      "lateral_abs_gt_2m_s": 4.766666666666667,
+      "lateral_abs_gt_4m_s": 5.4,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.666666666666667,
+      "path_error_gt_4m_s": 5.383333333333333,
+      "path_error_gt_6m_s": 5.9,
+      "path_norm_outward": {
+        "start_s": 3.8166666666666664,
+        "end_s": 4.316666666666666,
+        "abs_error_start_m": 0.8788798036971158,
+        "abs_error_end_m": 1.3815820708056645
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 3.9166666666666665,
+        "end_s": 4.416666666666667,
+        "abs_error_start_m": 0.5152311580384031,
+        "abs_error_end_m": 1.2369361285595941
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 6.216666666666667
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      45.23530578613281,
+      -12.679474830627441,
+      20.707054138183594,
+      0.9417352080345154,
+      0.06227923184633255,
+      -0.23514725267887115,
+      -0.2322971075773239,
+      5.752164363861084,
+      -4.230715274810791,
+      2.5228700637817383,
+      0.19121262431144714,
+      -0.8371419906616211,
+      -0.41877296566963196
+    ],
+    "terminal_local_error": [
+      0.0065764118573650165,
+      -8.025404689328973,
+      0.592494105811907
+    ],
+    "terminal_local_velocity": [
+      5.235740151452997,
+      -4.73799362101756,
+      2.736724589317796
+    ],
+    "terminal_rpy_deg": [
+      14.410901466375662,
+      -24.45373211565609,
+      -30.851584488964146
+    ],
+    "terminal_body_rates_deg_s": [
+      21.019851684570312,
+      -43.37939453125,
+      -25.93726921081543
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 48.06735610961914,
+    "max_same_sign_turn_m": 18.8
+  },
+  {
+    "update": 25,
+    "task": "reverse_left_first",
+    "steps": 381,
+    "survival_s": 6.35,
+    "min_goal_m": 8.646864109644843,
+    "effective_distance_m": 56.45735168457031,
+    "rmse_path_t_y_z": [
+      0.0009468451007167783,
+      3.1218250765381153,
+      0.624657537660585
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.033333333333333,
+      "lateral_abs_gt_2m_s": 3.75,
+      "lateral_abs_gt_4m_s": 4.95,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.65,
+      "path_error_gt_4m_s": 4.916666666666667,
+      "path_error_gt_6m_s": 5.783333333333333,
+      "path_norm_outward": {
+        "start_s": 2.7666666666666666,
+        "end_s": 3.2666666666666666,
+        "abs_error_start_m": 0.9925605061128148,
+        "abs_error_end_m": 1.5006357402391874
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.55,
+        "end_s": 3.05,
+        "abs_error_start_m": 0.5003071668449242,
+        "abs_error_end_m": 1.0222991048224264
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 6.283333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      55.7151985168457,
+      -3.039950132369995,
+      19.988582611083984,
+      0.9558701515197754,
+      0.07366399466991425,
+      -0.17114706337451935,
+      -0.2271445244550705,
+      6.694002628326416,
+      -4.5536789894104,
+      1.7547475099563599,
+      0.305920273065567,
+      -1.0522059202194214,
+      -0.4296640455722809
+    ],
+    "terminal_local_error": [
+      -0.0033628334961083306,
+      -8.00156877746649,
+      -0.011417388916015625
+    ],
+    "terminal_local_velocity": [
+      7.061498963735593,
+      -3.959911098976823,
+      1.7547475099563599
+    ],
+    "terminal_rpy_deg": [
+      13.21836399288481,
+      -17.081036697969488,
+      -28.728368466164643
+    ],
+    "terminal_body_rates_deg_s": [
+      35.16073989868164,
+      -51.62321853637695,
+      -25.427419662475586
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 44.55245590209961,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 25,
+    "task": "simple",
+    "steps": 382,
+    "survival_s": 6.366666666666666,
+    "min_goal_m": 9.015707608625528,
+    "effective_distance_m": 55.761962890625,
+    "rmse_path_t_y_z": [
+      5.814594100683437e-15,
+      2.8386411935035105,
+      0.6405886445960737
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.5166666666666666,
+      "lateral_abs_gt_2m_s": 4.3,
+      "lateral_abs_gt_4m_s": 5.233333333333333,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.183333333333334,
+      "path_error_gt_4m_s": 5.216666666666667,
+      "path_error_gt_6m_s": 5.866666666666666,
+      "path_norm_outward": {
+        "start_s": 3.466666666666667,
+        "end_s": 3.966666666666667,
+        "abs_error_start_m": 1.2145515314870545,
+        "abs_error_end_m": 1.7213952120966258
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 3.283333333333333,
+        "end_s": 3.783333333333333,
+        "abs_error_start_m": 0.7885804176330566,
+        "abs_error_end_m": 1.2942209243774414
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 6.266666666666667
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      65.761962890625,
+      -13.01811408996582,
+      20.254533767700195,
+      0.9474853277206421,
+      0.07139451801776886,
+      -0.21130141615867615,
+      -0.22918589413166046,
+      6.4066948890686035,
+      -4.461641311645508,
+      2.1807403564453125,
+      0.2088441401720047,
+      -1.9648101329803467,
+      -0.5097295045852661
+    ],
+    "terminal_local_error": [
+      1.4210854715202004e-14,
+      -8.01811408996582,
+      0.2545337677001953
+    ],
+    "terminal_local_velocity": [
+      6.4066948890686035,
+      -4.461641311645508,
+      2.1807403564453125
+    ],
+    "terminal_rpy_deg": [
+      14.455717789124714,
+      -21.572898561380768,
+      -29.96420555310092
+    ],
+    "terminal_body_rates_deg_s": [
+      51.190059661865234,
+      -101.54550170898438,
+      -27.155590057373047
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 46.948143005371094,
+    "max_same_sign_turn_m": 0.0
+  },
+  {
+    "update": 25,
+    "task": "reverse_right_first",
+    "steps": 384,
+    "survival_s": 6.4,
+    "min_goal_m": 9.300449273374456,
+    "effective_distance_m": 55.33185577392578,
+    "rmse_path_t_y_z": [
+      0.0005376571911540725,
+      2.624753695208526,
+      0.6447888751612024
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 4.216666666666667,
+      "lateral_abs_gt_2m_s": 4.733333333333333,
+      "lateral_abs_gt_4m_s": 5.416666666666667,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.65,
+      "path_error_gt_4m_s": 5.4,
+      "path_error_gt_6m_s": 5.95,
+      "path_norm_outward": {
+        "start_s": 3.8166666666666664,
+        "end_s": 4.316666666666666,
+        "abs_error_start_m": 0.9371300595178277,
+        "abs_error_end_m": 1.4409552187080454
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 3.783333333333333,
+        "end_s": 4.283333333333333,
+        "abs_error_start_m": 0.5128882926118471,
+        "abs_error_end_m": 1.1210905590463354
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 6.233333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      55.908042907714844,
+      -13.058137893676758,
+      20.542444229125977,
+      0.9281727075576782,
+      0.07561593502759933,
+      -0.28199541568756104,
+      -0.23077312111854553,
+      6.049667835235596,
+      -4.377584934234619,
+      2.7113893032073975,
+      0.14068451523780823,
+      -3.001483201980591,
+      -0.44593268632888794
+    ],
+    "terminal_local_error": [
+      -0.0015352253460872989,
+      -8.058943450150597,
+      0.5424442291259766
+    ],
+    "terminal_local_velocity": [
+      5.69298749877822,
+      -4.832351819960645,
+      2.7113893032073975
+    ],
+    "terminal_rpy_deg": [
+      18.0621598934194,
+      -29.247334436098008,
+      -32.67437082640829
+    ],
+    "terminal_body_rates_deg_s": [
+      74.44288635253906,
+      -155.49102783203125,
+      -23.9384708404541
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 48.27617263793945,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 25,
+    "task": "sustained",
+    "steps": 464,
+    "survival_s": 7.733333333333333,
+    "min_goal_m": 0.9229222886472022,
+    "effective_distance_m": 60.0,
+    "rmse_path_t_y_z": [
+      1.4445027149262442,
+      0.603804791302015,
+      0.7453326220658444
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 5.383333333333333,
+      "lateral_abs_gt_2m_s": null,
+      "lateral_abs_gt_4m_s": null,
+      "vertical_abs_gt_1m_s": 7.3,
+      "vertical_abs_gt_2m_s": 7.566666666666666,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 6.966666666666667,
+      "path_error_gt_4m_s": 7.25,
+      "path_error_gt_6m_s": 7.583333333333333,
+      "path_norm_outward": {
+        "start_s": 6.6499999999999995,
+        "end_s": 7.1499999999999995,
+        "abs_error_start_m": 1.0008068252016453,
+        "abs_error_end_m": 3.3553887402750093
+      },
+      "path_norm_recovery": null,
+      "outward": null,
+      "recovery": {
+        "start_s": 6.55,
+        "end_s": 7.05,
+        "abs_error_start_m": 1.0067111779802267,
+        "abs_error_end_m": 0.4922162883833866
+      },
+      "projection_60m_s": 6.733333333333333,
+      "cross_endpoint_plane_s": 6.733333333333333,
+      "closest_goal_s": 6.75
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "tilt"
+    ],
+    "terminal_root_state": [
+      72.67877960205078,
+      -9.601430892944336,
+      22.604856491088867,
+      0.6312418580055237,
+      0.18388551473617554,
+      -0.5955352187156677,
+      -0.46158161759376526,
+      0.24533124268054962,
+      -4.94463586807251,
+      2.9839277267456055,
+      1.1902061700820923,
+      -3.4618723392486572,
+      -0.4270092844963074
+    ],
+    "terminal_local_error": [
+      6.000534726945951,
+      -1.5770988191312831,
+      2.604856491088867
+    ],
+    "terminal_local_velocity": [
+      2.6557312132620923,
+      -4.178121947642245,
+      2.9839277267456055
+    ],
+    "terminal_rpy_deg": [
+      74.07902245670402,
+      -35.59818389788596,
+      -99.58833391005005
+    ],
+    "terminal_body_rates_deg_s": [
+      135.55197143554688,
+      -94.74360656738281,
+      -131.30599975585938
+    ],
+    "failure_stage": "late_path_or_endpoint",
+    "first_4m_progress": 60.0,
+    "max_same_sign_turn_m": 45.2
+  },
+  {
+    "update": 50,
+    "task": "sustained",
+    "steps": 273,
+    "survival_s": 4.55,
+    "min_goal_m": 27.122981647998323,
+    "effective_distance_m": 35.216068267822266,
+    "rmse_path_t_y_z": [
+      0.002185282643302769,
+      2.9531060375291,
+      0.45044775823255684
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.4166666666666665,
+      "lateral_abs_gt_2m_s": 2.966666666666667,
+      "lateral_abs_gt_4m_s": 3.6666666666666665,
+      "vertical_abs_gt_1m_s": 4.533333333333333,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 2.95,
+      "path_error_gt_4m_s": 3.6666666666666665,
+      "path_error_gt_6m_s": 4.15,
+      "path_norm_outward": {
+        "start_s": 1.95,
+        "end_s": 2.45,
+        "abs_error_start_m": 0.6189191973843222,
+        "abs_error_end_m": 1.1219409197481833
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 1.9333333333333333,
+        "end_s": 2.433333333333333,
+        "abs_error_start_m": 0.5024681802103259,
+        "abs_error_end_m": 1.0412067556458742
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 4.55
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      46.677608489990234,
+      11.155107498168945,
+      21.021602630615234,
+      0.9655550718307495,
+      -0.09058313071727753,
+      -0.09956248104572296,
+      0.22267816960811615,
+      7.108773708343506,
+      4.16650390625,
+      0.7093419432640076,
+      -0.020015899091959,
+      -1.6469836235046387,
+      0.4811687171459198
+    ],
+    "terminal_local_error": [
+      0.00863101616442341,
+      7.961786030452093,
+      1.0216026306152344
+    ],
+    "terminal_local_velocity": [
+      6.158364072098412,
+      5.47439223957508,
+      0.7093419432640076
+    ],
+    "terminal_rpy_deg": [
+      -12.81723750074002,
+      -8.738460335176988,
+      26.956595849905046
+    ],
+    "terminal_body_rates_deg_s": [
+      -39.10261917114258,
+      -89.03079223632812,
+      14.514007568359375
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 29.738693237304688,
+    "max_same_sign_turn_m": 45.2
+  },
+  {
+    "update": 50,
+    "task": "coupled_3d",
+    "steps": 285,
+    "survival_s": 4.75,
+    "min_goal_m": 22.288693605184527,
+    "effective_distance_m": 38.636329650878906,
+    "rmse_path_t_y_z": [
+      0.0016268809275137703,
+      3.1043175916281136,
+      0.4728321550625027
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.4166666666666665,
+      "lateral_abs_gt_2m_s": 2.9833333333333334,
+      "lateral_abs_gt_4m_s": 3.7333333333333334,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 2.966666666666667,
+      "path_error_gt_4m_s": 3.716666666666667,
+      "path_error_gt_6m_s": 4.266666666666667,
+      "path_norm_outward": {
+        "start_s": 1.95,
+        "end_s": 2.45,
+        "abs_error_start_m": 0.6150487850940277,
+        "abs_error_end_m": 1.1192502698784705
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 1.95,
+        "end_s": 2.45,
+        "abs_error_start_m": 0.5130017221464537,
+        "abs_error_end_m": 1.0535791299509896
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 4.75
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      28.544620513916016,
+      2.0186893939971924,
+      20.75126075744629,
+      0.9532957673072815,
+      -0.10309964418411255,
+      -0.15032127499580383,
+      0.24083451926708221,
+      6.628998756408691,
+      4.368893146514893,
+      0.7396553754806519,
+      -0.01353509072214365,
+      1.3132799863815308,
+      0.16912011802196503
+    ],
+    "terminal_local_error": [
+      -0.006669929808205457,
+      7.9799902008410895,
+      0.8929127040740518
+    ],
+    "terminal_local_velocity": [
+      6.657186348579854,
+      4.374184953915516,
+      0.3554121858228004
+    ],
+    "terminal_rpy_deg": [
+      -16.07275743099405,
+      -13.706085699942482,
+      30.30057844133121
+    ],
+    "terminal_body_rates_deg_s": [
+      38.52841567993164,
+      62.642822265625,
+      18.64948272705078
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 30.713024139404297,
+    "max_same_sign_turn_m": 18.8
+  },
+  {
+    "update": 50,
+    "task": "reverse_right_first",
+    "steps": 287,
+    "survival_s": 4.783333333333333,
+    "min_goal_m": 22.603795837620257,
+    "effective_distance_m": 38.333351135253906,
+    "rmse_path_t_y_z": [
+      0.0012922127688988342,
+      3.1063752017369795,
+      0.44074479114825893
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.4166666666666665,
+      "lateral_abs_gt_2m_s": 3.0,
+      "lateral_abs_gt_4m_s": 3.75,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 2.9833333333333334,
+      "path_error_gt_4m_s": 3.7333333333333334,
+      "path_error_gt_6m_s": 4.3,
+      "path_norm_outward": {
+        "start_s": 1.9833333333333334,
+        "end_s": 2.4833333333333334,
+        "abs_error_start_m": 0.641131050283059,
+        "abs_error_end_m": 1.1499800895270438
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 1.95,
+        "end_s": 2.45,
+        "abs_error_start_m": 0.5129082038857151,
+        "abs_error_end_m": 1.0492455224167745
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 4.783333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      38.353424072265625,
+      2.1452138423919678,
+      20.83272361755371,
+      0.958718478679657,
+      -0.1030939444899559,
+      -0.09608646482229233,
+      0.24697764217853546,
+      6.771754264831543,
+      4.463688850402832,
+      0.21626056730747223,
+      -0.14116337895393372,
+      1.6136128902435303,
+      -0.02415194921195507
+    ],
+    "terminal_local_error": [
+      0.002638336984259429,
+      8.01530235288803,
+      0.8327236175537109
+    ],
+    "terminal_local_velocity": [
+      6.75073135736881,
+      4.495419904426305,
+      0.21626056730747223
+    ],
+    "terminal_rpy_deg": [
+      -14.32054476717667,
+      -7.6612497602442415,
+      29.85585326384906
+    ],
+    "terminal_body_rates_deg_s": [
+      38.477699279785156,
+      83.2182388305664,
+      14.460920333862305
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 30.478744506835938,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 50,
+    "task": "simple",
+    "steps": 298,
+    "survival_s": 4.966666666666667,
+    "min_goal_m": 21.862782113452376,
+    "effective_distance_m": 39.663047790527344,
+    "rmse_path_t_y_z": [
+      4.764688037132401e-15,
+      3.0266935431828985,
+      0.40285105170602103
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.4833333333333334,
+      "lateral_abs_gt_2m_s": 3.1333333333333333,
+      "lateral_abs_gt_4m_s": 3.966666666666667,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.1166666666666667,
+      "path_error_gt_4m_s": 3.9499999999999997,
+      "path_error_gt_6m_s": 4.516666666666667,
+      "path_norm_outward": {
+        "start_s": 2.0833333333333335,
+        "end_s": 2.5833333333333335,
+        "abs_error_start_m": 0.6822075304111166,
+        "abs_error_end_m": 1.1892949984048158
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.0166666666666666,
+        "end_s": 2.5166666666666666,
+        "abs_error_start_m": 0.5431389808654785,
+        "abs_error_end_m": 1.044929027557373
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 4.966666666666667
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      49.663047790527344,
+      2.9952526092529297,
+      20.682313919067383,
+      0.9506608247756958,
+      -0.11483817547559738,
+      -0.1030450165271759,
+      0.2691432535648346,
+      7.024029731750488,
+      5.012936115264893,
+      0.14291024208068848,
+      0.27089229226112366,
+      -1.999566912651062,
+      0.5134615898132324
+    ],
+    "terminal_local_error": [
+      7.105427357601002e-15,
+      7.99525260925293,
+      0.6823139190673828
+    ],
+    "terminal_local_velocity": [
+      7.024029731750488,
+      5.012936115264893,
+      0.14291024208068848
+    ],
+    "terminal_rpy_deg": [
+      -16.039970955805472,
+      -7.706919106182967,
+      32.70236819732813
+    ],
+    "terminal_body_rates_deg_s": [
+      -44.450408935546875,
+      -110.57748413085938,
+      5.357892990112305
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 32.33538818359375,
+    "max_same_sign_turn_m": 0.0
+  },
+  {
+    "update": 50,
+    "task": "reverse_left_first",
+    "steps": 309,
+    "survival_s": 5.15,
+    "min_goal_m": 21.21357183496407,
+    "effective_distance_m": 40.78046417236328,
+    "rmse_path_t_y_z": [
+      0.0014549409617845158,
+      2.925272265565066,
+      0.3726270853763237
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.5833333333333335,
+      "lateral_abs_gt_2m_s": 3.3333333333333335,
+      "lateral_abs_gt_4m_s": 4.2,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.3166666666666664,
+      "path_error_gt_4m_s": 4.2,
+      "path_error_gt_6m_s": 4.733333333333333,
+      "path_norm_outward": {
+        "start_s": 2.3833333333333333,
+        "end_s": 2.8833333333333333,
+        "abs_error_start_m": 0.9002529710399766,
+        "abs_error_end_m": 1.4050628767188833
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.283333333333333,
+        "end_s": 2.783333333333333,
+        "abs_error_start_m": 0.7322610949294899,
+        "abs_error_end_m": 1.2355475381148622
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.15
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      40.90691375732422,
+      13.911563873291016,
+      20.64272117614746,
+      0.9437217116355896,
+      -0.10090750455856323,
+      -0.11740632355213165,
+      0.2922717034816742,
+      6.392768859863281,
+      5.188568592071533,
+      0.4264860153198242,
+      -0.22412768006324768,
+      1.4924746751785278,
+      0.007501768413931131
+    ],
+    "terminal_local_error": [
+      -0.0060095796835958615,
+      8.060678555913194,
+      0.642721176147461
+    ],
+    "terminal_local_velocity": [
+      6.293289896091527,
+      5.3087889404289905,
+      0.42648601531982433
+    ],
+    "terminal_rpy_deg": [
+      -15.223281259392154,
+      -9.358595528529,
+      35.66900346951455
+    ],
+    "terminal_body_rates_deg_s": [
+      38.97509002685547,
+      75.83000946044922,
+      14.430163383483887
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 34.380287170410156,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 75,
+    "task": "sustained",
+    "steps": 309,
+    "survival_s": 5.15,
+    "min_goal_m": 24.113462813641913,
+    "effective_distance_m": 38.28047180175781,
+    "rmse_path_t_y_z": [
+      0.0020874677868690824,
+      2.844761714095361,
+      0.30474588711986267
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.85,
+      "lateral_abs_gt_2m_s": 3.4833333333333334,
+      "lateral_abs_gt_4m_s": 4.233333333333333,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.4833333333333334,
+      "path_error_gt_4m_s": 4.233333333333333,
+      "path_error_gt_6m_s": 4.75,
+      "path_norm_outward": {
+        "start_s": 2.4166666666666665,
+        "end_s": 2.9166666666666665,
+        "abs_error_start_m": 0.6075198403965695,
+        "abs_error_end_m": 1.1082040753514133
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.4166666666666665,
+        "end_s": 2.9166666666666665,
+        "abs_error_start_m": 0.583823144095516,
+        "abs_error_end_m": 1.0861467461542624
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.15
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      49.979061126708984,
+      10.461804389953613,
+      20.783117294311523,
+      0.9641929268836975,
+      -0.10223932564258575,
+      -0.11927321553230286,
+      0.21366558969020844,
+      6.418587684631348,
+      3.7951815128326416,
+      0.5985821485519409,
+      -0.052600324153900146,
+      1.4981606006622314,
+      0.09165731817483902
+    ],
+    "terminal_local_error": [
+      0.0020168668967111003,
+      7.993460119754726,
+      0.7831172943115233
+    ],
+    "terminal_local_velocity": [
+      5.35274777926115,
+      5.191315998112876,
+      0.5985821485519408
+    ],
+    "terminal_rpy_deg": [
+      -14.62834887584562,
+      -10.73779406285641,
+      26.371934305170985
+    ],
+    "terminal_body_rates_deg_s": [
+      35.787010192871094,
+      76.07142639160156,
+      18.365724563598633
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 32.958030700683594,
+    "max_same_sign_turn_m": 45.2
+  },
+  {
+    "update": 75,
+    "task": "reverse_right_first",
+    "steps": 335,
+    "survival_s": 5.583333333333333,
+    "min_goal_m": 18.257388353527123,
+    "effective_distance_m": 43.327056884765625,
+    "rmse_path_t_y_z": [
+      0.0013842671253804714,
+      3.015624997105386,
+      0.2530217619699842
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.8833333333333333,
+      "lateral_abs_gt_2m_s": 3.5666666666666664,
+      "lateral_abs_gt_4m_s": 4.45,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.5666666666666664,
+      "path_error_gt_4m_s": 4.45,
+      "path_error_gt_6m_s": 5.083333333333333,
+      "path_norm_outward": {
+        "start_s": 2.533333333333333,
+        "end_s": 3.033333333333333,
+        "abs_error_start_m": 0.6958345462045525,
+        "abs_error_end_m": 1.2009576364038799
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.5,
+        "end_s": 3.0,
+        "abs_error_start_m": 0.638697969452246,
+        "abs_error_end_m": 1.1424996075394338
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.583333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      42.98344421386719,
+      2.244326591491699,
+      20.333803176879883,
+      0.9551661014556885,
+      -0.12767478823661804,
+      -0.0350191667675972,
+      0.2648217976093292,
+      6.57559061050415,
+      4.726375579833984,
+      -0.3487450182437897,
+      -0.4494730234146118,
+      0.5687687993049622,
+      0.2181900143623352
+    ],
+    "terminal_local_error": [
+      0.0016185578257794098,
+      8.026522456895886,
+      0.3338031768798828
+    ],
+    "terminal_local_velocity": [
+      6.760866142975834,
+      4.457320607199404,
+      -0.3487450182437897
+    ],
+    "terminal_rpy_deg": [
+      -15.215426306308878,
+      0.04147594985399501,
+      30.986750383823303
+    ],
+    "terminal_body_rates_deg_s": [
+      -5.309034824371338,
+      36.47186279296875,
+      22.871261596679688
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 35.00666809082031,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 75,
+    "task": "coupled_3d",
+    "steps": 337,
+    "survival_s": 5.616666666666666,
+    "min_goal_m": 17.6632887285197,
+    "effective_distance_m": 44.1569938659668,
+    "rmse_path_t_y_z": [
+      0.001966215170929479,
+      3.0690856814250327,
+      0.286275030998138
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.8833333333333333,
+      "lateral_abs_gt_2m_s": 3.55,
+      "lateral_abs_gt_4m_s": 4.433333333333334,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.533333333333333,
+      "path_error_gt_4m_s": 4.416666666666667,
+      "path_error_gt_6m_s": 5.083333333333333,
+      "path_norm_outward": {
+        "start_s": 2.466666666666667,
+        "end_s": 2.966666666666667,
+        "abs_error_start_m": 0.6455781894558497,
+        "abs_error_end_m": 1.147393199716512
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.466666666666667,
+        "end_s": 2.966666666666667,
+        "abs_error_start_m": 0.6112157939046264,
+        "abs_error_end_m": 1.112009867910902
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.616666666666666
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      33.513614654541016,
+      2.246169328689575,
+      20.419435501098633,
+      0.9511271715164185,
+      -0.13860605657100677,
+      -0.04984943941235542,
+      0.27140486240386963,
+      6.419548988342285,
+      4.734618663787842,
+      -0.23299165070056915,
+      -0.24209782481193542,
+      -0.7895284295082092,
+      0.5831835865974426
+    ],
+    "terminal_local_error": [
+      0.0054413530244412645,
+      8.027434902886888,
+      0.27934062548864164
+    ],
+    "terminal_local_velocity": [
+      6.734584211132512,
+      4.253115849231378,
+      -0.48773895752989815
+    ],
+    "terminal_rpy_deg": [
+      -16.904569600756716,
+      -1.122472927755661,
+      32.019079556733324
+    ],
+    "terminal_body_rates_deg_s": [
+      -35.0841064453125,
+      -39.57863998413086,
+      23.619766235351562
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 35.2679328918457,
+    "max_same_sign_turn_m": 18.8
+  },
+  {
+    "update": 75,
+    "task": "simple",
+    "steps": 347,
+    "survival_s": 5.783333333333333,
+    "min_goal_m": 17.593371107107668,
+    "effective_distance_m": 44.340423583984375,
+    "rmse_path_t_y_z": [
+      5.076511776813958e-15,
+      2.830492952969365,
+      0.21581072467097004
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.1,
+      "lateral_abs_gt_2m_s": 3.8833333333333333,
+      "lateral_abs_gt_4m_s": 4.766666666666667,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.8666666666666667,
+      "path_error_gt_4m_s": 4.766666666666667,
+      "path_error_gt_6m_s": 5.35,
+      "path_norm_outward": {
+        "start_s": 2.95,
+        "end_s": 3.4499999999999997,
+        "abs_error_start_m": 0.9042726389850363,
+        "abs_error_end_m": 1.408804513297747
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.9166666666666665,
+        "end_s": 3.4166666666666665,
+        "abs_error_start_m": 0.8507623672485352,
+        "abs_error_end_m": 1.353771686553955
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.783333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      54.340423583984375,
+      3.0121140480041504,
+      20.33226776123047,
+      0.9355153441429138,
+      -0.14243263006210327,
+      -0.1490810215473175,
+      0.2868780195713043,
+      6.337920665740967,
+      5.146563529968262,
+      0.22690241038799286,
+      0.02850879356265068,
+      -0.38249871134757996,
+      0.3491513431072235
+    ],
+    "terminal_local_error": [
+      7.105427357601002e-15,
+      8.01211404800415,
+      0.33226776123046875
+    ],
+    "terminal_local_velocity": [
+      6.337920665740967,
+      5.146563529968262,
+      0.22690241038799286
+    ],
+    "terminal_rpy_deg": [
+      -21.043959012157178,
+      -11.374062276182803,
+      36.21586176025518
+    ],
+    "terminal_body_rates_deg_s": [
+      -7.456849098205566,
+      -25.268850326538086,
+      13.749051094055176
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 37.43468475341797,
+    "max_same_sign_turn_m": 0.0
+  },
+  {
+    "update": 75,
+    "task": "reverse_left_first",
+    "steps": 359,
+    "survival_s": 5.983333333333333,
+    "min_goal_m": 16.999695221114614,
+    "effective_distance_m": 45.21327590942383,
+    "rmse_path_t_y_z": [
+      0.0011938075286931223,
+      2.6449833079867107,
+      0.19399496592961418
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.4833333333333334,
+      "lateral_abs_gt_2m_s": 4.3,
+      "lateral_abs_gt_4m_s": 5.083333333333333,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.3,
+      "path_error_gt_4m_s": 5.083333333333333,
+      "path_error_gt_6m_s": 5.583333333333333,
+      "path_norm_outward": {
+        "start_s": 3.4833333333333334,
+        "end_s": 3.9833333333333334,
+        "abs_error_start_m": 1.0205997808427032,
+        "abs_error_end_m": 1.528350470469583
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 3.466666666666667,
+        "end_s": 3.966666666666667,
+        "abs_error_start_m": 0.9925823428004619,
+        "abs_error_end_m": 1.494066638200028
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.983333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      45.61492156982422,
+      13.705315589904785,
+      20.394023895263672,
+      0.9426343441009521,
+      -0.11417970806360245,
+      -0.08429063111543655,
+      0.3021566867828369,
+      6.006857395172119,
+      5.183938980102539,
+      0.29302921891212463,
+      -0.427880197763443,
+      0.6571983695030212,
+      0.22222237288951874
+    ],
+    "terminal_local_error": [
+      0.0037468745901649836,
+      8.02897409082071,
+      0.3940238952636718
+    ],
+    "terminal_local_velocity": [
+      5.726447320080863,
+      5.492118007262702,
+      0.2930292189121246
+    ],
+    "terminal_rpy_deg": [
+      -15.502467564795108,
+      -5.158438409462196,
+      36.24859294252444
+    ],
+    "terminal_body_rates_deg_s": [
+      3.628577470779419,
+      39.901309967041016,
+      23.994365692138672
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 39.680755615234375,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 100,
+    "task": "reverse_left_first",
+    "steps": 336,
+    "survival_s": 5.6,
+    "min_goal_m": 16.129033038095226,
+    "effective_distance_m": 45.83903884887695,
+    "rmse_path_t_y_z": [
+      0.0013490626546848541,
+      3.1619939584231886,
+      0.7691246069357037
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.7666666666666666,
+      "lateral_abs_gt_2m_s": 3.4,
+      "lateral_abs_gt_4m_s": 4.3,
+      "vertical_abs_gt_1m_s": 4.416666666666667,
+      "vertical_abs_gt_2m_s": 5.516666666666667,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.3833333333333333,
+      "path_error_gt_4m_s": 4.25,
+      "path_error_gt_6m_s": 4.983333333333333,
+      "path_norm_outward": {
+        "start_s": 2.283333333333333,
+        "end_s": 2.783333333333333,
+        "abs_error_start_m": 0.5093247973849003,
+        "abs_error_end_m": 1.052854270245376
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.283333333333333,
+        "end_s": 2.783333333333333,
+        "abs_error_start_m": 0.5080929308563604,
+        "abs_error_end_m": 1.0363269556576686
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.6
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      45.38066864013672,
+      -2.0870492458343506,
+      17.870956420898438,
+      0.968666136264801,
+      0.08329067379236221,
+      0.01941647008061409,
+      -0.23317764699459076,
+      8.12151050567627,
+      -3.911896228790283,
+      -1.2064359188079834,
+      -0.2449173629283905,
+      -0.688281774520874,
+      -0.26062074303627014
+    ],
+    "terminal_local_error": [
+      -0.0022081905352605014,
+      -7.752938751385004,
+      -2.1290435791015625
+    ],
+    "terminal_local_velocity": [
+      8.326722073227254,
+      -3.4536306278847584,
+      -1.2064359188079834
+    ],
+    "terminal_rpy_deg": [
+      8.786550400808238,
+      4.38506810386564,
+      -26.732445182306517
+    ],
+    "terminal_body_rates_deg_s": [
+      6.33275032043457,
+      -43.258995056152344,
+      -7.976318359375
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 34.46748733520508,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 100,
+    "task": "simple",
+    "steps": 350,
+    "survival_s": 5.833333333333333,
+    "min_goal_m": 15.327091482551111,
+    "effective_distance_m": 46.958045959472656,
+    "rmse_path_t_y_z": [
+      5.117634419664772e-15,
+      3.00701486184056,
+      0.7225373529886908
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 2.9,
+      "lateral_abs_gt_2m_s": 3.65,
+      "lateral_abs_gt_4m_s": 4.633333333333333,
+      "vertical_abs_gt_1m_s": 4.716666666666667,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.6333333333333333,
+      "path_error_gt_4m_s": 4.6,
+      "path_error_gt_6m_s": 5.283333333333333,
+      "path_norm_outward": {
+        "start_s": 2.533333333333333,
+        "end_s": 3.033333333333333,
+        "abs_error_start_m": 0.655710591200137,
+        "abs_error_end_m": 1.1618600295050963
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.5666666666666664,
+        "end_s": 3.0666666666666664,
+        "abs_error_start_m": 0.6806387901306152,
+        "abs_error_end_m": 1.1845250129699707
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.833333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      56.958045959472656,
+      -12.805253982543945,
+      18.023847579956055,
+      0.9654608964920044,
+      0.09266667068004608,
+      0.036869850009679794,
+      -0.24070478975772858,
+      7.763861656188965,
+      -3.817061185836792,
+      -1.4506217241287231,
+      0.5153835415840149,
+      1.0356051921844482,
+      0.05265723541378975
+    ],
+    "terminal_local_error": [
+      7.105427357601002e-15,
+      -7.805253982543945,
+      -1.9761524200439453
+    ],
+    "terminal_local_velocity": [
+      7.763861656188965,
+      -3.817061185836792,
+      -1.4506217241287231
+    ],
+    "terminal_rpy_deg": [
+      9.338932129866723,
+      6.649966991919002,
+      -27.454932865688605
+    ],
+    "terminal_body_rates_deg_s": [
+      -1.4949167966842651,
+      65.85382843017578,
+      -7.928288459777832
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 37.255916595458984,
+    "max_same_sign_turn_m": 0.0
+  },
+  {
+    "update": 100,
+    "task": "reverse_right_first",
+    "steps": 361,
+    "survival_s": 6.016666666666667,
+    "min_goal_m": 14.819127548162355,
+    "effective_distance_m": 47.68245315551758,
+    "rmse_path_t_y_z": [
+      0.0011082727973722745,
+      2.797260040580247,
+      0.6458668587635691
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.1666666666666665,
+      "lateral_abs_gt_2m_s": 4.05,
+      "lateral_abs_gt_4m_s": 4.983333333333333,
+      "vertical_abs_gt_1m_s": 5.083333333333333,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.016666666666667,
+      "path_error_gt_4m_s": 4.933333333333334,
+      "path_error_gt_6m_s": 5.55,
+      "path_norm_outward": {
+        "start_s": 3.1333333333333333,
+        "end_s": 3.6333333333333333,
+        "abs_error_start_m": 1.000323825973298,
+        "abs_error_end_m": 1.5023587742521498
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 3.2,
+        "end_s": 3.6999999999999997,
+        "abs_error_start_m": 1.040051506916899,
+        "abs_error_end_m": 1.5430520416278373
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 6.016666666666667
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      48.14297103881836,
+      -13.34023666381836,
+      18.180479049682617,
+      0.9672787189483643,
+      0.07072728872299194,
+      -0.005743177141994238,
+      -0.24359135329723358,
+      7.8294267654418945,
+      -4.016868591308594,
+      -0.778368353843689,
+      -0.0453479029238224,
+      -0.4737006425857544,
+      -0.21277384459972382
+    ],
+    "terminal_local_error": [
+      0.00035220830154636396,
+      -7.811250881068034,
+      -1.8195209503173828
+    ],
+    "terminal_local_velocity": [
+      7.563232705973167,
+      -4.498073786695502,
+      -0.778368353843689
+    ],
+    "terminal_rpy_deg": [
+      8.02828919463603,
+      1.3377832630800437,
+      -28.176058925542918
+    ],
+    "terminal_body_rates_deg_s": [
+      10.806925773620605,
+      -26.57303810119629,
+      -8.312213897705078
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 39.685585021972656,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 100,
+    "task": "coupled_3d",
+    "steps": 365,
+    "survival_s": 6.083333333333333,
+    "min_goal_m": 14.229699630855473,
+    "effective_distance_m": 47.99686050415039,
+    "rmse_path_t_y_z": [
+      0.0015061116194190864,
+      2.7864831798080774,
+      0.6148422845072532
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.216666666666667,
+      "lateral_abs_gt_2m_s": 4.116666666666666,
+      "lateral_abs_gt_4m_s": 5.05,
+      "vertical_abs_gt_1m_s": 5.15,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.1,
+      "path_error_gt_4m_s": 5.016666666666667,
+      "path_error_gt_6m_s": 5.6,
+      "path_norm_outward": {
+        "start_s": 3.3,
+        "end_s": 3.8,
+        "abs_error_start_m": 1.0875836678715813,
+        "abs_error_end_m": 1.591153927896198
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 3.3333333333333335,
+        "end_s": 3.8333333333333335,
+        "abs_error_start_m": 1.1073473064630843,
+        "abs_error_end_m": 1.6087959620996835
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 6.083333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      38.78782653808594,
+      -13.226411819458008,
+      18.515052795410156,
+      0.9676939845085144,
+      0.07248387485742569,
+      -0.020153924822807312,
+      -0.24064135551452637,
+      7.436886310577393,
+      -3.7215042114257812,
+      -0.7284740805625916,
+      0.3973676264286041,
+      0.3354018032550812,
+      -0.17972777783870697
+    ],
+    "terminal_local_error": [
+      -0.0028689797380887505,
+      -7.869657778189607,
+      -1.7163448882892383
+    ],
+    "terminal_local_velocity": [
+      6.985437058631008,
+      -4.5021905081824,
+      -0.7883500530231731
+    ],
+    "terminal_rpy_deg": [
+      8.62608207867908,
+      -0.23608379209734054,
+      -27.947351336322207
+    ],
+    "terminal_body_rates_deg_s": [
+      11.063497543334961,
+      25.78211784362793,
+      -14.372841835021973
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 40.616512298583984,
+    "max_same_sign_turn_m": 18.8
+  },
+  {
+    "update": 100,
+    "task": "sustained",
+    "steps": 493,
+    "survival_s": 8.216666666666667,
+    "min_goal_m": 3.638067793960276,
+    "effective_distance_m": 60.0,
+    "rmse_path_t_y_z": [
+      1.369650685493331,
+      2.1455041904676175,
+      0.540835271415788
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.283333333333333,
+      "lateral_abs_gt_2m_s": 4.883333333333333,
+      "lateral_abs_gt_4m_s": 7.866666666666666,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.766666666666667,
+      "path_error_gt_4m_s": 7.483333333333333,
+      "path_error_gt_6m_s": 7.866666666666666,
+      "path_norm_outward": {
+        "start_s": 6.966666666666667,
+        "end_s": 7.466666666666667,
+        "abs_error_start_m": 3.4665403148621694,
+        "abs_error_end_m": 3.9720212636159227
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 7.466666666666667,
+        "end_s": 7.966666666666667,
+        "abs_error_start_m": 3.629259740145765,
+        "abs_error_end_m": 4.1320448517141894
+      },
+      "recovery": null,
+      "projection_60m_s": 7.316666666666666,
+      "cross_endpoint_plane_s": 7.316666666666666,
+      "closest_goal_s": 7.266666666666667
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      71.81185913085938,
+      -12.474930763244629,
+      20.640249252319336,
+      0.8256595730781555,
+      0.004656684584915638,
+      -0.47082480788230896,
+      -0.31078726053237915,
+      3.952160358428955,
+      -4.097103118896484,
+      3.824420928955078,
+      0.4517233371734619,
+      -2.3719370365142822,
+      0.5972023606300354
+    ],
+    "terminal_local_error": [
+      6.666131678519731,
+      -4.503792056565336,
+      0.6402492523193359
+    ],
+    "terminal_local_velocity": [
+      5.460135070371191,
+      -1.6102019994122403,
+      3.824420928955078
+    ],
+    "terminal_rpy_deg": [
+      28.351175176014163,
+      -50.76764320864099,
+      -54.92226508071288
+    ],
+    "terminal_body_rates_deg_s": [
+      106.25353240966797,
+      -86.19670867919922,
+      -39.87918472290039
+    ],
+    "failure_stage": "late_path_or_endpoint",
+    "first_4m_progress": 60.0,
+    "max_same_sign_turn_m": 45.2
+  },
+  {
+    "update": 125,
+    "task": "sustained",
+    "steps": 356,
+    "survival_s": 5.933333333333334,
+    "min_goal_m": 17.20079604826985,
+    "effective_distance_m": 45.47169876098633,
+    "rmse_path_t_y_z": [
+      0.0022850333470674222,
+      2.944707672709176,
+      0.9168141631601425
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.1166666666666667,
+      "lateral_abs_gt_2m_s": 3.8166666666666664,
+      "lateral_abs_gt_4m_s": 4.75,
+      "vertical_abs_gt_1m_s": 4.433333333333334,
+      "vertical_abs_gt_2m_s": 5.6,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.75,
+      "path_error_gt_4m_s": 4.666666666666667,
+      "path_error_gt_6m_s": 5.366666666666666,
+      "path_norm_outward": {
+        "start_s": 2.6666666666666665,
+        "end_s": 3.1666666666666665,
+        "abs_error_start_m": 0.6420923159458299,
+        "abs_error_end_m": 1.142872717902044
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.716666666666667,
+        "end_s": 3.216666666666667,
+        "abs_error_start_m": 0.6253023658331881,
+        "abs_error_end_m": 1.126674890382108
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.933333333333334
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      57.498260498046875,
+      7.9636406898498535,
+      22.333620071411133,
+      0.9908854961395264,
+      -0.039826564490795135,
+      -0.1267451047897339,
+      0.022262167185544968,
+      7.049376964569092,
+      1.4269847869873047,
+      0.9379408359527588,
+      0.9760090708732605,
+      1.6557952165603638,
+      0.07322227954864502
+    ],
+    "terminal_local_error": [
+      0.002812906741499699,
+      7.690616625147047,
+      2.333620071411133
+    ],
+    "terminal_local_velocity": [
+      6.21028523690455,
+      3.6279964783852736,
+      0.9379408359527588
+    ],
+    "terminal_rpy_deg": [
+      -5.010027428369063,
+      -14.442393759488368,
+      3.209283972666408
+    ],
+    "terminal_body_rates_deg_s": [
+      60.25873947143555,
+      92.2176742553711,
+      -3.1457602977752686
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 37.4417839050293,
+    "max_same_sign_turn_m": 45.2
+  },
+  {
+    "update": 125,
+    "task": "reverse_left_first",
+    "steps": 418,
+    "survival_s": 6.966666666666667,
+    "min_goal_m": 9.69673362151859,
+    "effective_distance_m": 54.780372619628906,
+    "rmse_path_t_y_z": [
+      0.0005330512588008779,
+      2.605261710736374,
+      0.5604748828280102
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 4.433333333333334,
+      "lateral_abs_gt_2m_s": 5.083333333333333,
+      "lateral_abs_gt_4m_s": 5.9,
+      "vertical_abs_gt_1m_s": 6.083333333333333,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 5.05,
+      "path_error_gt_4m_s": 5.866666666666666,
+      "path_error_gt_6m_s": 6.483333333333333,
+      "path_norm_outward": {
+        "start_s": 4.05,
+        "end_s": 4.55,
+        "abs_error_start_m": 0.6785402491934541,
+        "abs_error_end_m": 1.180716601739903
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 4.083333333333333,
+        "end_s": 4.583333333333333,
+        "abs_error_start_m": 0.6799359375905798,
+        "abs_error_end_m": 1.1899341161558896
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 6.933333333333334
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      55.3203010559082,
+      12.935564041137695,
+      21.57874298095703,
+      0.9617529511451721,
+      -0.11635953187942505,
+      -0.17709457874298096,
+      0.17357808351516724,
+      6.915395259857178,
+      3.992145299911499,
+      0.8534124493598938,
+      -0.3348076343536377,
+      -1.3381162881851196,
+      0.11396981030702591
+    ],
+    "terminal_local_error": [
+      -0.0029113296288818535,
+      7.892187776202214,
+      1.578742980957031
+    ],
+    "terminal_local_velocity": [
+      6.599428105969427,
+      4.495271334391438,
+      0.8534124493598937
+    ],
+    "terminal_rpy_deg": [
+      -17.403414262689367,
+      -17.472469280025777,
+      23.155943997524343
+    ],
+    "terminal_body_rates_deg_s": [
+      -43.62093734741211,
+      -66.22113800048828,
+      0.8067771792411804
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 47.307655334472656,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 125,
+    "task": "simple",
+    "steps": 430,
+    "survival_s": 7.166666666666667,
+    "min_goal_m": 8.394074264499876,
+    "effective_distance_m": 57.19745635986328,
+    "rmse_path_t_y_z": [
+      5.974993084670687e-15,
+      2.855993394885123,
+      0.5712080957542606
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.6999999999999997,
+      "lateral_abs_gt_2m_s": 4.7,
+      "lateral_abs_gt_4m_s": 5.883333333333333,
+      "vertical_abs_gt_1m_s": 6.333333333333333,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.65,
+      "path_error_gt_4m_s": 5.85,
+      "path_error_gt_6m_s": 6.6,
+      "path_norm_outward": {
+        "start_s": 3.9833333333333334,
+        "end_s": 4.483333333333333,
+        "abs_error_start_m": 1.2913821140092272,
+        "abs_error_end_m": 1.796332172248412
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 3.9833333333333334,
+        "end_s": 4.483333333333333,
+        "abs_error_start_m": 1.2445120811462402,
+        "abs_error_end_m": 1.74662184715271
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 7.0
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      67.19745635986328,
+      2.9194304943084717,
+      21.392457962036133,
+      0.982241690158844,
+      -0.06639564037322998,
+      -0.06201382353901863,
+      0.1641564965248108,
+      7.0222368240356445,
+      3.92702317237854,
+      0.46647530794143677,
+      -0.4787532687187195,
+      0.23705047369003296,
+      0.2766411602497101
+    ],
+    "terminal_local_error": [
+      0.0,
+      7.919430494308472,
+      1.3924579620361328
+    ],
+    "terminal_local_velocity": [
+      7.0222368240356445,
+      3.92702317237854,
+      0.46647530794143677
+    ],
+    "terminal_rpy_deg": [
+      -8.716942966799655,
+      -5.740699657345212,
+      19.413570662937893
+    ],
+    "terminal_body_rates_deg_s": [
+      -19.663938522338867,
+      18.960105895996094,
+      21.02339744567871
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 47.499515533447266,
+    "max_same_sign_turn_m": 0.0
+  },
+  {
+    "update": 125,
+    "task": "coupled_3d",
+    "steps": 447,
+    "survival_s": 7.45,
+    "min_goal_m": 7.096062950457662,
+    "effective_distance_m": 59.92306137084961,
+    "rmse_path_t_y_z": [
+      0.002293320458598626,
+      3.0862581685753754,
+      0.5486047161225107
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.15,
+      "lateral_abs_gt_2m_s": 4.016666666666667,
+      "lateral_abs_gt_4m_s": 5.9,
+      "vertical_abs_gt_1m_s": 7.116666666666666,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.933333333333333,
+      "path_error_gt_4m_s": 5.866666666666666,
+      "path_error_gt_6m_s": 6.8999999999999995,
+      "path_norm_outward": {
+        "start_s": 2.85,
+        "end_s": 3.35,
+        "abs_error_start_m": 0.8015648154952587,
+        "abs_error_end_m": 1.3085636433599832
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.8666666666666667,
+        "end_s": 3.3666666666666667,
+        "abs_error_start_m": 0.7322445712002149,
+        "abs_error_end_m": 1.2372110069007456
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 7.016666666666667
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      49.78264617919922,
+      3.584343910217285,
+      20.998991012573242,
+      0.9761369228363037,
+      -0.08284374326467514,
+      -0.06301039457321167,
+      0.19058655202388763,
+      7.0440449714660645,
+      4.39258337020874,
+      0.04793574661016464,
+      0.2172587662935257,
+      1.5852503776550293,
+      -0.029136011376976967
+    ],
+    "terminal_local_error": [
+      -0.0035293469351941748,
+      7.977559949412081,
+      1.200535709254285
+    ],
+    "terminal_local_velocity": [
+      7.073377594097577,
+      4.28718847800546,
+      0.7092252289994972
+    ],
+    "terminal_rpy_deg": [
+      -10.750519629134285,
+      -5.246209870645129,
+      22.589511738864996
+    ],
+    "terminal_body_rates_deg_s": [
+      46.035545349121094,
+      78.79150390625,
+      8.950916290283203
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 48.44670867919922,
+    "max_same_sign_turn_m": 18.8
+  },
+  {
+    "update": 125,
+    "task": "reverse_right_first",
+    "steps": 451,
+    "survival_s": 7.516666666666667,
+    "min_goal_m": 6.96770847291388,
+    "effective_distance_m": 60.0,
+    "rmse_path_t_y_z": [
+      0.14177714122395635,
+      3.1493436342025056,
+      0.5900350660183654
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.2,
+      "lateral_abs_gt_2m_s": 4.116666666666666,
+      "lateral_abs_gt_4m_s": 5.866666666666666,
+      "vertical_abs_gt_1m_s": 6.95,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.05,
+      "path_error_gt_4m_s": 5.816666666666666,
+      "path_error_gt_6m_s": 6.85,
+      "path_norm_outward": {
+        "start_s": 2.933333333333333,
+        "end_s": 3.433333333333333,
+        "abs_error_start_m": 0.8042446138745969,
+        "abs_error_end_m": 1.3091599264195188
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 3.0166666666666666,
+        "end_s": 3.5166666666666666,
+        "abs_error_start_m": 0.8339662583809996,
+        "abs_error_end_m": 1.3349548638754958
+      },
+      "recovery": null,
+      "projection_60m_s": 7.333333333333333,
+      "cross_endpoint_plane_s": 7.333333333333333,
+      "closest_goal_s": 7.05
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      60.283233642578125,
+      3.423084259033203,
+      21.129756927490234,
+      0.9784819483757019,
+      -0.08546019345521927,
+      -0.04563191905617714,
+      0.1821739673614502,
+      7.346909046173096,
+      4.245138168334961,
+      -0.009704919531941414,
+      -0.616624116897583,
+      -0.9990238547325134,
+      0.5531463623046875
+    ],
+    "terminal_local_error": [
+      1.4534958983683455,
+      7.840622483172613,
+      1.1297569274902342
+    ],
+    "terminal_local_velocity": [
+      7.863758873691314,
+      3.1874075637476125,
+      -0.009704919531941412
+    ],
+    "terminal_rpy_deg": [
+      -10.613340381632327,
+      -3.3343632239621894,
+      21.4029721530505
+    ],
+    "terminal_body_rates_deg_s": [
+      -51.84735107421875,
+      -46.1119499206543,
+      26.731800079345703
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 47.62202835083008,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 150,
+    "task": "sustained",
+    "steps": 335,
+    "survival_s": 5.583333333333333,
+    "min_goal_m": 11.852274185570764,
+    "effective_distance_m": 51.68180847167969,
+    "rmse_path_t_y_z": [
+      0.002195414822818373,
+      2.927260674925081,
+      1.1036116336212236
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.0166666666666666,
+      "lateral_abs_gt_2m_s": 3.6166666666666667,
+      "lateral_abs_gt_4m_s": 4.466666666666667,
+      "vertical_abs_gt_1m_s": 3.65,
+      "vertical_abs_gt_2m_s": 4.966666666666667,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 3.5,
+      "path_error_gt_4m_s": 4.35,
+      "path_error_gt_6m_s": 5.016666666666667,
+      "path_norm_outward": {
+        "start_s": 2.4166666666666665,
+        "end_s": 2.9166666666666665,
+        "abs_error_start_m": 0.5020950322800556,
+        "abs_error_end_m": 1.0317217838768362
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 2.55,
+        "end_s": 3.05,
+        "abs_error_start_m": 0.5012723280319252,
+        "abs_error_end_m": 1.061103834386279
+      },
+      "recovery": null,
+      "projection_60m_s": null,
+      "cross_endpoint_plane_s": null,
+      "closest_goal_s": 5.583333333333333
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      63.84926986694336,
+      5.4704718589782715,
+      22.43284797668457,
+      0.9931551814079285,
+      -0.04641663655638695,
+      -0.046882711350917816,
+      -0.09638607501983643,
+      9.759175300598145,
+      -0.009177861735224724,
+      0.38253316283226013,
+      -2.5416688919067383,
+      -1.8975999355316162,
+      -0.018237164244055748
+    ],
+    "terminal_local_error": [
+      0.0017990324754886267,
+      7.65674267580742,
+      2.4328479766845703
+    ],
+    "terminal_local_velocity": [
+      8.957124383303578,
+      3.874468939477953,
+      0.38253316283226013
+    ],
+    "terminal_rpy_deg": [
+      -4.795339471155552,
+      -5.858466417671555,
+      -10.840915630334308
+    ],
+    "terminal_body_rates_deg_s": [
+      -122.04515838623047,
+      -134.6633758544922,
+      0.21566320955753326
+    ],
+    "failure_stage": "midpath_divergence",
+    "first_4m_progress": 41.36936950683594,
+    "max_same_sign_turn_m": 45.2
+  },
+  {
+    "update": 150,
+    "task": "reverse_left_first",
+    "steps": 407,
+    "survival_s": 6.783333333333333,
+    "min_goal_m": 5.630966047523506,
+    "effective_distance_m": 60.0,
+    "rmse_path_t_y_z": [
+      0.4485543501136568,
+      2.4563667561029856,
+      0.6737151670412632
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 4.433333333333334,
+      "lateral_abs_gt_2m_s": 4.966666666666667,
+      "lateral_abs_gt_4m_s": 5.8,
+      "vertical_abs_gt_1m_s": 5.3,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.883333333333333,
+      "path_error_gt_4m_s": 5.733333333333333,
+      "path_error_gt_6m_s": 6.4,
+      "path_norm_outward": {
+        "start_s": 3.9833333333333334,
+        "end_s": 4.483333333333333,
+        "abs_error_start_m": 0.5038968796606232,
+        "abs_error_end_m": 1.2413691326963612
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 4.083333333333333,
+        "end_s": 4.583333333333333,
+        "abs_error_start_m": 0.5018277389906801,
+        "abs_error_end_m": 1.2666806030519038
+      },
+      "recovery": null,
+      "projection_60m_s": 6.416666666666667,
+      "cross_endpoint_plane_s": 6.416666666666667,
+      "closest_goal_s": 6.166666666666667
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      64.11520385742188,
+      11.330206871032715,
+      21.13194465637207,
+      0.9962093830108643,
+      -0.06685260683298111,
+      -0.0014670821838080883,
+      0.05563745275139809,
+      9.329914093017578,
+      2.5903544425964355,
+      -0.8260727524757385,
+      -1.6416798830032349,
+      -2.159703493118286,
+      0.5865907669067383
+    ],
+    "terminal_local_error": [
+      3.2066082861621115,
+      7.301048225560137,
+      1.13194465637207
+    ],
+    "terminal_local_velocity": [
+      8.881589952793627,
+      3.8567593951142958,
+      -0.8260727524757384
+    ],
+    "terminal_rpy_deg": [
+      -7.663969972688361,
+      0.25874719040346456,
+      6.375869164288551
+    ],
+    "terminal_body_rates_deg_s": [
+      -107.3718032836914,
+      -115.94336700439453,
+      17.82126235961914
+    ],
+    "failure_stage": "late_path_or_endpoint",
+    "first_4m_progress": 54.45745086669922,
+    "max_same_sign_turn_m": 17.800000000000004
+  },
+  {
+    "update": 150,
+    "task": "simple",
+    "steps": 413,
+    "survival_s": 6.883333333333333,
+    "min_goal_m": 4.108700134620557,
+    "effective_distance_m": 60.0,
+    "rmse_path_t_y_z": [
+      1.0080563948716355,
+      2.047223869073159,
+      0.5409786851781851
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 4.05,
+      "lateral_abs_gt_2m_s": 5.033333333333333,
+      "lateral_abs_gt_4m_s": 6.216666666666667,
+      "vertical_abs_gt_1m_s": 5.933333333333334,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 4.933333333333334,
+      "path_error_gt_4m_s": 6.166666666666667,
+      "path_error_gt_6m_s": 6.633333333333333,
+      "path_norm_outward": {
+        "start_s": 4.166666666666667,
+        "end_s": 4.666666666666667,
+        "abs_error_start_m": 1.2133074039333458,
+        "abs_error_end_m": 1.7145423289667703
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 4.233333333333333,
+        "end_s": 4.733333333333333,
+        "abs_error_start_m": 1.1534039974212646,
+        "abs_error_end_m": 1.658083438873291
+      },
+      "recovery": null,
+      "projection_60m_s": 6.266666666666667,
+      "cross_endpoint_plane_s": 6.266666666666667,
+      "closest_goal_s": 6.166666666666667
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      75.6968994140625,
+      0.5871802568435669,
+      20.776782989501953,
+      0.9803942441940308,
+      -0.09622139483690262,
+      -0.1505967229604721,
+      0.0830020010471344,
+      9.129586219787598,
+      2.8259568214416504,
+      1.1658109426498413,
+      -0.22564873099327087,
+      -2.0536839962005615,
+      0.3184702694416046
+    ],
+    "terminal_local_error": [
+      5.696899414062514,
+      5.587180256843567,
+      0.7767829895019531
+    ],
+    "terminal_local_velocity": [
+      9.129586219787598,
+      2.8259568214416504,
+      1.1658109426498413
+    ],
+    "terminal_rpy_deg": [
+      -12.85744564048034,
+      -16.219334752915593,
+      11.51812286116659
+    ],
+    "terminal_body_rates_deg_s": [
+      -29.627931594848633,
+      -116.03662872314453,
+      1.8470269441604614
+    ],
+    "failure_stage": "late_path_or_endpoint",
+    "first_4m_progress": 59.16706085205078,
+    "max_same_sign_turn_m": 0.0
+  },
+  {
+    "update": 150,
+    "task": "coupled_3d",
+    "steps": 416,
+    "survival_s": 6.933333333333334,
+    "min_goal_m": 2.7343253834365377,
+    "effective_distance_m": 60.0,
+    "rmse_path_t_y_z": [
+      1.2448577905603122,
+      1.6385121003303131,
+      0.49661410176272935
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.183333333333333,
+      "lateral_abs_gt_2m_s": 5.766666666666667,
+      "lateral_abs_gt_4m_s": 6.783333333333333,
+      "vertical_abs_gt_1m_s": 6.85,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 5.666666666666667,
+      "path_error_gt_4m_s": 6.466666666666667,
+      "path_error_gt_6m_s": 6.716666666666667,
+      "path_norm_outward": {
+        "start_s": 5.433333333333334,
+        "end_s": 5.933333333333334,
+        "abs_error_start_m": 1.8174379570643164,
+        "abs_error_end_m": 2.3210419903093467
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 5.466666666666667,
+        "end_s": 5.966666666666667,
+        "abs_error_start_m": 1.763129160785934,
+        "abs_error_end_m": 2.2676677750596532
+      },
+      "recovery": null,
+      "projection_60m_s": 6.216666666666667,
+      "cross_endpoint_plane_s": 6.216666666666667,
+      "closest_goal_s": 6.15
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      56.43378448486328,
+      0.14008525013923645,
+      20.422269821166992,
+      0.9614027738571167,
+      -0.07805800437927246,
+      -0.2398081123828888,
+      0.11001772433519363,
+      8.644654273986816,
+      3.161259174346924,
+      2.511924982070923,
+      0.17023934423923492,
+      -2.935840606689453,
+      0.41029736399650574
+    ],
+    "terminal_local_error": [
+      6.5360092261555485,
+      4.442638457715843,
+      1.252298853152444
+    ],
+    "terminal_local_velocity": [
+      8.40943031858269,
+      3.0426047249201003,
+      3.325268771768573
+    ],
+    "terminal_rpy_deg": [
+      -13.084439512428135,
+      -26.35482166333341,
+      16.13257233364078
+    ],
+    "terminal_body_rates_deg_s": [
+      -23.049314498901367,
+      -168.5564422607422,
+      -0.5181419849395752
+    ],
+    "failure_stage": "late_path_or_endpoint",
+    "first_4m_progress": 60.0,
+    "max_same_sign_turn_m": 18.8
+  },
+  {
+    "update": 150,
+    "task": "reverse_right_first",
+    "steps": 417,
+    "survival_s": 6.95,
+    "min_goal_m": 2.666699158463445,
+    "effective_distance_m": 60.0,
+    "rmse_path_t_y_z": [
+      1.4464589469452862,
+      1.5749262481328452,
+      0.45884587061236043
+    ],
+    "events": {
+      "lateral_abs_gt_1m_s": 3.2333333333333334,
+      "lateral_abs_gt_2m_s": 5.383333333333333,
+      "lateral_abs_gt_4m_s": null,
+      "vertical_abs_gt_1m_s": null,
+      "vertical_abs_gt_2m_s": null,
+      "vertical_abs_gt_4m_s": null,
+      "path_error_gt_2m_s": 5.216666666666667,
+      "path_error_gt_4m_s": 6.466666666666667,
+      "path_error_gt_6m_s": 6.716666666666667,
+      "path_norm_outward": {
+        "start_s": 5.783333333333333,
+        "end_s": 6.283333333333333,
+        "abs_error_start_m": 2.4027666313364944,
+        "abs_error_end_m": 2.957611637379746
+      },
+      "path_norm_recovery": null,
+      "outward": {
+        "start_s": 6.233333333333333,
+        "end_s": 6.733333333333333,
+        "abs_error_start_m": 2.6484675653184255,
+        "abs_error_end_m": 3.1567872144439777
+      },
+      "recovery": null,
+      "projection_60m_s": 6.166666666666667,
+      "cross_endpoint_plane_s": 6.166666666666667,
+      "closest_goal_s": 6.15
+    },
+    "outcome": "failed",
+    "failure_reasons": [
+      "path_error"
+    ],
+    "terminal_root_state": [
+      66.65631103515625,
+      -0.05162886530160904,
+      20.69063949584961,
+      0.9455167055130005,
+      -0.071877621114254,
+      -0.2937011122703552,
+      0.12071213871240616,
+      7.971094131469727,
+      3.1436150074005127,
+      3.249817132949829,
+      0.4912906289100647,
+      -2.4568417072296143,
+      0.5748752951622009
+    ],
+    "terminal_local_error": [
+      7.28430543037463,
+      3.517266500873719,
+      0.6906394958496093
+    ],
+    "terminal_local_velocity": [
+      8.329476532203877,
+      2.0100939448119624,
+      3.2498171329498287
+    ],
+    "terminal_rpy_deg": [
+      -14.203934227923304,
+      -32.5506942564509,
+      18.717369504031048
+    ],
+    "terminal_body_rates_deg_s": [
+      2.1181609630584717,
+      -147.25941467285156,
+      1.6406574249267578
+    ],
+    "failure_stage": "late_path_or_endpoint",
+    "first_4m_progress": 60.0,
+    "max_same_sign_turn_m": 17.800000000000004
+  }
+]

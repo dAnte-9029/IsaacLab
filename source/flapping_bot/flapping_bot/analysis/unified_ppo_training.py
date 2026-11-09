@@ -253,6 +253,10 @@ def train(args,root):
         collect_logs(env,args.output)
         started=perf_counter(); train_seconds=0.; rollout_seconds=0.; update_seconds=0.
         transitions_at_start=state['train_transitions']; iteration_reports=[]; environment_step_s=0.
+        diagnostics_enabled = getattr(args, 'ppo_diagnostics', False)
+        if diagnostics_enabled:
+            from .unified_ppo_diagnostics import capture_before_update, diagnose_after_update
+            (args.output/'diagnostics').mkdir(exist_ok=True)
         for _ in range(args.iterations):
             env.set_policy_version(version,evaluation_mode='training')
             reward_components=[]
@@ -273,13 +277,21 @@ def train(args,root):
                         sources[task['source']]+=1; geometry.update(k for k,v in task['geometry_categories'].items() if v)
                     endings.update(r['outcome'] for r in records)
                 alg.compute_returns(obs)
-            rollout_time=perf_counter()-t; t=perf_counter()
+            rollout_time=perf_counter()-t
+            diagnostic_batch = capture_before_update(alg) if diagnostics_enabled else None
+            rollout_version = version
+            t=perf_counter()
             before=[p.detach().clone() for p in policy.parameters()]; losses=alg.update()
             delta=float(torch.sqrt(sum(torch.sum((p-q)**2) for p,q in zip(policy.parameters(),before))).detach())
             if not np.isfinite(list(losses.values())).all() or not np.isfinite(delta) or delta<=0: raise RuntimeError('PPO failed to update finitely')
             update_time=perf_counter()-t
             state['updates']+=1; state['train_transitions']+=env.num_envs*args.rollout_steps
             version=f'{run_id}:update{state["updates"]:06d}'
+            if diagnostics_enabled:
+                diagnostic = diagnose_after_update(alg, diagnostic_batch, update=state['updates'],
+                    rollout_policy_version=rollout_version, updated_policy_version=version)
+                append_json(args.output/'diagnostics'/'ppo_update.jsonl', diagnostic)
+                del diagnostic_batch
             train_seconds+=rollout_time+update_time; rollout_seconds+=rollout_time; update_seconds+=update_time
             report=dict(update=state['updates'],version=version,train_transitions=state['train_transitions'],
                 rollout_s=rollout_time,update_s=update_time,transitions_per_s=env.num_envs*args.rollout_steps/(rollout_time+update_time),

@@ -1,0 +1,478 @@
+{
+  "g25": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G",
+  "longrun": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150",
+  "comparison": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150_launcher/result_comparison.json",
+  "checkpoints": [
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000000.pt",
+      "update": 0,
+      "version": "d8092570ed23:update000000",
+      "adam_steps": [],
+      "digest": "f50e87f751588cb47f48439fe533ad88e9dfd711a09349114559335cf0cad77f",
+      "saved_code_commit": "a3a9a497f4f837f962a7031b7017d555c3bb90d8",
+      "saved_workspace_dirty": true
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000005.pt",
+      "update": 5,
+      "version": "d8092570ed23:update000005",
+      "adam_steps": [
+        100.0
+      ],
+      "digest": "2b3bbafa1572c69fa4127caebe20f93d9df2cab6a308a43e79ba2f33bfb00977",
+      "saved_code_commit": "a3a9a497f4f837f962a7031b7017d555c3bb90d8",
+      "saved_workspace_dirty": true
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000010.pt",
+      "update": 10,
+      "version": "d8092570ed23:update000010",
+      "adam_steps": [
+        200.0
+      ],
+      "digest": "a158ff592a805c156eec4259981c2292ab669e3a22395123fd5ae1e44a91c38d",
+      "saved_code_commit": "a3a9a497f4f837f962a7031b7017d555c3bb90d8",
+      "saved_workspace_dirty": true
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000015.pt",
+      "update": 15,
+      "version": "d8092570ed23:update000015",
+      "adam_steps": [
+        300.0
+      ],
+      "digest": "2e570c5e3f144ab94fa6110ec876a1bb4fe085fbccf9222964580de9217cbd9a",
+      "saved_code_commit": "a3a9a497f4f837f962a7031b7017d555c3bb90d8",
+      "saved_workspace_dirty": true
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000020.pt",
+      "update": 20,
+      "version": "d8092570ed23:update000020",
+      "adam_steps": [
+        400.0
+      ],
+      "digest": "d930dafd4e9300c3b280213774c8cc3f7167feae126522c559b44887e95bfcff",
+      "saved_code_commit": "a3a9a497f4f837f962a7031b7017d555c3bb90d8",
+      "saved_workspace_dirty": true
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000025.pt",
+      "update": 25,
+      "version": "d8092570ed23:update000025",
+      "adam_steps": [
+        500.0
+      ],
+      "digest": "cec9555c7dfad2547e83048ba8b99eb6940fdbcb477b89eab9c6dd2fc00f228f",
+      "saved_code_commit": "a3a9a497f4f837f962a7031b7017d555c3bb90d8",
+      "saved_workspace_dirty": true
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000025_evaluated.pt",
+      "update": 25,
+      "version": "d8092570ed23:update000025",
+      "adam_steps": [
+        500.0
+      ],
+      "digest": "cec9555c7dfad2547e83048ba8b99eb6940fdbcb477b89eab9c6dd2fc00f228f",
+      "saved_code_commit": "a3a9a497f4f837f962a7031b7017d555c3bb90d8",
+      "saved_workspace_dirty": true
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/model_000025_final.pt",
+      "update": 25,
+      "version": "d8092570ed23:update000025",
+      "adam_steps": [
+        500.0
+      ],
+      "digest": "cec9555c7dfad2547e83048ba8b99eb6940fdbcb477b89eab9c6dd2fc00f228f",
+      "saved_code_commit": "a3a9a497f4f837f962a7031b7017d555c3bb90d8",
+      "saved_workspace_dirty": true
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000030.pt",
+      "update": 30,
+      "version": "df9745986774:update000030",
+      "adam_steps": [
+        600.0
+      ],
+      "digest": "cc1887d41e98a0360ca0ce60848f2b52626d768eafef95d94bb67a1daf2075b6",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000035.pt",
+      "update": 35,
+      "version": "df9745986774:update000035",
+      "adam_steps": [
+        700.0
+      ],
+      "digest": "a13a1d495a32f44c1d5b886e0f45eb347a48a3190c3f6d831af9fc95feb1c07f",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000040.pt",
+      "update": 40,
+      "version": "df9745986774:update000040",
+      "adam_steps": [
+        800.0
+      ],
+      "digest": "709a5c702dd1f0694309f2b9d5cb9d85b332bcca2dc6f9e45f2e8f10dac5baae",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000045.pt",
+      "update": 45,
+      "version": "df9745986774:update000045",
+      "adam_steps": [
+        900.0
+      ],
+      "digest": "8c775696b1c44c8bfdf527833986793d0adad0ffaa1c5007aa785a633de25141",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000050.pt",
+      "update": 50,
+      "version": "df9745986774:update000050",
+      "adam_steps": [
+        1000.0
+      ],
+      "digest": "d9be3bb0f47c790c98a175b43930dc1d546d471efe78d833d3c5c3165fc915d1",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000050_evaluated.pt",
+      "update": 50,
+      "version": "df9745986774:update000050",
+      "adam_steps": [
+        1000.0
+      ],
+      "digest": "d9be3bb0f47c790c98a175b43930dc1d546d471efe78d833d3c5c3165fc915d1",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000055.pt",
+      "update": 55,
+      "version": "df9745986774:update000055",
+      "adam_steps": [
+        1100.0
+      ],
+      "digest": "e0a4d270f743bad9b6a5cabe8ac6c460d7d77ac7115dd200d15dd21fa9a5e88b",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000060.pt",
+      "update": 60,
+      "version": "df9745986774:update000060",
+      "adam_steps": [
+        1200.0
+      ],
+      "digest": "08ed10bf5efb1298266fc662a87e686cb0d8544784756cb6e13bb3bd15a910fb",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000065.pt",
+      "update": 65,
+      "version": "df9745986774:update000065",
+      "adam_steps": [
+        1300.0
+      ],
+      "digest": "1e1c32bd631b81a35bf382b1b4bd485e421acdca960ce8b00828233d85699c62",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000070.pt",
+      "update": 70,
+      "version": "df9745986774:update000070",
+      "adam_steps": [
+        1400.0
+      ],
+      "digest": "2e6f6865e3f9a3dd43075c4b9ec652c62873d8352f4ba039ec8aee7219f4e775",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000075.pt",
+      "update": 75,
+      "version": "df9745986774:update000075",
+      "adam_steps": [
+        1500.0
+      ],
+      "digest": "d4284914b6282410869f3688c482a001e80c0fb81561cf89642dd305670f4ab7",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000075_evaluated.pt",
+      "update": 75,
+      "version": "df9745986774:update000075",
+      "adam_steps": [
+        1500.0
+      ],
+      "digest": "d4284914b6282410869f3688c482a001e80c0fb81561cf89642dd305670f4ab7",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000080.pt",
+      "update": 80,
+      "version": "df9745986774:update000080",
+      "adam_steps": [
+        1600.0
+      ],
+      "digest": "2a329191c972ab340243f7ab59fad33b06395dd84d43843641b50acabd240e12",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000085.pt",
+      "update": 85,
+      "version": "df9745986774:update000085",
+      "adam_steps": [
+        1700.0
+      ],
+      "digest": "b925f53973364835f700379e2a706ccd5a9e0dc4f9d3dfb1dbb1f54b6a97e21b",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000090.pt",
+      "update": 90,
+      "version": "df9745986774:update000090",
+      "adam_steps": [
+        1800.0
+      ],
+      "digest": "5c1b7661f40f0022eb2aee5174e7434910221d6747b18a24770ec299b95f5c4e",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000095.pt",
+      "update": 95,
+      "version": "df9745986774:update000095",
+      "adam_steps": [
+        1900.0
+      ],
+      "digest": "b11f650c0296fefd9618b19f6a5f0d7089329dc57fb8e7ccd3ba0502dbef0394",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000100.pt",
+      "update": 100,
+      "version": "df9745986774:update000100",
+      "adam_steps": [
+        2000.0
+      ],
+      "digest": "b9ab692d97f2230e6aa44e7595fec2e2dd4bcdf10c90c5c15dfd62ea81d2b913",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000100_evaluated.pt",
+      "update": 100,
+      "version": "df9745986774:update000100",
+      "adam_steps": [
+        2000.0
+      ],
+      "digest": "b9ab692d97f2230e6aa44e7595fec2e2dd4bcdf10c90c5c15dfd62ea81d2b913",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000105.pt",
+      "update": 105,
+      "version": "df9745986774:update000105",
+      "adam_steps": [
+        2100.0
+      ],
+      "digest": "ac28ef5e6462fbf540cb94d38922034077ef2b45ccee099c0aaacac2bf8716cd",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000110.pt",
+      "update": 110,
+      "version": "df9745986774:update000110",
+      "adam_steps": [
+        2200.0
+      ],
+      "digest": "02268c2a63cd3453cf582fea0bd8a50dcaf687091057ae6c184434595a749a64",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000115.pt",
+      "update": 115,
+      "version": "df9745986774:update000115",
+      "adam_steps": [
+        2300.0
+      ],
+      "digest": "7243d005ee6d9e8c3208ed68c69f52f7843b3ec86159c35e779349cad8476c57",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000120.pt",
+      "update": 120,
+      "version": "df9745986774:update000120",
+      "adam_steps": [
+        2400.0
+      ],
+      "digest": "f787f243c4b7c4b43081514b4d39915e636e5b1ec3fd8877d24c0adc9b966a72",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000125.pt",
+      "update": 125,
+      "version": "df9745986774:update000125",
+      "adam_steps": [
+        2500.0
+      ],
+      "digest": "0036caa52efefdc050b76c92926d9712b12c73470c6852a68771797ddffa8819",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000125_evaluated.pt",
+      "update": 125,
+      "version": "df9745986774:update000125",
+      "adam_steps": [
+        2500.0
+      ],
+      "digest": "0036caa52efefdc050b76c92926d9712b12c73470c6852a68771797ddffa8819",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000130.pt",
+      "update": 130,
+      "version": "df9745986774:update000130",
+      "adam_steps": [
+        2600.0
+      ],
+      "digest": "02a899577a8d39e1593a1b200ba05b3cee04b8bbda295e31d082dfd507b941a9",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000135.pt",
+      "update": 135,
+      "version": "df9745986774:update000135",
+      "adam_steps": [
+        2700.0
+      ],
+      "digest": "33f548d61134d73a7d06b1a40187ce761787861980cb71e7f025a0501318b1a6",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000140.pt",
+      "update": 140,
+      "version": "df9745986774:update000140",
+      "adam_steps": [
+        2800.0
+      ],
+      "digest": "bc114a35db8977586fa6d86901728c20a8aef572d6e74cda23836548082513c3",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000145.pt",
+      "update": 145,
+      "version": "df9745986774:update000145",
+      "adam_steps": [
+        2900.0
+      ],
+      "digest": "3664c539a513e3313639e9bc97c6e5880a7636f4caaa9a3be9d78770c655a510",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000150.pt",
+      "update": 150,
+      "version": "df9745986774:update000150",
+      "adam_steps": [
+        3000.0
+      ],
+      "digest": "4f829000ae79a8b881b3e332db575c055b4b7fd258b19f9c0c8c75e4769d68ac",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000150_evaluated.pt",
+      "update": 150,
+      "version": "df9745986774:update000150",
+      "adam_steps": [
+        3000.0
+      ],
+      "digest": "4f829000ae79a8b881b3e332db575c055b4b7fd258b19f9c0c8c75e4769d68ac",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/model_000150_final.pt",
+      "update": 150,
+      "version": "df9745986774:update000150",
+      "adam_steps": [
+        3000.0
+      ],
+      "digest": "4f829000ae79a8b881b3e332db575c055b4b7fd258b19f9c0c8c75e4769d68ac",
+      "saved_code_commit": "908d381b129196c387f7b673bdd064e2dffc23e5",
+      "saved_workspace_dirty": false
+    }
+  ],
+  "missing": [],
+  "final_updates": 150,
+  "transitions": 1843200,
+  "adam_before": 500,
+  "adam_after": 3000,
+  "checkpoint_contracts_equal": true,
+  "initial_digest_equal": true,
+  "snapshots": {
+    "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G": {
+      "physical_files_verified": 34
+    },
+    "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150": {
+      "physical_files_verified": 34
+    }
+  },
+  "databases": [
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_goal_consistent_reward_v1/G/evidence/rollout_feedback.sqlite3",
+      "integrity": "ok",
+      "counts": {
+        "episodes": 1139,
+        "steps": 307200,
+        "terminals": 1139
+      },
+      "orphan_steps": 0,
+      "episodes_without_terminal": 0
+    },
+    {
+      "path": "/home/zn/IsaacLab/.worktrees/unified-goal-consistent-reward-v1/logs/unified_longrun_l3d_G_seed0_u026_150/evidence/rollout_feedback.sqlite3",
+      "integrity": "ok",
+      "counts": {
+        "episodes": 5307,
+        "steps": 1843200,
+        "terminals": 5307
+      },
+      "orphan_steps": 0,
+      "episodes_without_terminal": 0
+    }
+  ],
+  "historical_prefix": {
+    "terminal_cutoff": 1139,
+    "metadata_steps_terminals_exact": true,
+    "counted_once": "analyze longrun SQLite only; contains historical prefix"
+  }
+}

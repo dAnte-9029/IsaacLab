@@ -1,0 +1,4 @@
+env_isaaclab; CPU synthetic/offline only
+./isaaclab.sh -p -m pytest tests/test_unified_ppo_diagnostics.py tests/test_unified_retrospective.py -q
+.........                                                                [100%]
+9 passed in 1.55s

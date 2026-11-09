@@ -31,6 +31,7 @@ def main():
     p.add_argument('--smoke-evaluation',action='store_true',help='Explicit isolated evaluation-only snapshot entry; never train/resume')
     p.add_argument('--create-smoke-snapshot',action='store_true',help='Initialize untrained frozen policy from current actual plant; evaluate without PPO')
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--ppo-diagnostics',action='store_true',help='Read-only fixed-rollout pre/post PPO diagnostics; CPU Unified MLP only')
     p.add_argument('--threads',type=int,default=1)
     p.add_argument('--smoke-check',action='store_true',help='Additionally check isolated partial reset, without changing task contract')
     p.add_argument('--rules',type=Path,default=root.parent/'control-oriented-3d-wing-aero/logs/unified_trajectory_phase2_v1/screening_rules_v2.json')
