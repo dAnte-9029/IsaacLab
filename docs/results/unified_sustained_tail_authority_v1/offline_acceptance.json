@@ -1,0 +1,97 @@
+{
+  "passed": true,
+  "independent_processes": 14,
+  "audit": {
+    "T120_O": {
+      "steps": 180,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T120_R+": {
+      "steps": 180,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T120_R-": {
+      "steps": 180,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T120_S+": {
+      "steps": 180,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T120_S-": {
+      "steps": 180,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T120_D+": {
+      "steps": 180,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T120_D-": {
+      "steps": 180,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T144_O": {
+      "steps": 204,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T144_R+": {
+      "steps": 204,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T144_R-": {
+      "steps": 204,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T144_S+": {
+      "steps": 204,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T144_S-": {
+      "steps": 204,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T144_D+": {
+      "steps": 204,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    },
+    "T144_D-": {
+      "steps": 204,
+      "historical_max": 0.0,
+      "clipped_steps": 0,
+      "common_prefix_exact": true
+    }
+  },
+  "historical_raw_source_verified": true,
+  "common_prefix_exact": true,
+  "all_other_slots_historical": true,
+  "applied_to_target_verified": true,
+  "empty_bootstrap_evidence": true,
+  "analysis_verified": true,
+  "optimizer_updates": 0
+}
