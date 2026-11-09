@@ -1,0 +1,33 @@
+{
+  "schema": "sustained_intervention_offline_acceptance_v1",
+  "passed": true,
+  "independent_processes": 8,
+  "sustained_control_steps_total": 1536,
+  "all_scene_control_transitions": 7680,
+  "sustained_common_prefix_steps": 1056,
+  "sustained_intervention_steps": 480,
+  "historical_controls_exact": true,
+  "all_visible_common_prefix_exact": true,
+  "D120_equals_D144_first_180_steps": true,
+  "action_composition_and_clipping_exact": true,
+  "endpoint_time_alignment": true,
+  "factor_independent_matrix_check": true,
+  "empty_bootstrap_evidence": true,
+  "checkpoint_digests": {
+    "25": "cec9555c7dfad2547e83048ba8b99eb6940fdbcb477b89eab9c6dd2fc00f228f",
+    "150": "4f829000ae79a8b881b3e332db575c055b4b7fd258b19f9c0c8c75e4769d68ac"
+  },
+  "no_termination": true,
+  "optimizer_updates": 0,
+  "stale_child_status_files": [
+    "T120_A",
+    "T120_B",
+    "T120_C",
+    "T120_D",
+    "T144_A",
+    "T144_B",
+    "T144_C",
+    "T144_D"
+  ],
+  "completion_evidence": "parent completed receipt, complete traces and all child summaries passed; Kit close exited before child main status write"
+}
