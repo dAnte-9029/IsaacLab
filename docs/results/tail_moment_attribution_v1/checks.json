@@ -1,0 +1,20 @@
+{
+  "T120_O_historical_trace_exact": true,
+  "T120_O_tail_closure": 0.0,
+  "T120_O_wing_reference_closure": 7.982368090964087e-07,
+  "T120_S+_historical_trace_exact": true,
+  "T120_S+_tail_closure": 0.0,
+  "T120_S+_wing_reference_closure": 7.934498924555555e-07,
+  "T120_S-_historical_trace_exact": true,
+  "T120_S-_tail_closure": 0.0,
+  "T120_S-_wing_reference_closure": 1.358529987172119e-06,
+  "T144_O_historical_trace_exact": true,
+  "T144_O_tail_closure": 0.0,
+  "T144_O_wing_reference_closure": 7.982368090964087e-07,
+  "T144_S+_historical_trace_exact": true,
+  "T144_S+_tail_closure": 0.0,
+  "T144_S+_wing_reference_closure": 8.126383388429304e-07,
+  "T144_S-_historical_trace_exact": true,
+  "T144_S-_tail_closure": 0.0,
+  "T144_S-_wing_reference_closure": 8.699104521170398e-07
+}
