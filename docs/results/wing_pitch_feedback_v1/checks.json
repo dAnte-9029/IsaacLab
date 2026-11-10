@@ -1,0 +1,40 @@
+{
+  "T120_O_reconstruction_max_Nm": 1.3208874448888963e-05,
+  "T120_S+_reconstruction_max_Nm": 1.770984869226e-05,
+  "T120_S-_reconstruction_max_Nm": 1.6739609347116158e-05,
+  "T120_q_station_flow_error_mps": 3.7816971776294395e-15,
+  "T120_relative_motion_error": 0.0,
+  "T120_alpha_speed_error_mps": 3.552713678800501e-15,
+  "T120_alpha_beta_error": 2.7755575615628914e-17,
+  "T120_alpha_increment_error_rad": 2.949029909160572e-17,
+  "T120_force_arm_x_range_m": [
+    0.056003408357853585,
+    0.11488392030269258
+  ],
+  "T120_flow_arm_x_range_m": [
+    -0.09403669863496357,
+    0.08884247588833041
+  ],
+  "T120_Kalpha_step_relative_L2": 0.00037441238504881853,
+  "T120_Dq_step_relative_L2": 2.3317521101164553e-07,
+  "T120_KV_step_relative_L2": 1.7070374604773942e-05,
+  "T144_O_reconstruction_max_Nm": 1.4591011029185808e-05,
+  "T144_S+_reconstruction_max_Nm": 1.5353228464798363e-05,
+  "T144_S-_reconstruction_max_Nm": 2.7004310141354182e-05,
+  "T144_q_station_flow_error_mps": 3.7816971776294395e-15,
+  "T144_relative_motion_error": 0.0,
+  "T144_alpha_speed_error_mps": 3.552713678800501e-15,
+  "T144_alpha_beta_error": 5.551115123125783e-17,
+  "T144_alpha_increment_error_rad": 2.949029909160572e-17,
+  "T144_force_arm_x_range_m": [
+    0.056003408357853585,
+    0.11488392030269258
+  ],
+  "T144_flow_arm_x_range_m": [
+    -0.09403669863496357,
+    0.08884247588833041
+  ],
+  "T144_Kalpha_step_relative_L2": 0.00034649789559915633,
+  "T144_Dq_step_relative_L2": 7.483303966257584e-07,
+  "T144_KV_step_relative_L2": 2.5610201058345873e-05
+}

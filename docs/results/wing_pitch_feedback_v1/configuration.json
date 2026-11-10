@@ -1,0 +1,56 @@
+{
+  "body": {
+    "points_m": [
+      [
+        -0.03,
+        0.0,
+        0.0
+      ],
+      [
+        -0.13,
+        0.0,
+        0.0
+      ],
+      [
+        -0.23,
+        0.0,
+        0.0
+      ]
+    ],
+    "cda_m2": [
+      [
+        0.0012,
+        0.006,
+        0.006
+      ],
+      [
+        0.0012,
+        0.006,
+        0.006
+      ],
+      [
+        0.0012,
+        0.006,
+        0.006
+      ]
+    ]
+  },
+  "backend": "L3D",
+  "sections_per_wing": 10,
+  "rho": 1.225,
+  "profile_cd": 0.028,
+  "span_friction_cd": 0.005,
+  "polar": {
+    "transition_start_deg": 15.0,
+    "transition_end_deg": 30.0,
+    "separated_lift_amplitude": 1.0
+  },
+  "twist_theta0_root_deg": 0.0,
+  "twist_theta0_tip_deg": 0.0,
+  "twist_amplitude_deg": 35.0,
+  "twist_kappa": -0.5,
+  "twist_phase_deg": 0.0,
+  "include_added_mass": true,
+  "minimum_speed": 0.25,
+  "max_condition": 1000000.0
+}
