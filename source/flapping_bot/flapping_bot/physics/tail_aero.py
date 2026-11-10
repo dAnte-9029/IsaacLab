@@ -368,6 +368,8 @@ class TailSurfaceCfg:
 class TailAeroCfg:
     """Configuration for the five-surface tail aerodynamic model."""
 
+    backend: str = "legacy"
+    v2_parameters: dict = field(default_factory=dict)
     air_density: float = 1.225
     horizontal_tail_incidence_bias_deg: float = 0.0
     fixed_horizontal_effectiveness: float = 1.0
@@ -417,6 +419,8 @@ class TailAeroModel:
     """Compute the body-frame aerodynamic wrench for the latest tail layout."""
 
     def __init__(self, cfg: TailAeroCfg, device: torch.device | str):
+        if cfg.backend not in {"legacy", "v2"}:
+            raise ValueError("Unknown tail backend")
         self.cfg = cfg
         self.device = torch.device(device)
 
@@ -568,6 +572,15 @@ class TailAeroModel:
         base_com_pos_b: Tensor | None = None,
     ) -> tuple[TailSurfaceResult, ...]:
         """Return the five authoritative surface results in stable geometry order."""
+
+        if self.cfg.backend == "v2":
+            from .tail_v2 import TailV2Model, TailV2Polar
+            if not hasattr(self, "_v2_model"):
+                self._v2_model = TailV2Model(self.cfg, self.device, TailV2Polar(**self.cfg.v2_parameters))
+            return self._v2_model.compute_surface_results(
+                root_lin_vel_b=root_lin_vel_b, root_ang_vel_b=root_ang_vel_b,
+                left_elevon_rad=left_elevon_rad, right_elevon_rad=right_elevon_rad,
+                rudder_rad=rudder_rad, elevator_rad=elevator_rad, base_com_pos_b=base_com_pos_b)
 
         if rudder_rad.ndim != 1:
             raise ValueError("rudder_rad must be a 1D tensor.")

@@ -1,0 +1,2 @@
+candidate,method,cl_limit,alpha_s_deg,alpha_f_deg,cd_min,efficiency,fit_rmse,flight_objective_used
+nominal-1,theory plus bounded engineering prior,0.9,12,30,0.025,0.6,not fitted: no reliable digitization,False

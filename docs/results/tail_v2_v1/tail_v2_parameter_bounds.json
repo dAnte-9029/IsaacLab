@@ -1,0 +1,112 @@
+{
+  "a2d": {
+    "nominal": 6.283185307179586,
+    "bounds": [
+      5.0,
+      6.283185307179586
+    ],
+    "unit": "rad^-1",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "cl_limit": {
+    "nominal": 0.9,
+    "bounds": [
+      0.7,
+      1.2
+    ],
+    "unit": "1",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "kappa": {
+    "nominal": 0.0,
+    "bounds": [
+      0,
+      0.4
+    ],
+    "unit": "1",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "alpha_s_deg": {
+    "nominal": 12.0,
+    "bounds": [
+      8,
+      16
+    ],
+    "unit": "deg",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "alpha_f_deg": {
+    "nominal": 30.0,
+    "bounds": [
+      25,
+      40
+    ],
+    "unit": "deg",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "cd_min": {
+    "nominal": 0.025,
+    "bounds": [
+      0.015,
+      0.05
+    ],
+    "unit": "1",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "cd_delta": {
+    "nominal": 0.0,
+    "bounds": [
+      0,
+      0.2
+    ],
+    "unit": "rad^-2",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "cl_md_delta": {
+    "nominal": 0.0,
+    "bounds": [
+      0,
+      2
+    ],
+    "unit": "rad^-1",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "efficiency": {
+    "nominal": 0.6,
+    "bounds": [
+      0.33,
+      0.81
+    ],
+    "unit": "1",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "cn90": {
+    "nominal": 1.8,
+    "bounds": [
+      1.2,
+      2.0
+    ],
+    "unit": "1",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  },
+  "cd_parallel": {
+    "nominal": 0.025,
+    "bounds": [
+      0.015,
+      0.05
+    ],
+    "unit": "1",
+    "status": "engineering uncertainty interval, not confidence interval",
+    "reference": "Ananda Sec 3.2-3.5; Traub Sec III.D; high-angle closure unvalidated"
+  }
+}

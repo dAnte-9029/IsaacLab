@@ -1,0 +1,5 @@
+state,backend,comparison,delta_difference_deg,moment_difference_Nm
+T120,legacy,common historical air/omega/COM; symmetric joint sweep about zero,6.82,0.6078494265675545
+T120,v2,common historical air/omega/COM; symmetric joint sweep about zero,6.82,0.6463250145316124
+T144,legacy,common historical air/omega/COM; symmetric joint sweep about zero,6.82,0.6377379894256592
+T144,v2,common historical air/omega/COM; symmetric joint sweep about zero,6.82,0.492742657661438
