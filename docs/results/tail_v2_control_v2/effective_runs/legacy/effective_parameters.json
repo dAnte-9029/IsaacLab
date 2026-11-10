@@ -1,0 +1,151 @@
+{
+  "source": "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/docs/results/tail_v2_control_v2/candidates/legacy.json",
+  "sha256": "ab1776d5d2634c6ad83deb394c8a828693ce093003592e29073c70fa0e63fb32",
+  "actual": {
+    "backend": "legacy",
+    "v2_parameters": {},
+    "polar_horizontal": null,
+    "polar_vertical": null,
+    "air_density": 1.225,
+    "horizontal_tail_incidence_bias_deg": 0.0,
+    "fixed_horizontal_effectiveness": 0.5,
+    "elevon_effectiveness": 1.2,
+    "elevon_alpha_limit_deg": 25.0,
+    "horizontal_tail_q_scale": 1.0,
+    "fixed_horizontal": {
+      "name": "fixed_horizontal",
+      "area": 0.0539,
+      "lever_arm_body": [
+        -0.4510454539217763,
+        0.0,
+        -0.00335
+      ],
+      "span_axis_body": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "chord_axis_body": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "span_m": 0.6,
+      "mean_chord_m": 0.08983333333333335,
+      "incidence_rad": 0.0,
+      "cl_alpha_per_rad": 4.646338095691042,
+      "cd0": 0.02,
+      "cd_k": 0.05606831001734092,
+      "alpha_limit_deg": 25.0,
+      "deflection_sign": 1.0
+    },
+    "left_elevon": {
+      "name": "left_elevon",
+      "area": 0.02039,
+      "lever_arm_body": [
+        -0.5553235294377957,
+        0.14999999999999997,
+        -0.00335
+      ],
+      "span_axis_body": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "chord_axis_body": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "span_m": 0.3,
+      "mean_chord_m": 0.06796666666666666,
+      "incidence_rad": 0.0,
+      "cl_alpha_per_rad": 4.098428342421882,
+      "cd0": 0.02,
+      "cd_k": 0.08484102718022865,
+      "alpha_limit_deg": 25.0,
+      "deflection_sign": -1.0
+    },
+    "right_elevon": {
+      "name": "right_elevon",
+      "area": 0.02039,
+      "lever_arm_body": [
+        -0.5553235294377957,
+        -0.14999999999999997,
+        -0.00335
+      ],
+      "span_axis_body": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "chord_axis_body": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "span_m": 0.3,
+      "mean_chord_m": 0.06796666666666666,
+      "incidence_rad": 0.0,
+      "cl_alpha_per_rad": 4.098428342421882,
+      "cd0": 0.02,
+      "cd_k": 0.08484102718022865,
+      "alpha_limit_deg": 25.0,
+      "deflection_sign": -1.0
+    },
+    "fixed_vertical": {
+      "name": "fixed_vertical",
+      "area": 0.01265,
+      "lever_arm_body": [
+        -0.43641304360085587,
+        0.0,
+        0.06103405920319318
+      ],
+      "span_axis_body": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "chord_axis_body": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "span_m": 0.17,
+      "mean_chord_m": 0.07441176470588234,
+      "incidence_rad": 0.0,
+      "cl_alpha_per_rad": 3.0001496138370936,
+      "cd0": 0.02,
+      "cd_k": 0.1741617673107678,
+      "alpha_limit_deg": 25.0,
+      "deflection_sign": 1.0
+    },
+    "rudder": {
+      "name": "rudder",
+      "area": 0.0101404,
+      "lever_arm_body": [
+        -0.5209942527171904,
+        0.0,
+        0.09593160772450023
+      ],
+      "span_axis_body": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "chord_axis_body": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "span_m": 0.17,
+      "mean_chord_m": 0.05964941176470588,
+      "incidence_rad": 0.0,
+      "cl_alpha_per_rad": 3.3471098298186215,
+      "cd0": 0.02,
+      "cd_k": 0.13961027551289407,
+      "alpha_limit_deg": 25.0,
+      "deflection_sign": -1.0
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "a2d": {
+    "range": [
+      5,
+      6.283185307179586
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "A",
+    "unit": "rad^-1"
+  },
+  "cl_limit": {
+    "range": [
+      0.7,
+      1.2
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "A",
+    "unit": "1"
+  },
+  "alpha_s_deg": {
+    "range": [
+      8,
+      16
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "A",
+    "unit": "deg"
+  },
+  "alpha_f_deg": {
+    "range": [
+      25,
+      40
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "A",
+    "unit": "deg"
+  },
+  "kappa": {
+    "range": [
+      0,
+      0.4
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "A",
+    "unit": "1"
+  },
+  "cd_min": {
+    "range": [
+      0.015,
+      0.05
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "B",
+    "unit": "1"
+  },
+  "efficiency": {
+    "range": [
+      0.33,
+      0.81
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "B",
+    "unit": "1"
+  },
+  "cd_delta": {
+    "range": [
+      0,
+      0.2
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "B",
+    "unit": "rad^-2"
+  },
+  "cl_md_delta": {
+    "range": [
+      0,
+      2
+    ],
+    "source": "v1 engineering interval; constrained by trends, not measured aircraft bounds",
+    "group": "B",
+    "unit": "rad^-1"
+  }
+}

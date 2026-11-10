@@ -1,0 +1,8 @@
+{
+  "completed": true,
+  "status": "NOT ACCEPTED",
+  "accepted": [],
+  "physical_steps": 103151,
+  "env_steps": 1340963,
+  "wall_seconds": 521.2793429312296
+}

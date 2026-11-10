@@ -30,3 +30,33 @@ def test_transition_c1():
 def test_invalid_parameters():
     import pytest
     with pytest.raises(ValueError):TailV2Polar(alpha_f_deg=10)
+
+def test_mutating_configuration_rebuilds_cached_polar():
+    cfg=TailAeroCfg(backend='v2')
+    model=TailAeroModel(cfg,'cpu')
+    v=torch.tensor([[8.,0.,-.8]],dtype=torch.float64);z=v[:,0]*0
+    kw=dict(root_lin_vel_b=v,root_ang_vel_b=v*0,elevator_rad=z,rudder_rad=z)
+    first=model.compute_wrench(**kw)[0].clone()
+    cfg.v2_parameters['a2d']=5.
+    changed=model.compute_wrench(**kw)[0]
+    assert not torch.allclose(first,changed)
+    cfg.v2_parameters.clear()
+    torch.testing.assert_close(model.compute_wrench(**kw)[0],first)
+
+def test_json_separate_polars(tmp_path):
+    import json
+    from dataclasses import asdict
+    from flapping_bot.physics.tail_v2 import load_tail_config
+    data=dict(backend='v2',polar_horizontal=asdict(TailV2Polar()),polar_vertical=asdict(TailV2Polar()))
+    path=tmp_path/'candidate.json';path.write_text(json.dumps(data))
+    cfg=load_tail_config(path);model=TailAeroModel(cfg,'cpu')
+    v=torch.tensor([[8.,1.,-.8]],dtype=torch.float64);z=v[:,0]*0
+    kw=dict(root_lin_vel_b=v,root_ang_vel_b=v*0,elevator_rad=z,rudder_rad=z)
+    first=model.compute_surface_results(**kw)
+    cfg.polar_vertical['a2d']=5.
+    second=model.compute_surface_results(**kw)
+    torch.testing.assert_close(first[0].force_b,second[0].force_b)
+    assert not torch.allclose(first[2].force_b,second[2].force_b)
+    data['polar_horizontal'].pop('a2d');path.write_text(json.dumps(data))
+    import pytest
+    with pytest.raises(ValueError):load_tail_config(path)

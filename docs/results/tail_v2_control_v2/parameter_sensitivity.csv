@@ -1,0 +1,41 @@
+parameter,metric,spearman,optimized,interpretation
+a2d,G0,1.0,True,global rank association; not independent identification
+a2d,G12,0.029666304937601733,True,global rank association; not independent identification
+a2d,K12,0.020645686380900707,True,global rank association; not independent identification
+a2d,Dq12,-0.03878187737384699,True,global rank association; not independent identification
+cl_limit,G0,0.00781334780249593,True,global rank association; not independent identification
+cl_limit,G12,0.8120998372219208,True,global rank association; not independent identification
+cl_limit,K12,0.8174036896364624,True,global rank association; not independent identification
+cl_limit,Dq12,-0.8277943570265871,True,global rank association; not independent identification
+alpha_s_deg,G0,0.032555615843733045,True,global rank association; not independent identification
+alpha_s_deg,G12,0.45035268583830707,True,global rank association; not independent identification
+alpha_s_deg,K12,0.45363537710255014,True,global rank association; not independent identification
+alpha_s_deg,Dq12,-0.43935160065111234,True,global rank association; not independent identification
+alpha_f_deg,G0,0.005860010851871948,True,global rank association; not independent identification
+alpha_f_deg,G12,0.08385784047748235,True,global rank association; not independent identification
+alpha_f_deg,K12,0.07327726532826913,True,global rank association; not independent identification
+alpha_f_deg,Dq12,-0.0683532284319045,True,global rank association; not independent identification
+kappa,G0,-0.007162235485621269,True,global rank association; not independent identification
+kappa,G12,0.02731958762886598,True,global rank association; not independent identification
+kappa,K12,0.017051003798155183,True,global rank association; not independent identification
+kappa,Dq12,-0.011625067824199673,True,global rank association; not independent identification
+cd_min,G0,0.006836679327183939,True,global rank association; not independent identification
+cd_min,G12,0.0064975583288117205,True,global rank association; not independent identification
+cd_min,K12,0.03400705371676614,True,global rank association; not independent identification
+cd_min,Dq12,-0.029340748779164406,True,global rank association; not independent identification
+efficiency,G0,0.03125339120998372,True,global rank association; not independent identification
+efficiency,G12,-0.003933803581117742,True,global rank association; not independent identification
+efficiency,K12,-0.07110689093868693,True,global rank association; not independent identification
+efficiency,Dq12,0.06645415084102008,True,global rank association; not independent identification
+cd_delta,G0,-0.0004340748779164406,True,global rank association; not independent identification
+cd_delta,G12,-0.04921323928377645,True,global rank association; not independent identification
+cd_delta,K12,-0.06299511665762345,True,global rank association; not independent identification
+cd_delta,Dq12,0.05986163863266413,True,global rank association; not independent identification
+cl_md_delta,G0,0.0016277807921866521,True,global rank association; not independent identification
+cl_md_delta,G12,-0.0786218122626153,True,global rank association; not independent identification
+cl_md_delta,K12,-0.012750949538795443,True,global rank association; not independent identification
+cl_md_delta,Dq12,0.010146500271296799,True,global rank association; not independent identification
+cd_min,CD_alpha6_delta15,0.2295984807379273,True,descriptive posterior sensitivity; did not change frozen selection
+cd_delta,CD_alpha6_delta15,0.11985892566467715,True,descriptive posterior sensitivity; did not change frozen selection
+cl_md_delta,CD_alpha6_delta15,-0.7053988062940857,True,descriptive posterior sensitivity; did not change frozen selection
+efficiency,CD_alpha6_delta15,-0.3437330439500815,True,descriptive posterior sensitivity; did not change frozen selection

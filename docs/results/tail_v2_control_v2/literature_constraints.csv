@@ -1,0 +1,4 @@
+paper,source,Re,AR,flap_ratio,reference_area,evidence,transfer
+Anyoji 2014,pp 3-4 Sec 2.2-3.1; pp 6-8 Sec 3.2 Fig 7-10,20000-80000,endplates quasi-2D,0.3,chord*span,thin plate small-angle near-linear; control effectiveness decreases with incidence,trend only; no digitized points
+Ananda 2015,pp 398-405 Sec 3.2-3.5,60000-160000,2-5,0,full wing planform,stall criterion moment break; corresponding CL 0.55-0.7; e0 approximately 0.33-0.81,Helmbold slope; drag efficiency interval; not CL hard cap
+Traub Coffman 2019,"pp 2-4 Fig 3; Sec III.D Eq 2,5-10",40000-80000,wall-spanning quasi-2D,0.2,full airfoil chord*span,flap lift offset and shifted drag polar; maximum lift increase depends on flap geometry,theoretical geometric eta; drag-shift magnitudes unresolved

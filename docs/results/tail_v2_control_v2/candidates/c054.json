@@ -1,0 +1,30 @@
+{
+  "id": "c054",
+  "backend": "v2",
+  "polar_horizontal": {
+    "a2d": 5.523484425620112,
+    "cl_limit": 1.1900515666231513,
+    "kappa": 0.37165753431618215,
+    "alpha_s_deg": 11.887886501848698,
+    "alpha_f_deg": 38.182639121077955,
+    "cd_min": 0.02191099736839533,
+    "cd_delta": 0.01213870756328106,
+    "cl_md_delta": 1.4495293162763119,
+    "efficiency": 0.43141718879342084,
+    "cn90": 1.8,
+    "cd_parallel": 0.025
+  },
+  "polar_vertical": {
+    "a2d": 6.283185307179586,
+    "cl_limit": 0.9,
+    "kappa": 0.0,
+    "alpha_s_deg": 12.0,
+    "alpha_f_deg": 30.0,
+    "cd_min": 0.025,
+    "cd_delta": 0.0,
+    "cl_md_delta": 0.0,
+    "efficiency": 0.6,
+    "cn90": 1.8,
+    "cd_parallel": 0.025
+  }
+}

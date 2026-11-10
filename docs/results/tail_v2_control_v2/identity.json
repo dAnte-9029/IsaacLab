@@ -1,0 +1,115 @@
+{
+  "files": {
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/sinusoidal_phase_drive.py": "bd2bd5a9ee01d74a55115788fddd32962fd91dc35dde86757c1d3de3ca7812fa",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/multibody_mass_distribution.py": "f75451cf31749f854372ba37ff0077aad2c3c9d917926cd6491a025c8ac89dcf",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/ullt_twist.py": "eeea053b4c0bb3d2182a2af53ba01998553762c0624b56d03dbb84fcd3d94cc3",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/delaurier_twist.py": "a62d8df66c636d61b9629e9cd4222c6fc4987c121423ee774a4f0dd72908c765",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/phase_warp.py": "0a5614d309e16f2d1100f2bee8536fe95fda78ed9dca4e53f9aa3ea8549490a4",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/tail_geometry.py": "280e0d8f688044f11e63d838605b32e8674a62498c094ee849b395eefb3b1142",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/__init__.py": "20dae8cf8cde82abbcf09a183388f23791d82ee59f90ec85ea2355b0709d5dbf",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/tail_aero.py": "e1bbe9e3e6f6341d0393627a1f22a1cd531c2a970dbbef2aa23a3cb151163038",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/delaurier_airflow.py": "c9a6d32376d5254eab0cb1685fb26f998946f36b1d43c5434963182f4a1ec5ff",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/qsm_wang2016.py": "389e81e67c5d68a7e227b4ac48952a05b1021bedecf420dbb2ec7f7a7f1aa0ad",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/ideal_torque_drive.py": "8d5b582594398895da639dc13027ab124c7f6c83fd8201aad3e0491bf8b537c9",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/wing_equivalent_ac.py": "5521d3171a9bbc943e22f32a3b3eb7ae673f793e916f14623c6bc31e2466d5bf",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/control_aero_3d.py": "4defd4057634c72ee569674bdbee9462acc04cde52acb9d3956d383d2b43e629",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/ullt_state_space.py": "d7a75e618b670927adb7063b32524dc010759be5b7f8f35cdc3759e1e33dbfb0",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/qsm.py": "3a2cf6b5b96e1f403b5c43d2211be0f93ed5042d17b1951db797ea60422f7552",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/wing_geom_csv.py": "67776690730e8b88f204d22256a03f5c71e2e41c92e416e2f03bb2d15592b517",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/control_aero_kinematics.py": "0a20725bbca2092c5d4268b971ed90c261eedb5e746b127713926e3219373b0b",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/qsm_delaurier1993.py": "9a2c6190234cef494cf8f460e920621b17b08aa66bf85c835edf2faea15d6dad",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/ullt_load_diagnostics.py": "ba7d6e897daa4250c9dfd5b538c45ab8ed1143695773bf32a061944a46432c48",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/ideal_inverse_dynamics_phase_drive.py": "69b3cab400cd4d1f04aedb9c8dff6bcae474e154454643be73891b50d45c3441",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/tail_v2.py": "837f13790ac878324211ab0bdcc91354de99a1949e307270335e7546bd1495da",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/flat_plate_section.py": "042bc908e92a0f6cb6bffca17ee57b6647be4f0deae78a1a3e8a852329d7a8e2",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/sfwm_inertial_reference.py": "76cc1e5d6b7f6c023e922d14bf33be48c81f7f7062409c4efd93137649eb493f",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/virtual_twist.py": "f3afbd469b3bcb2b129b687f23a7d9940c3b68a03fe7aa7df797030ee3c77f96",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/ullt_geometry.py": "b06cf9e25750eb13e0f27e423e2630c57162c950459933cc080684f28dc396bc",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/multibody_wing_coupling.py": "346d0b7ce4af04578435095a15108141cf83c4de0ea10a7ba11ad6ca79e9baf0",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/measured_mass_properties.py": "3a74f2a20de4dacc658a41615d4cd2217937101d015d98841978a33f1983c826",
+    "/home/zn/IsaacLab/.worktrees/tail-v2-control-calibration-v2/source/flapping_bot/flapping_bot/physics/ullt_nonlinear.py": "664f88b916f981ca82c3dba8317ae9fe134419eb386876d5ade5da252bdec2a6",
+    "/home/zn/IsaacLab/.worktrees/control-oriented-3d-wing-aero/outputs_DeLaurier/right_wing_te_fit_poly5_gap50.csv": "a1ac30a18f82693d7ab08a75d4f54811e4c95a126f5d4458c46025568f2e357b",
+    "/home/zn/IsaacLab/.worktrees/control-oriented-3d-wing-aero/source/isaaclab_assets/data/flapping_bot/robots/flap_robot_552/urdf/flap_robot_552.urdf": "c02439d95acab1acecced415802256f8dbec608e4784d74c7a1ba81901ed5bef",
+    "/home/zn/IsaacLab/.worktrees/control-oriented-3d-wing-aero/source/flapping_bot/native_extensions/omni.flapping_bot.holonomic_constraint/omni/flapping_bot/holonomic_constraint/_native.so": "3ebd4bfd82577f3d2b80bd284c7eebcc2c33b9ff2ec045fb783479014a0b3ce7"
+  },
+  "seed": 0,
+  "dt": 0.0020833333333333333,
+  "decimation": 8,
+  "wing": {
+    "body": {
+      "points_m": [
+        [
+          -0.03,
+          0.0,
+          0.0
+        ],
+        [
+          -0.13,
+          0.0,
+          0.0
+        ],
+        [
+          -0.23,
+          0.0,
+          0.0
+        ]
+      ],
+      "cda_m2": [
+        [
+          0.0012,
+          0.006,
+          0.006
+        ],
+        [
+          0.0012,
+          0.006,
+          0.006
+        ],
+        [
+          0.0012,
+          0.006,
+          0.006
+        ]
+      ]
+    },
+    "backend": "L3D",
+    "sections_per_wing": 10,
+    "rho": 1.225,
+    "profile_cd": 0.028,
+    "span_friction_cd": 0.005,
+    "polar": {
+      "transition_start_deg": 15.0,
+      "transition_end_deg": 30.0,
+      "separated_lift_amplitude": 1.0
+    },
+    "twist_theta0_root_deg": 0.0,
+    "twist_theta0_tip_deg": 0.0,
+    "twist_amplitude_deg": 35.0,
+    "twist_kappa": -0.5,
+    "twist_phase_deg": 0.0,
+    "include_added_mass": true,
+    "minimum_speed": 0.25,
+    "max_condition": 1000000.0
+  },
+  "limits_rad": [
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ],
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ],
+    [
+      -0.7105000019073486,
+      0.7105000019073486
+    ]
+  ],
+  "joint_names": [
+    "left_wing",
+    "right_wing",
+    "rudder",
+    "left_tail",
+    "right_tail"
+  ]
+}

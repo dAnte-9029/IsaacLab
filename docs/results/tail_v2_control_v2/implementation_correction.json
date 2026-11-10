@@ -1,0 +1,7 @@
+{
+  "reason": "relative pseudoinverse cutoff silently removed weak lateral axes",
+  "repair": "row-equilibrated full-rank solve; reject unresolved rank",
+  "unchanged": "aerodynamics, trim, gain grid, task thresholds",
+  "invalid_outputs": "invalid_rank_truncation",
+  "invalid_runs_retained": true
+}

@@ -63,7 +63,7 @@ try:
     ids = env._joint_ids
     tailids = [env._IDX_RUDDER, env._IDX_LEFT_TAIL, env._IDX_RIGHT_TAIL]
     limits = np.array([[float(env._joint_lower_limits[i]), float(env._joint_upper_limits[i])] for i in tailids])
-    protocol = dict(backend=a.backend, seed=29, dt=dt, decimation=cfg.decimation, sections=a.sections,
+    protocol = dict(backend=a.backend, seed=cfg.seed, dt=dt, decimation=cfg.decimation, sections=a.sections,
                     twist_deg=35, variables=['speed_mps','nose_up_pitch_deg','frequency_hz','symmetric_tail_deg'],
                     bounds=[[7,1,3,-20],[10,18,4,15]], initial_vertical_speed=0, initial_omega=[0,0,0],
                     tolerances=dict(displacement_yz_m=.05, velocity_mps=.15, attitude_deg=1, omega_rad_s=.15,

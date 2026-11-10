@@ -370,6 +370,8 @@ class TailAeroCfg:
 
     backend: str = "legacy"
     v2_parameters: dict = field(default_factory=dict)
+    polar_horizontal: dict | None = None
+    polar_vertical: dict | None = None
     air_density: float = 1.225
     horizontal_tail_incidence_bias_deg: float = 0.0
     fixed_horizontal_effectiveness: float = 1.0
@@ -575,8 +577,10 @@ class TailAeroModel:
 
         if self.cfg.backend == "v2":
             from .tail_v2 import TailV2Model, TailV2Polar
-            if not hasattr(self, "_v2_model"):
-                self._v2_model = TailV2Model(self.cfg, self.device, TailV2Polar(**self.cfg.v2_parameters))
+            signature = repr((self.cfg.v2_parameters, self.cfg.polar_horizontal, self.cfg.polar_vertical))
+            if getattr(self, "_v2_signature", None) != signature:
+                self._v2_model = TailV2Model(self.cfg, self.device)
+                self._v2_signature = signature
             return self._v2_model.compute_surface_results(
                 root_lin_vel_b=root_lin_vel_b, root_ang_vel_b=root_ang_vel_b,
                 left_elevon_rad=left_elevon_rad, right_elevon_rad=right_elevon_rad,

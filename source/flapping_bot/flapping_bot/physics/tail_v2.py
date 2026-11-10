@@ -61,7 +61,9 @@ def geometry_eta(poly, sweep_axis, samples=1024):
 class TailV2Model(TailAeroModel):
     def __init__(self,cfg,device,polar=None):
         super().__init__(cfg,device)
-        self.polar=polar or TailV2Polar()
+        self.polar=polar or TailV2Polar(**cfg.v2_parameters)
+        self.horizontal=TailV2Polar(**cfg.polar_horizontal) if cfg.polar_horizontal is not None else self.polar
+        self.vertical=TailV2Polar(**cfg.polar_vertical) if cfg.polar_vertical is not None else self.polar
 
     def compute_surface_results(self, *, root_lin_vel_b, root_ang_vel_b,
             rudder_rad, left_elevon_rad=None, right_elevon_rad=None,
@@ -73,7 +75,7 @@ class TailV2Model(TailAeroModel):
         n=root_lin_vel_b.shape[0]
         for d in (left_elevon_rad,right_elevon_rad,rudder_rad):
             if d is None or d.shape!=(n,): raise ValueError("Expected actual joint angles (batch,)")
-        cfg=self.cfg; p=self.polar
+        cfg=self.cfg
         sh=cfg.fixed_horizontal.area+cfg.left_elevon.area+cfg.right_elevon.area
         sv=cfg.fixed_vertical.area+cfg.rudder.area
         sy,cx=horizontal_center()
@@ -85,6 +87,7 @@ class TailV2Model(TailAeroModel):
                ('vertical',sv,cfg.fixed_vertical.span_m**2/sv,(-.5045-ax/1000,0,-.00085+hz/1000),(0,0,1),ev,rudder_rad)]
         results=[]
         for name,area,ar,pos,axis,eta,delta in units:
+            p=self.vertical if name == "vertical" else self.horizontal
             r=root_lin_vel_b.new_tensor(pos).expand(n,3)
             if base_com_pos_b is not None: r=r-base_com_pos_b
             span=root_lin_vel_b.new_tensor(axis).expand(n,3)
@@ -116,3 +119,18 @@ def horizontal_center():
 @lru_cache(maxsize=1)
 def vertical_center():
     return _vertical_surface_center_mm(_VERTICAL_TAIL_POLYGON_MM)
+
+
+def load_tail_config(path):
+    """Load an explicit candidate; reject unknown/missing polar fields."""
+    import json
+    from dataclasses import fields
+    from .tail_aero import TailAeroCfg
+    data=json.loads(__import__('pathlib').Path(path).read_text())
+    if data['backend']=='legacy':
+        return TailAeroCfg(fixed_horizontal_effectiveness=.5,elevon_effectiveness=1.2)
+    expected={f.name for f in fields(TailV2Polar)}
+    for key in ('polar_horizontal','polar_vertical'):
+        if set(data[key]) != expected: raise ValueError('Incomplete or unknown polar fields: '+key)
+        TailV2Polar(**data[key])
+    return TailAeroCfg(backend='v2',polar_horizontal=data['polar_horizontal'],polar_vertical=data['polar_vertical'])
